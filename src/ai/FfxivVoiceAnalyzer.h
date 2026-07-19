@@ -22,6 +22,7 @@
 #include <QObject>
 #include <QVector>
 #include <QHash>
+#include <QSet>
 #include <QPointer>
 #include <QTimer>
 #include <QMutex>
@@ -30,6 +31,7 @@
 #include "FfxivVoiceLoadCore.h"
 
 class MidiFile;
+class MidiEvent;
 
 /**
  * \class FfxivVoiceAnalyzer
@@ -88,6 +90,17 @@ public:
     /// Used by tests and by UI elements that need a result before idle.
     Result recomputeNow(MidiFile *file);
 
+    /// v2.1.0 #1: uncached what-if compute that pretends the given NoteOn
+    /// events do not exist - drives the voice lane's Auto-Fit live preview
+    /// (grey "before" bars vs the predicted curve).
+    static Result resultExcluding(MidiFile *file,
+                                  const QSet<MidiEvent *> &excluded);
+
+    /// v2.1.0 #1: uncached compute over the VISIBLE tracks only - drives the
+    /// lane's track-share display (grey = all tracks, colored = the share of
+    /// the tracks currently shown in the Tracks panel).
+    static Result resultForVisibleTracks(MidiFile *file);
+
     /// Pure-data compute exposed for tests. Delegates to FfxivVoiceLoad::computeFromNotes.
     static Result computeFromNotes(const QVector<NoteSpan> &notes,
                                    const std::function<int(int)> &msAtTick) {
@@ -106,8 +119,12 @@ private:
     explicit FfxivVoiceAnalyzer(QObject *parent = nullptr);
     Q_DISABLE_COPY(FfxivVoiceAnalyzer)
 
-    /// Pure compute. Safe to call without locking.
-    static Result computeResult(MidiFile *file);
+    /// Pure compute. Safe to call without locking. With \a excluded set,
+    /// the listed NoteOn events are skipped (what-if preview). With
+    /// \a visibleTracksOnly, notes on hidden tracks are skipped.
+    static Result computeResult(MidiFile *file,
+                                const QSet<MidiEvent *> *excluded = nullptr,
+                                bool visibleTracksOnly = false);
 
     /// Connect Protocol::actionFinished from `file->protocol()` if present.
     void hookProtocol(MidiFile *file);

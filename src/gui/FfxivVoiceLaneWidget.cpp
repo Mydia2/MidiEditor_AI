@@ -10,6 +10,8 @@
 
 #include <QPainter>
 #include <QMouseEvent>
+#include <QContextMenuEvent>
+#include <QMenu>
 
 FfxivVoiceLaneWidget::FfxivVoiceLaneWidget(MatrixWidget *matrixWidget, QWidget *parent)
     : PaintWidget(parent)
@@ -43,6 +45,7 @@ void FfxivVoiceLaneWidget::setFile(MidiFile *file) {
 
 void FfxivVoiceLaneWidget::onAnalysisUpdated(MidiFile *file) {
     if (file == _file) {
+        _visibleShareValid = false; // track-share cache follows the analysis
         update();
     }
 }
@@ -147,6 +150,35 @@ void FfxivVoiceLaneWidget::paintEvent(QPaintEvent * /*event*/) {
     QColor green(80, 200, 100, 200);
     QColor yellow(230, 200, 60, 220);
     QColor red(240, 80, 80, 230);
+    // Auto-Fit live preview: the current curve turns into a grey "before"
+    // ghost; the predicted curve is painted on top in the normal colors, so
+    // the grey overhang is exactly the material the fit would remove.
+    QColor ghost(140, 140, 140, 150);
+
+    // Track-share display: while tracks are hidden in the Tracks panel, use
+    // the same ghost+overlay scheme - grey = all tracks, colored = the share
+    // of the visible tracks. The Auto-Fit preview takes precedence.
+    bool trackShareActive = false;
+    if (!_previewActive) {
+        QSet<int> hidden;
+        if (_file->tracks()) {
+            for (MidiTrack *t : *_file->tracks()) {
+                if (t && t->hidden()) hidden.insert(t->number());
+            }
+        }
+        if (!hidden.isEmpty()) {
+            trackShareActive = true;
+            if (!_visibleShareValid || hidden != _hiddenTracksCache) {
+                _visibleShareSamples =
+                    FfxivVoiceAnalyzer::resultForVisibleTracks(_file).voiceSamples;
+                _hiddenTracksCache = hidden;
+                _visibleShareValid = true;
+            }
+        } else {
+            _hiddenTracksCache.clear();
+        }
+    }
+    const bool ghostMode = _previewActive || trackShareActive;
 
     for (int i = 0; i + 1 < n; ++i) {
         int v = samples[i].voiceCount;
@@ -165,11 +197,13 @@ void FfxivVoiceLaneWidget::paintEvent(QPaintEvent * /*event*/) {
         int yTop = yForVoice(v);
         int barH = H - yTop;
 
-        QColor c = (v >= kRedThreshold) ? red : (v >= kSoftWarn ? yellow : green);
+        QColor c = ghostMode
+            ? ghost
+            : ((v >= kRedThreshold) ? red : (v >= kSoftWarn ? yellow : green));
         p.fillRect(x0, yTop, x1 - x0, barH, c);
 
         // Numeric overflow label, only at chunk start, when there's room.
-        if (v >= kRedThreshold && (x1 - x0) >= 18) {
+        if (!ghostMode && v >= kRedThreshold && (x1 - x0) >= 18) {
             p.setPen(QColor(255, 255, 255));
             QFont f = p.font();
             f.setPixelSize(9);
@@ -177,6 +211,24 @@ void FfxivVoiceLaneWidget::paintEvent(QPaintEvent * /*event*/) {
             p.setFont(f);
             p.drawText(x0 + 2, yTop - 1, QString::number(v));
             p.setPen(Qt::NoPen);
+        }
+    }
+
+    if (ghostMode) {
+        const auto &ps = _previewActive ? _previewSamples : _visibleShareSamples;
+        for (int i = 0; i + 1 < ps.size(); ++i) {
+            int v = ps[i].voiceCount;
+            if (v <= 0) continue;
+            int x0 = xPosOfTick(ps[i].tick);
+            int x1 = xPosOfTick(ps[i + 1].tick);
+            if (x1 <= 0) continue;
+            if (x0 >= W) break;
+            if (x0 < 0) x0 = 0;
+            if (x1 > W) x1 = W;
+            if (x1 <= x0) continue;
+            int yTop = yForVoice(v);
+            QColor c = (v >= kRedThreshold) ? red : (v >= kSoftWarn ? yellow : green);
+            p.fillRect(x0, yTop, x1 - x0, H - yTop, c);
         }
     }
 
@@ -273,5 +325,78 @@ void FfxivVoiceLaneWidget::mousePressEvent(QMouseEvent *event) {
     if (tick < 0) tick = 0;
     _file->setCursorTick(tick);
     _matrixWidget->update();
+    update();
+}
+
+void FfxivVoiceLaneWidget::contextMenuEvent(QContextMenuEvent *event) {
+    if (!_file) {
+        return;
+    }
+    const int tick = qMax(0, tickOfXPos(event->pos().x()));
+    FfxivVoiceAnalyzer::Result res = FfxivVoiceAnalyzer::instance()->resultFor(_file);
+
+    // Overflow range (voices > ceiling) containing the clicked tick: walk the
+    // step function and extend to the contiguous over-ceiling span.
+    int overStart = -1, overEnd = -1;
+    const auto &samples = res.voiceSamples;
+    for (int i = 0; i + 1 < samples.size(); ++i) {
+        if (samples[i].voiceCount <= FfxivVoiceAnalyzer::kVoiceCeiling) continue;
+        int s = samples[i].tick;
+        int e = samples[i + 1].tick;
+        // merge contiguous over-ceiling samples into one span
+        int j = i + 1;
+        while (j + 1 < samples.size()
+               && samples[j].voiceCount > FfxivVoiceAnalyzer::kVoiceCeiling) {
+            e = samples[j + 1].tick;
+            ++j;
+        }
+        if (tick >= s && tick <= e) {
+            overStart = s;
+            overEnd = e;
+            break;
+        }
+        i = j - 1;
+        if (s > tick) break;
+    }
+
+    // Rate hotspot under the cursor (any channel).
+    int hotStart = -1, hotEnd = -1;
+    for (const auto &h : res.rateHotspots) {
+        if (tick >= h.startTick && tick <= h.endTick) {
+            hotStart = (hotStart < 0) ? h.startTick : qMin(hotStart, h.startTick);
+            hotEnd = qMax(hotEnd, h.endTick);
+        }
+    }
+
+    QMenu menu(this);
+    if (overStart >= 0) {
+        QAction *a = menu.addAction(tr("Auto-fit this overflow range..."));
+        connect(a, &QAction::triggered, this, [this, overStart, overEnd]() {
+            emit autoFitRangeRequested(overStart, overEnd);
+        });
+    }
+    if (hotStart >= 0 && (hotStart != overStart || hotEnd != overEnd)) {
+        QAction *a = menu.addAction(tr("Auto-fit this hotspot range..."));
+        connect(a, &QAction::triggered, this, [this, hotStart, hotEnd]() {
+            emit autoFitRangeRequested(hotStart, hotEnd);
+        });
+    }
+    QAction *whole = menu.addAction(tr("Auto-fit whole file..."));
+    connect(whole, &QAction::triggered, this, [this]() {
+        emit autoFitRangeRequested(-1, -1);
+    });
+    menu.exec(event->globalPos());
+}
+
+void FfxivVoiceLaneWidget::setPreviewSamples(
+    const QVector<FfxivVoiceLoad::VoiceSample> &samples) {
+    _previewSamples = samples;
+    _previewActive = true;
+    update();
+}
+
+void FfxivVoiceLaneWidget::clearPreview() {
+    _previewSamples.clear();
+    _previewActive = false;
     update();
 }

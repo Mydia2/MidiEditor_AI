@@ -22,6 +22,7 @@
 #include "../midi/MidiFile.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
+#include "../midi/MidiTrack.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
 #include "../protocol/Protocol.h"
@@ -207,7 +208,19 @@ void FfxivVoiceAnalyzer::scheduleRebuild(MidiFile *file)
     _debounce.start();
 }
 
-FfxivVoiceAnalyzer::Result FfxivVoiceAnalyzer::computeResult(MidiFile *file)
+FfxivVoiceAnalyzer::Result FfxivVoiceAnalyzer::resultExcluding(
+    MidiFile *file, const QSet<MidiEvent *> &excluded)
+{
+    return computeResult(file, &excluded);
+}
+
+FfxivVoiceAnalyzer::Result FfxivVoiceAnalyzer::resultForVisibleTracks(MidiFile *file)
+{
+    return computeResult(file, nullptr, true);
+}
+
+FfxivVoiceAnalyzer::Result FfxivVoiceAnalyzer::computeResult(
+    MidiFile *file, const QSet<MidiEvent *> *excluded, bool visibleTracksOnly)
 {
     Result r;
     if (!file)
@@ -248,6 +261,10 @@ FfxivVoiceAnalyzer::Result FfxivVoiceAnalyzer::computeResult(MidiFile *file)
             auto *on = dynamic_cast<NoteOnEvent *>(ev);
             if (!on)
                 continue;
+            if (excluded && excluded->contains(on))
+                continue; // what-if preview: pretend this note is gone
+            if (visibleTracksOnly && on->track() && on->track()->hidden())
+                continue; // track-share display: hidden tracks excluded
 
             int startTick = on->midiTime();
             int endTick   = startTick + 1;

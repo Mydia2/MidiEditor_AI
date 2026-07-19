@@ -93,6 +93,8 @@ private:
                                                MidiPilotWidget *widget);
     // Phase 32.6: read-only voice-load analysis for the agent
     static QJsonObject execAnalyzeVoiceLoad(const QJsonObject &args, MidiFile *file);
+    // v2.1.0 #1: auto-fit thinning action (dry-run first, user-confirmed)
+    static QJsonObject execAutoFitVoiceLoad(const QJsonObject &args, MidiFile *file);
 };
 
 #endif // TOOLDEFINITIONS_H

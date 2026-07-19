@@ -181,6 +181,7 @@ const QStringList kFfxivToolNames = {
     QStringLiteral("convert_drums_ffxiv"),
     QStringLiteral("setup_channel_pattern"),
     QStringLiteral("analyze_voice_load"),
+    QStringLiteral("auto_fit_voice_load"),
 };
 
 // Valid JSON Schema "type" values we expect inside parameters.

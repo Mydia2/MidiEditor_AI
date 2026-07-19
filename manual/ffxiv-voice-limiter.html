@@ -342,7 +342,76 @@ CH9 is counted exactly like every other channel; no special-casing.
 
 <hr>
 
-<h2 id="ai-tool">AI tool - <code>analyze_voice_load</code></h2>
+<h2 id="auto-fit">Auto-Fit Voice Load</h2>
+
+<p>
+The analysis shows where a file exceeds the limits - Auto-Fit is the action that makes it fit.
+Find it in <b>Tools &rarr; Auto-Fit Voice Load...</b> for the whole song, or right-click an
+overflow range or rate-hotspot marker in the voice-load lane to fit just that range. The tool is
+available while the FFXIV voice limiter is active - it has no meaning outside FFXIV songs.
+</p>
+
+<p>
+Nothing happens without your confirmation: the dialog always shows a dry run first - how many
+notes would be removed and why, what percentage of the song that is, and what the peak becomes -
+and only the <b>Apply</b> button changes the file. The <b>thinning-intensity slider</b>
+recomputes while you drag it, and with live preview enabled the affected notes light up as the
+editor selection in real time - combined with a side-by-side view this makes before/after
+comparison immediate. The whole operation is a single undo step.
+</p>
+
+<p>
+An important distinction: the gauge and lane count <i>ringing</i> voices (notes plus their
+sample tails), which is the right model for display but far too strict for editing - removing a
+note whose tail overlaps changes nothing musically. Auto-Fit therefore counts <b>notes that
+really sound at the same time</b> for its voice ceiling, so a song whose display peak looks
+dramatic can still be perfectly fine and is left alone.
+</p>
+
+<p>What it removes:</p>
+<ul>
+  <li><b>Duplicates</b> - stacked copies of the same pitch on the same channel; the longer or
+      louder copy survives.</li>
+  <li><b>Chord limit</b> - inside overflows, chords wider than the configured limit (default 3
+      voices per channel) are reduced; the lowest and highest voice always survive and the
+      loudest middle voices are kept.</li>
+  <li><b>Voice ceiling</b> - if a moment still exceeds the configured ceiling (default 16
+      really-sounding voices), the quietest and shortest notes go first; the outer voices of
+      every chord are protected, and percussion is never thinned for voice count.</li>
+  <li><b>Density desaturation</b> (optional) - dense cymbal patterns and 32nd/64th staccato runs
+      overload a single FFXIV performer. Density is measured <i>per track</i> over a one-second
+      window, so it catches sustained walls of notes, not just short bursts - a steady
+      eighth-note cymbal pattern registers just like a fast run. Passages denser than the
+      threshold set by the intensity slider are thinned by keeping every 2nd note (halve) or
+      every 3rd (third). The higher voice of each group survives - in two-voice passages the
+      upper voice usually carries the melody, and after Fix X|V Channels all velocities are
+      normalized anyway. For raw files with meaningful accents, the "Prefer louder notes"
+      option keeps the loudest note of each group instead. This is the automated version of the
+      classic manual edit.</li>
+</ul>
+<p>
+The dry-run summary shows the percentage of notes affected and a per-track breakdown, so you can
+tune the threshold until the numbers feel right for the song. The result is deterministic: the
+same file with the same options always produces the same removal set.
+</p>
+
+<p>
+<b>Apply to</b> chooses which tracks may lose notes: all tracks, only the tracks currently
+visible in the Tracks panel, or one specific track. Notes on the other tracks still count
+toward voices and density - they just never get removed. This is how you thin only an
+overloaded Cymbal track while every guitar stays untouched.
+</p>
+
+<p>
+The voice-load lane doubles as a track-share display: while any track is hidden in the Tracks
+panel, the full curve turns grey and the visible tracks' share is drawn in color on top - toggle
+tracks on and off to see exactly how much each one contributes to the load. While the Auto-Fit
+dialog is open, the same grey/colored scheme shows before vs after instead.
+</p>
+
+<hr>
+
+<h2 id="ai-tool">AI tools - <code>analyze_voice_load</code> and <code>auto_fit_voice_load</code></h2>
 
 <p>
 The agent gets a read-only <code>analyze_voice_load(start_tick, end_tick)</code> tool that
@@ -359,6 +428,12 @@ When FFXIV Mode is on, the agent's <code>activeConstraints</code> banner pins th
 <i>"FFXIV: &le;16 voices, &le;14&nbsp;notes/s/channel, C3..C6"</i> so the model self-checks its
 output against the engine ceilings every turn and rewrites dense passages without needing to be
 asked.
+</p>
+<p>
+The matching action tool <code>auto_fit_voice_load</code> lets the agent apply the same thinning
+as the dialog. It defaults to a dry run: the agent first reports what would be removed and must
+ask for your confirmation before running the real pass, which is one undo step - the same
+always-ask rule the dialog enforces.
 </p>
 
 <hr>

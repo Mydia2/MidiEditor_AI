@@ -643,6 +643,18 @@ public slots:
      */
     void ffxivDrumSplit();
 
+    /**
+     * \brief v2.1.0 #1: opens the Auto-Fit Voice Load confirmation dialog
+     *        for the whole file (Tools menu entry).
+     */
+    void autoFitVoiceLoad();
+
+    /**
+     * \brief v2.1.0 #1: same, scoped to a tick range - used by the
+     *        voice-lane context menu (pre-filled from an overflow range).
+     */
+    void autoFitVoiceLoadRange(int startTick, int endTick);
+
     // v2.0 #3: per-track context-menu operations, called directly from the
     // Tracks/Channels panel context menus (each captures the right-clicked
     // MidiTrack* and resolves its document via track->file()). The MidiTrack*

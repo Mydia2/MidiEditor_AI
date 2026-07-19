@@ -106,6 +106,7 @@
 #include "LayoutSettingsWidget.h"
 #include "SplitChannelsDialog.h"
 #include "FFXIVDrumSplitDialog.h"
+#include "AutoFitVoiceLoadDialog.h"
 #include "DrumKitPreset.h"
 #include "MatrixWidget.h"
 #include "OpenGLMatrixWidget.h"
@@ -703,6 +704,10 @@ MainWindow::MainWindow(QString initFile)
 
     _voiceLaneWidget = new FfxivVoiceLaneWidget(mw_matrixWidget, _voiceLaneArea);
     voiceLaneAreaLayout->addWidget(_voiceLaneWidget, 0, 1, 1, 1);
+    // v2.1.0 #1: right-click on an overflow range opens the Auto-Fit dialog
+    // pre-filled with that range.
+    connect(_voiceLaneWidget, &FfxivVoiceLaneWidget::autoFitRangeRequested,
+            this, &MainWindow::autoFitVoiceLoadRange);
 
     QScrollBar *voiceLaneScrollNothing = new QScrollBar(Qt::Vertical, _voiceLaneArea);
     voiceLaneScrollNothing->setMinimum(0);
@@ -6706,6 +6711,57 @@ void MainWindow::ffxivDrumSplit() {
     updateAll();
 }
 
+void MainWindow::autoFitVoiceLoad() {
+    autoFitVoiceLoadRange(-1, -1);
+}
+
+void MainWindow::autoFitVoiceLoadRange(int startTick, int endTick) {
+    if (!file) {
+        return;
+    }
+    // FFXIV-only tool: the whole voice model exists for the in-game mixer.
+    if (!FfxivVoiceAnalyzer::instance()->isEnabled()) {
+        statusBar()->showMessage(
+            tr("Auto-Fit Voice Load is available in FFXIV mode only "
+               "(enable the FFXIV voice limiter)"), 5000);
+        return;
+    }
+    AutoFitVoiceLoadDialog dialog(file, startTick, endTick, this);
+    connect(&dialog, &AutoFitVoiceLoadDialog::previewSelectionRequested, this,
+            [this](const QList<MidiEvent *> &events) {
+                Selection::instance()->setSelection(events);
+                eventWidget()->reportSelectionChangedByTool();
+                // Mirror the what-if into the voice lane: grey "before"
+                // bars with the predicted curve on top, live while the
+                // intensity slider is dragged.
+                if (_voiceLaneWidget) {
+                    if (events.isEmpty()) {
+                        _voiceLaneWidget->clearPreview();
+                    } else {
+                        const QSet<MidiEvent *> excluded(events.begin(), events.end());
+                        _voiceLaneWidget->setPreviewSamples(
+                            FfxivVoiceAnalyzer::resultExcluding(file, excluded)
+                                .voiceSamples);
+                    }
+                }
+                updateAll();
+            });
+    const int rc = dialog.exec();
+    if (_voiceLaneWidget) {
+        _voiceLaneWidget->clearPreview();
+    }
+    // The live preview keeps the victim set selected; after an apply those
+    // pointers are dangling (stale selection entries get re-inserted into
+    // the channel map by any later selection edit), and after a cancel the
+    // highlight is just noise - drop the selection either way.
+    Selection::instance()->clearSelection();
+    eventWidget()->reportSelectionChangedByTool();
+    if (rc == QDialog::Accepted) {
+        statusBar()->showMessage(dialog.resultSummary(), 5000);
+    }
+    updateAll();
+}
+
 // ---------------------------------------------------------------------------
 // v2.0 #3: per-track context-menu operations (ported from the reference build,
 // made multi-document- and meta-channel-safe). Each resolves the track's OWN
@@ -9180,6 +9236,15 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     connect(ffxivDrumSplitAction, SIGNAL(triggered()), this, SLOT(ffxivDrumSplit()));
     toolsMB->addAction(ffxivDrumSplitAction);
     _actionMap["ffxiv_drum_split"] = ffxivDrumSplitAction;
+
+    QAction *autoFitVoiceAction = new QAction(tr("Auto-Fit Voice Load..."), this);
+    connect(autoFitVoiceAction, SIGNAL(triggered()), this, SLOT(autoFitVoiceLoad()));
+    toolsMB->addAction(autoFitVoiceAction);
+    _actionMap["auto_fit_voice_load"] = autoFitVoiceAction;
+    // FFXIV-only: grey the entry out while the voice limiter is inactive.
+    connect(toolsMB, &QMenu::aboutToShow, autoFitVoiceAction, [autoFitVoiceAction]() {
+        autoFitVoiceAction->setEnabled(FfxivVoiceAnalyzer::instance()->isEnabled());
+    });
 
 #ifdef FLUIDSYNTH_SUPPORT
     // Phase 39 (FFXIV-EQ-001): per-instrument volume mixer.

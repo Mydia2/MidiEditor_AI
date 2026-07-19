@@ -1,6 +1,9 @@
 #include "ToolDefinitions.h"
 #include "FFXIVChannelFixer.h"
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
+#include "../converter/AutoFitVoiceLoadService.h"
+#endif
+#ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "FfxivVoiceAnalyzer.h"
 #endif
 
@@ -490,6 +493,59 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 "compositions to confirm the file will play in FFXIV without dropped notes.",
                 makeParams(props, {"startTick", "endTick"})));
         }
+
+        // auto_fit_voice_load (v2.1.0 feature #1)
+        {
+            QJsonObject props;
+            props["startTick"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Inclusive start tick. Use null for the full file."}};
+            props["endTick"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Inclusive end tick. Use null for the full file."}};
+            props["dryRun"] = QJsonObject{
+                {"type", "boolean"},
+                {"description", "true = report what would be removed WITHOUT modifying the file. "
+                                "ALWAYS run with dryRun=true first, show the user the summary and ask "
+                                "for confirmation before running with dryRun=false."}};
+            props["targetCeiling"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Voice ceiling to fit to (default 16, clamped 2-32)."}};
+            props["chordLimit"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Max simultaneous voices per channel in overflow ranges (default 3, "
+                                "0 disables the chord limit). Outer voices always survive."}};
+            props["desaturateRates"] = QJsonObject{
+                {"type", "boolean"},
+                {"description", "Also thin per-TRACK passages denser than rateThresholdPerSec (dense "
+                                "cymbals, 32nd/64th staccato runs) by keeping 1 of rateKeepOneOf notes "
+                                "(the loudest of each group). Default true."}};
+            props["rateThresholdPerSec"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Per-track SUSTAINED density (notes/sec over a 1-second window) that "
+                                "counts as too dense (default 16, clamped 4-30). Lower = more gets "
+                                "thinned; values 4-6 reach steady cymbal walls."}};
+            props["rateKeepOneOf"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Keep 1 of N notes in dense passages: 2 = halve (default), 3 = third, "
+                                "4 = quarter."}};
+            props["preferLoudest"] = QJsonObject{
+                {"type", "boolean"},
+                {"description", "Prefer keeping louder notes (accents) over the higher voice when "
+                                "thinning. Default false: fixer-normalized files have uniform velocity, "
+                                "so the higher voice (usually the melody) wins."}};
+            tools.append(makeTool(
+                "auto_fit_voice_load",
+                "Thin the file so it fits FFXIV's mixer. Voice ceiling uses RAW concurrency (notes really "
+                "sounding at once - NOT the tail-extended display numbers, which overestimate). Removal "
+                "priority at overflows: duplicates, then chords over the chord limit (outer voices "
+                "survive), then quietest/shortest; percussion voice counts are never touched. Rate "
+                "desaturation works per TRACK (one FFXIV performer): dense runs are halved/thirded, the "
+                "loudest note of each group survives. Deterministic, one undoable step. MUST be confirmed "
+                "by the user: call with dryRun=true, present the summary (including the percentage of "
+                "notes affected), and only call with dryRun=false after explicit user approval.",
+                makeParams(props, {"dryRun"})));
+        }
     }
 
     return tools;
@@ -675,6 +731,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     }
     if (toolName == "analyze_voice_load") {
         return execAnalyzeVoiceLoad(args, file);
+    }
+    if (toolName == "auto_fit_voice_load") {
+        return execAutoFitVoiceLoad(args, file);
     }
 
     QJsonObject result;
@@ -1242,6 +1301,121 @@ QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiF
                       .arg(peak)
                       .arg(overflowRanges.size())
                       .arg(rateHotspots.size());
+    }
+    result["summary"] = summary;
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: auto_fit_voice_load is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+
+    AutoFitOptions opts;
+    if (args.contains("startTick") && !args.value("startTick").isNull())
+        opts.startTick = args.value("startTick").toInt();
+    if (args.contains("endTick") && !args.value("endTick").isNull())
+        opts.endTick = args.value("endTick").toInt();
+    if (args.contains("targetCeiling") && !args.value("targetCeiling").isNull())
+        opts.targetCeiling = args.value("targetCeiling").toInt();
+    if (args.contains("chordLimit") && !args.value("chordLimit").isNull())
+        opts.chordLimit = args.value("chordLimit").toInt();
+    if (args.contains("desaturateRates"))
+        opts.desaturateRates = args.value("desaturateRates").toBool(true);
+    if (args.contains("rateThresholdPerSec") && !args.value("rateThresholdPerSec").isNull())
+        opts.rateThresholdPerSec = args.value("rateThresholdPerSec").toInt();
+    if (args.contains("rateKeepOneOf") && !args.value("rateKeepOneOf").isNull())
+        opts.rateKeepOneOf = args.value("rateKeepOneOf").toInt();
+    if (args.contains("preferLoudest"))
+        opts.preferLoudest = args.value("preferLoudest").toBool(false);
+    opts.dryRun = args.value("dryRun").toBool(true); // safe default: dry run
+
+    const AutoFitResult r = AutoFitVoiceLoadService::apply(file, opts);
+    if (!r.ok) {
+        result["success"] = false;
+        result["error"] = r.error;
+        return result;
+    }
+    if (!opts.dryRun && r.removedCount > 0) {
+        // The selection may reference just-removed events; stale pointers get
+        // re-inserted into the channel map by later selection edits.
+        Selection::instance()->clearSelection();
+    }
+
+    result["success"] = true;
+    result["dryRun"] = opts.dryRun;
+    result["peakBefore"] = r.peakBefore;
+    result["remainingPeak"] = r.remainingPeak;
+    result["overflowRangeCount"] = r.overflowRangeCount;
+    result["removedCount"] = r.removedCount;
+    result["duplicateRemoved"] = r.duplicateRemoved;
+    result["chordRemoved"] = r.chordRemoved;
+    result["ceilingRemoved"] = r.ceilingRemoved;
+    result["rateRemoved"] = r.rateRemoved;
+    result["totalNotesInScope"] = r.totalNotesInScope;
+    if (r.totalNotesInScope > 0)
+        result["removedPercent"] =
+            qRound(1000.0 * r.removedCount / r.totalNotesInScope) / 10.0;
+    QJsonArray trackSummaries;
+    for (const AutoFitTrackSummary &s : r.trackSummaries) {
+        QJsonObject o;
+        o["track"] = s.track;
+        o["name"] = s.name;
+        o["removed"] = s.removed;
+        o["notes"] = s.notes;
+        trackSummaries.append(o);
+    }
+    result["trackSummaries"] = trackSummaries;
+
+    // Cap the per-note list so huge thinning runs don't blow up the reply.
+    QJsonArray removedNotes;
+    const int cap = 100;
+    for (int i = 0; i < r.removed.size() && i < cap; ++i) {
+        const AutoFitRemovedNote &n = r.removed.at(i);
+        QJsonObject o;
+        o["tick"] = n.tick;
+        o["channel"] = n.channel;
+        o["pitch"] = n.pitch;
+        o["velocity"] = n.velocity;
+        o["reason"] = n.reason;
+        removedNotes.append(o);
+    }
+    result["removedNotes"] = removedNotes;
+    if (r.removed.size() > cap)
+        result["removedNotesTruncated"] = r.removed.size() - cap;
+
+    QString summary;
+    if (r.removedCount == 0) {
+        summary = QStringLiteral("Nothing to fit: peak %1/%2 voices, no rate hotspots in range.")
+                      .arg(r.peakBefore).arg(opts.targetCeiling);
+    } else {
+        summary = QStringLiteral("%1 %2 note(s) (%3 duplicates, %4 chord-limit, %5 voice-ceiling, "
+                                 "%6 note-rate); peak %7 -> %8 voices.")
+                      .arg(opts.dryRun ? QStringLiteral("Would remove") : QStringLiteral("Removed"))
+                      .arg(r.removedCount)
+                      .arg(r.duplicateRemoved)
+                      .arg(r.chordRemoved)
+                      .arg(r.ceilingRemoved)
+                      .arg(r.rateRemoved)
+                      .arg(r.peakBefore)
+                      .arg(r.remainingPeak);
+        if (opts.dryRun)
+            summary += QStringLiteral(" Present this to the user and ask for confirmation "
+                                      "before calling again with dryRun=false.");
+        else
+            summary += QStringLiteral(" One undo step restores everything.");
     }
     result["summary"] = summary;
     return result;

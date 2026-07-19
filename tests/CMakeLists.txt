@@ -1061,6 +1061,48 @@ target_link_libraries(test_tempo_conversion_service PRIVATE
 add_test(NAME TempoConversionService COMMAND test_tempo_conversion_service)
 
 # -----------------------------------------------------------------------------
+# test_auto_fit_voice_load
+# -----------------------------------------------------------------------------
+# Validates src/converter/AutoFitVoiceLoadService — the v2.1.0 "Auto-fit
+# voice load" headless thinning engine (duplicate / chord-limit /
+# voice-ceiling passes on RAW concurrency + per-track note-rate
+# desaturation, one protocol step on live runs). Same ODR-shim strategy as
+# test_tempo_conversion_service: real MidiChannel +
+# NoteOnEvent/OffEvent/OnEvent/ProgChangeEvent + protocol/* +
+# ChannelVisibilityManager. MidiFile (linear 1:1 tick<->ms model),
+# MidiTrack, MidiEvent base, GraphicObject, EventWidget, Appearance are
+# defined out-of-line in the test TU. The remodeled service no longer uses
+# FfxivVoiceLoadCore, so that TU is not linked.
+add_executable(test_auto_fit_voice_load
+    test_auto_fit_voice_load.cpp
+    ../src/converter/AutoFitVoiceLoadService.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolEntry.cpp
+)
+target_include_directories(test_auto_fit_voice_load PRIVATE
+    ../src/converter
+    ../src/midi
+    ../src/MidiEvent
+    ../src/protocol
+    ../src/gui
+)
+target_link_libraries(test_auto_fit_voice_load PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME AutoFitVoiceLoadService COMMAND test_auto_fit_voice_load)
+
+# -----------------------------------------------------------------------------
 # test_paste_special_dialog
 # -----------------------------------------------------------------------------
 # Phase 34 GUI-only coverage of PasteSpecialDialog: default radio
@@ -1466,6 +1508,7 @@ if(WIN32)
         FfxivVoiceAnalyzer
         FfxivEqualizerService
         TempoConversionService
+        AutoFitVoiceLoadService
         PromptProfiles
         PasteSpecialDialog
         GpBinaryReader
