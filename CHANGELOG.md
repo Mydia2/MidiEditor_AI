@@ -5,16 +5,24 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
-## [Unreleased]
+## [2.1.0] - Unreleased - Bugfixes & Optimizations
+
+> The next release, being prepared on main. On release day: set the real date
+> (drop "Unreleased"), then run scripts/build_changelog.py - the website
+> generator skips every entry whose date field starts with "Unreleased".
+> Experimental merges that are part of NO release live in PLAYGROUND.md.
 
 ### New Features
-* **macOS build-from-source support (experimental, community-maintained)** - the project now builds and runs on macOS: `make mac-setup && make mac-build` (Homebrew Bundle with Qt 6 and FluidSynth, CMake bundle configuration, optional local `.app` packaging via `make mac-app`). No prebuilt binaries and no auto-updates; a build-only macOS CI job guards the platform against regressions. Contributed by the community (#12).
+* **Auto-Fit Voice Load** - the action counterpart to the FFXIV Voice Limiter's analysis: one confirmed click thins a song (or a right-clicked overflow range in the voice-load lane) so it fits the in-game mixer. The voice ceiling counts notes that really sound at the same time (not the display's tail-extended numbers, which overestimate); removal order is duplicates, then chords over the configurable chord limit (outer voices always survive), then the quietest voices - percussion voice counts are never touched. Density desaturation works per track (one FFXIV performer): passages denser than the configurable threshold (default 20 notes/sec) are halved or thirded, keeping every group's loudest note so accents survive - the automated version of the classic manual edit. Always shows a dry-run summary first (with the percentage of notes affected and a per-track breakdown), offers "Preview as selection", applies as a single undo step, and is deterministic. Also available to the AI as `auto_fit_voice_load` (dry-run first, user confirmation required). Backed by a headless service with its own test target, calibrated against a real 200-BPM stress-test song.
+* **Tempo transition curves (Edit Tempo)** - the Smooth Transition gains a Curve option: Linear (default), Ease-in (barely changes at first, then speeds up - a natural accelerando), Ease-out (changes quickly, then settles into the target) and S-curve (gentle at both ends). The curve only shifts where the per-BPM tempo steps land in time; the event count and the single-step undo stay the same.
 
 ### Changed
-* **FluidSynth audio-driver selection hardened (all platforms)** - the engine now asks the local FluidSynth build which audio drivers it actually supports and only tries those, with platform-specific priority lists (Windows: WASAPI first, macOS: CoreAudio, Linux: PipeWire/PulseAudio/ALSA). Removes noisy fallback errors for drivers that were never available.
+* **FluidSynth audio-driver selection hardened (all platforms)** - the engine now asks the local FluidSynth build which audio drivers it actually supports and only tries those, with platform-specific priority lists (Windows: WASAPI first, macOS: CoreAudio, Linux: PipeWire/PulseAudio/ALSA). Removes noisy fallback errors for drivers that were never available. (from #12, merged 2026-07-14)
 
 ### Bug Fixes
-* **Fixed Smooth Transition tempo ramps freezing the editor (TEMPO-SMOOTH-001)** - the Edit Tempo tool wrote a tempo event every 5 ticks (a 25-BPM ramp over a few measures produced thousands of events, almost all duplicates), each one individually undo-protocolled, and every later tick-to-time conversion copied the whole tempo map per call - scrolling and editing crawled afterwards. Smooth Transition now writes exactly one event per BPM step (evenly spread, endpoints exact), applies as a single undo step, and the tick/time conversions walk the tempo map without copying it - which also un-lags files that already come with dense imported tempo ramps.
+* **Fixed the timeline not growing after tempo changes (TIMELINE-LEN-001)** - slowing a song down (e.g. throttling a section to 60 BPM) made it longer in real time, but the editor kept the old total length: the end of the song was unreachable by scrolling until the file was saved and reloaded. The total length is now recomputed immediately after every Edit Tempo apply and after undo/redo of tempo changes.
+* **Fixed horizontal zoom ignoring the cursor (ZOOM-ANCHOR-001)** - zooming in or out was anchored to the left edge of the view, so the position under the cursor/marker drifted away ("the zoom lands somewhere arbitrary"). Zoom now anchors on the cursor when it is visible (it keeps its screen position, so zooming dives into the marker) and on the viewport centre otherwise.
+* **Fixed Smooth Transition tempo ramps freezing the editor (TEMPO-SMOOTH-001)** - the Edit Tempo tool wrote a tempo event every 5 ticks (a 25-BPM ramp over a few measures produced thousands of events, almost all duplicates), each one individually undo-protocolled, and every later tick-to-time conversion copied the whole tempo map per call - scrolling and editing crawled afterwards. Smooth Transition now writes exactly one event per BPM step (evenly spread, endpoints exact), applies as a single undo step, and the tick/time conversions walk the tempo map without copying it - which also un-lags files that already come with dense imported tempo ramps. (merged 2026-07-19)
 
 ---
 
