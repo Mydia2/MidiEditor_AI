@@ -54,11 +54,15 @@ private:
     int _startTick;
     int _endTick;
 
-    /// Track list (right column): checkbox per track for multi-selection +
-    /// a live stats label per row. Parallel lists, same index.
+    /// Track list (right column): checkbox per track for multi-selection, an
+    /// eye button mirroring the Tracks panel's visibility toggle (the modal
+    /// dialog blocks the panel, and hiding tracks drives the lane's
+    /// track-share display), and a live stats label. Parallel lists.
     QList<QCheckBox *> _trackChecks;
+    QList<class QToolButton *> _trackEyes;
     QList<QLabel *> _trackStatLabels;
     QList<int> _trackNumbers;
+    QList<class MidiTrack *> _tracks;
 
     QSpinBox *_ceilingSpin;
     QCheckBox *_chordCheck;

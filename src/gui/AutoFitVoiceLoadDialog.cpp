@@ -3,6 +3,7 @@
 
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
+#include "../protocol/Protocol.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -14,6 +15,7 @@
 #include <QScrollArea>
 #include <QSlider>
 #include <QSpinBox>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
@@ -192,24 +194,43 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     QVBoxLayout *trackListLayout = new QVBoxLayout(trackListWidget);
     trackListLayout->setSpacing(2);
 
-    QList<bool> trackHidden;
     if (_file && _file->tracks()) {
         for (MidiTrack *t : *_file->tracks()) {
             if (!t) continue;
             const QString name = t->name().isEmpty() ? tr("(unnamed)") : t->name();
+            QHBoxLayout *row = new QHBoxLayout();
             QCheckBox *cb = new QCheckBox(
                 tr("Track %1: %2").arg(t->number()).arg(name), trackListWidget);
             cb->setChecked(true);
+            row->addWidget(cb, 1);
+            // Eye = the Tracks panel's visibility toggle, reachable while the
+            // modal dialog is open. Hiding tracks switches the voice lane
+            // into its track-share display, so the contribution of the
+            // remaining tracks is visible behind the dialog.
+            QToolButton *eye = new QToolButton(trackListWidget);
+            eye->setCheckable(true);
+            eye->setChecked(!t->hidden());
+            eye->setIcon(Appearance::adjustIconForDarkMode(
+                ":/run_environment/graphics/trackwidget/visible.png"));
+            eye->setToolTip(tr("Show/hide this track in the editor (undoable)"));
+            row->addWidget(eye);
+            trackListLayout->addLayout(row);
             QLabel *stat = new QLabel(trackListWidget);
             stat->setStyleSheet("QLabel { color: gray; font-size: 10px; margin-left: 20px; }");
-            trackListLayout->addWidget(cb);
             trackListLayout->addWidget(stat);
             _trackChecks.append(cb);
+            _trackEyes.append(eye);
             _trackStatLabels.append(stat);
             _trackNumbers.append(t->number());
-            trackHidden.append(t->hidden());
+            _tracks.append(t);
             connect(cb, &QCheckBox::toggled,
                     this, &AutoFitVoiceLoadDialog::refreshPreview);
+            connect(eye, &QToolButton::toggled, this, [this, t](bool visible) {
+                _file->protocol()->startNewAction(
+                    visible ? tr("Show track") : tr("Hide track"));
+                t->setHidden(!visible);
+                _file->protocol()->endAction();
+            });
         }
     }
     trackListLayout->addStretch();
@@ -231,10 +252,11 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
         }
         refreshPreview();
     });
-    connect(visibleButton, &QPushButton::clicked, this, [this, trackHidden]() {
+    connect(visibleButton, &QPushButton::clicked, this, [this]() {
+        // Reads the LIVE visibility - the eyes can change it mid-dialog.
         for (int i = 0; i < _trackChecks.size(); ++i) {
             const QSignalBlocker b(_trackChecks[i]);
-            _trackChecks[i]->setChecked(i < trackHidden.size() && !trackHidden[i]);
+            _trackChecks[i]->setChecked(_tracks[i] && !_tracks[i]->hidden());
         }
         refreshPreview();
     });
