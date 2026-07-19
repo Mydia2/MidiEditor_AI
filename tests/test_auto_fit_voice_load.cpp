@@ -37,6 +37,9 @@
  *  12. trackFilter_limitsVictims — with trackFilter = {1} only track 1's
  *      notes may be removed (track 0's equally dense run is untouched);
  *      an empty filter thins both dense runs.
+ *  13. perTrackThreshold_overridesGlobal — rateThresholdPerTrack lowers the
+ *      density threshold for one track only; entries for tracks that do not
+ *      exist change nothing (global fallback).
  *
  * Strategy
  * --------
@@ -352,6 +355,7 @@ private slots:
     void rateKeepOneOf_controlsAggressiveness();
     void rateDefault_keepsUpperVoice();
     void trackFilter_limitsVictims();
+    void perTrackThreshold_overridesGlobal();
 };
 
 // -------------------------------------------------------------------------
@@ -767,6 +771,60 @@ void TestAutoFitVoiceLoadService::trackFilter_limitsVictims() {
     }
     QCOMPARE(track0Removed, 15);
     QCOMPARE(track1Removed, 15);
+}
+
+// -------------------------------------------------------------------------
+void TestAutoFitVoiceLoadService::perTrackThreshold_overridesGlobal() {
+    ScopedFile f;
+    // MODERATE density on both tracks: 10 notes spaced 110 ticks (= 110 ms)
+    // apart — the run spans ~990 ms, so one 1000 ms window sees all 10 notes
+    // (~9-10 notes/sec). That sits BETWEEN the two thresholds used below:
+    // not dense at the global 16/s (winLimit 16), dense at 6/s (winLimit 6).
+    for (int i = 0; i < 10; ++i) {
+        f.addNote(0, 1000 + 110 * i, 4, 60, 100, f.track0);
+    }
+    for (int i = 0; i < 10; ++i) {
+        f.addNote(1, 10000 + 110 * i, 4, 60, 100, f.track1);
+    }
+
+    // --- Global threshold only: neither run is dense. ---------------------
+    AutoFitOptions o = baseOptions();
+    o.desaturateRates = true;
+    o.rateThresholdPerSec = 16;
+    AutoFitResult r1 = AutoFitVoiceLoadService::apply(f.file, o);
+    QVERIFY(r1.ok);
+    QCOMPARE(r1.rateRemoved, 0);
+    QCOMPARE(r1.removedCount, 0);
+
+    // --- Per-track override for track 0 only (global still 16). -----------
+    AutoFitOptions ov = o;
+    ov.rateThresholdPerTrack.insert(0, 6);
+    AutoFitResult r2 = AutoFitVoiceLoadService::apply(f.file, ov);
+    QVERIFY(r2.ok);
+    // 10 hot notes, keep-1-of-2: 5 pair-removals — all on track 0.
+    QCOMPARE(r2.rateRemoved, 5);
+    QCOMPARE(r2.rateRemoved, r2.removedCount);
+    for (const AutoFitRemovedNote &rn : r2.removed) {
+        QCOMPARE(rn.reason, QStringLiteral("note-rate"));
+        QCOMPARE(rn.track, 0);
+    }
+    const AutoFitTrackSummary *s0 = summaryFor(r2, 0);
+    QVERIFY(s0);
+    QVERIFY(s0->removed > 0);
+    QCOMPARE(s0->removed, 5);
+    QCOMPARE(s0->notes, 10);
+    const AutoFitTrackSummary *s1 = summaryFor(r2, 1);
+    QVERIFY(s1);
+    QCOMPARE(s1->removed, 0); // track 1 keeps the global threshold
+    QCOMPARE(s1->notes, 10);
+
+    // --- Fallback: an override for a NONEXISTENT track changes nothing. ---
+    AutoFitOptions ghost = o;
+    ghost.rateThresholdPerTrack.insert(7, 4); // no track 7 in the file
+    AutoFitResult r3 = AutoFitVoiceLoadService::apply(f.file, ghost);
+    QVERIFY(r3.ok);
+    QCOMPARE(r3.rateRemoved, 0);
+    QCOMPARE(r3.removedCount, 0);
 }
 
 QTEST_MAIN(TestAutoFitVoiceLoadService)

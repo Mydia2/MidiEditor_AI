@@ -16,6 +16,8 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QToolButton>
+
+#include <climits>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
@@ -46,7 +48,11 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
       _applyButton(nullptr) {
 
     setWindowTitle(tr("Auto-Fit Voice Load"));
-    setModal(true);
+    // Modeless on purpose: the editor stays usable behind the dialog, so the
+    // user can scroll/zoom the timeline and lane while tuning. The dry run
+    // re-computes on every protocol action, so edits made meanwhile can never
+    // leave stale victim pointers behind.
+    setModal(false);
     setMinimumWidth(760);
     setWindowIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/icon.png"));
 
@@ -223,8 +229,24 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
             _trackStatLabels.append(stat);
             _trackNumbers.append(t->number());
             _tracks.append(t);
-            connect(cb, &QCheckBox::toggled,
-                    this, &AutoFitVoiceLoadDialog::refreshPreview);
+            connect(cb, &QCheckBox::toggled, this, [this]() {
+                // If the checked tracks share one stored threshold, show it
+                // on the slider (without treating that as a user edit).
+                int shared = INT_MIN;
+                bool same = true;
+                for (int i = 0; i < _trackChecks.size(); ++i) {
+                    if (!_trackChecks[i]->isChecked()) continue;
+                    const int v = _trackThresholds.value(_trackNumbers[i]);
+                    if (shared == INT_MIN) shared = v;
+                    else if (v != shared) { same = false; break; }
+                }
+                if (same && shared != INT_MIN) {
+                    _sliderGuard = true;
+                    _intensitySlider->setValue(30 - shared);
+                    _sliderGuard = false;
+                }
+                refreshPreview();
+            });
             connect(eye, &QToolButton::toggled, this, [this, t](bool visible) {
                 _file->protocol()->startNewAction(
                     visible ? tr("Show track") : tr("Hide track"));
@@ -261,8 +283,17 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
         refreshPreview();
     });
 
-    connect(_intensitySlider, &QSlider::valueChanged,
-            this, &AutoFitVoiceLoadDialog::refreshPreview);
+    connect(_intensitySlider, &QSlider::valueChanged, this, [this](int value) {
+        if (!_sliderGuard) {
+            // The slider edits the CHECKED tracks; unchecked tracks keep
+            // their individually stored thresholds.
+            for (int i = 0; i < _trackChecks.size(); ++i) {
+                if (_trackChecks[i]->isChecked())
+                    _trackThresholds[_trackNumbers[i]] = thresholdForSlider(value);
+            }
+        }
+        refreshPreview();
+    });
     connect(_ceilingSpin, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &AutoFitVoiceLoadDialog::refreshPreview);
     connect(_chordCheck, &QCheckBox::toggled, _chordLimitSpin, &QSpinBox::setEnabled);
@@ -280,6 +311,17 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
     connect(_livePreviewCheck, &QCheckBox::toggled,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
+
+    // Seed every track with the default threshold.
+    for (int number : _trackNumbers)
+        _trackThresholds.insert(number, thresholdForSlider(_intensitySlider->value()));
+
+    // Modeless safety: any edit in the editor (or an undo) invalidates the
+    // dry-run's event pointers - recompute on every finished action.
+    if (_file && _file->protocol()) {
+        connect(_file->protocol(), SIGNAL(actionFinished()),
+                this, SLOT(refreshPreview()));
+    }
 
     setLayout(columns);
     refreshPreview();
@@ -304,6 +346,7 @@ AutoFitOptions AutoFitVoiceLoadDialog::currentOptions(bool dryRun) const {
     opts.chordLimit = _chordCheck->isChecked() ? _chordLimitSpin->value() : 0;
     opts.desaturateRates = _rateCheck->isChecked();
     opts.rateThresholdPerSec = thresholdForSlider(_intensitySlider->value());
+    opts.rateThresholdPerTrack = _trackThresholds;
     opts.rateKeepOneOf = _rateKeepCombo->currentIndex() + 2;
     opts.preferLoudest = _preferLoudestCheck->isChecked();
     opts.dryRun = dryRun;
@@ -369,7 +412,8 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
             stat->setStyleSheet("QLabel { color: gray; font-size: 10px; margin-left: 20px; }");
         } else {
             const double tp = 100.0 * s->removed / s->notes;
-            stat->setText(tr("-%1 of %2 notes (%3%)")
+            stat->setText(tr("%1/s - -%2 of %3 notes (%4%)")
+                              .arg(_trackThresholds.value(_trackNumbers[i]))
                               .arg(s->removed)
                               .arg(s->notes)
                               .arg(QString::number(tp, 'f', 1)));

@@ -31,6 +31,7 @@
 #define AUTO_FIT_VOICE_LOAD_SERVICE_H_
 
 #include <QList>
+#include <QMap>
 #include <QSet>
 #include <QString>
 
@@ -53,6 +54,10 @@ struct AutoFitOptions {
     /// ~6.7 notes/sec but is exactly the material that overloads an FFXIV
     /// performer - short burst windows can never see it.
     int rateThresholdPerSec = 16;
+    /// Optional per-track override of rateThresholdPerSec (track number ->
+    /// notes/sec, same clamp). Lets the dialog keep an individual thinning
+    /// intensity per track.
+    QMap<int, int> rateThresholdPerTrack;
     int rateKeepOneOf = 2;     ///< keep 1 of N notes in dense passages (2 = halve, 3 = third), clamped [2, 4]
     /// When thinning dense runs, prefer keeping louder notes (accents) before
     /// the higher voice. OFF by default: the channel fixer normalizes all

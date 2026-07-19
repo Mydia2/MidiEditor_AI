@@ -279,7 +279,6 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
         // run) builds over seconds - a 250 ms burst window never sees a
         // steady 8th-note pattern even though it saturates the performer.
         const int windowMs = 1000;
-        const int winLimit = std::max(1, (opts.rateThresholdPerSec * windowMs) / 1000);
 
         QMap<int, QList<int>> byTrack;
         for (int i = 0; i < notes.size(); ++i) {
@@ -287,6 +286,12 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
                 byTrack[notes[i].track].append(i);
         }
         for (auto it = byTrack.begin(); it != byTrack.end(); ++it) {
+            const int trackThreshold = qBound(
+                4, opts.rateThresholdPerTrack.value(it.key(),
+                                                    opts.rateThresholdPerSec),
+                30);
+            const int winLimit =
+                std::max(1, (trackThreshold * windowMs) / 1000);
             QList<int> idxs = it.value();
             std::sort(idxs.begin(), idxs.end(), [&](int x, int y) {
                 if (notes[x].startMs != notes[y].startMs)

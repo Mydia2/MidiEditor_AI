@@ -21,8 +21,10 @@
 
 // Qt includes
 #include <QCloseEvent>
+#include <QDialog>
 #include <QJsonArray>
 #include <QMainWindow>
+#include <QPointer>
 #include <QScrollBar>
 #include <QSettings>
 #include <QKeySequence>
@@ -1594,6 +1596,10 @@ private:
 
     /** \brief Phase 32.3: voice-load lane (graph beneath the velocity lane) */
     FfxivVoiceLaneWidget *_voiceLaneWidget = nullptr;
+
+    /// v2.1.0 #1: the modeless Auto-Fit dialog (single instance; closed on
+    /// document switch because it is bound to one file).
+    QPointer<QDialog> _autoFitDialog;
     QWidget *_voiceLaneArea = nullptr;
     QAction *_toggleVoiceLaneAction = nullptr;
     /** \brief 1.6.1 (UX-VOICE-LANE-002): auto-show the voice lane while FFXIV

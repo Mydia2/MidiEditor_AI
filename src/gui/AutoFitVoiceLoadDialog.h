@@ -15,6 +15,7 @@
 
 #include <QDialog>
 #include <QList>
+#include <QMap>
 
 #include "../converter/AutoFitVoiceLoadService.h"
 
@@ -63,6 +64,12 @@ private:
     QList<QLabel *> _trackStatLabels;
     QList<int> _trackNumbers;
     QList<class MidiTrack *> _tracks;
+
+    /// Per-track thinning threshold (notes/sec). The slider edits the
+    /// CHECKED tracks; values survive check/uncheck cycles, so each track
+    /// can be tuned individually and all settings apply together on Apply.
+    QMap<int, int> _trackThresholds;
+    bool _sliderGuard = false; ///< true while the code moves the slider
 
     QSpinBox *_ceilingSpin;
     QCheckBox *_chordCheck;

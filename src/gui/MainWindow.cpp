@@ -2037,6 +2037,13 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     _midiPilotWidget->onFileChanged(newFile);
     if (_mcpServer) _mcpServer->setFile(newFile);
 
+    // The modeless Auto-Fit dialog is bound to one document - close it when
+    // the active document changes (its selection/lane preview would target
+    // the wrong file otherwise).
+    if (_autoFitDialog) {
+        _autoFitDialog->close();
+    }
+
     // The authentic-SID player is a singleton - rebind its source to the
     // active document (a .sid document keeps the original .sid as its path).
     // Without this it plays whatever .sid was opened LAST in every tab, even
@@ -6726,9 +6733,20 @@ void MainWindow::autoFitVoiceLoadRange(int startTick, int endTick) {
                "(enable the FFXIV voice limiter)"), 5000);
         return;
     }
-    AutoFitVoiceLoadDialog dialog(file, startTick, endTick, this);
-    connect(&dialog, &AutoFitVoiceLoadDialog::previewSelectionRequested, this,
-            [this](const QList<MidiEvent *> &events) {
+    // Modeless: the editor stays usable (scroll/zoom/track panel) while the
+    // dialog is open. Only one instance at a time; re-invoking raises it.
+    if (_autoFitDialog) {
+        _autoFitDialog->raise();
+        _autoFitDialog->activateWindow();
+        return;
+    }
+    AutoFitVoiceLoadDialog *dialog =
+        new AutoFitVoiceLoadDialog(file, startTick, endTick, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    _autoFitDialog = dialog;
+    MidiFile *dialogFile = file;
+    connect(dialog, &AutoFitVoiceLoadDialog::previewSelectionRequested, this,
+            [this, dialogFile](const QList<MidiEvent *> &events) {
                 Selection::instance()->setSelection(events);
                 eventWidget()->reportSelectionChangedByTool();
                 // Mirror the what-if into the voice lane: grey "before"
@@ -6740,26 +6758,27 @@ void MainWindow::autoFitVoiceLoadRange(int startTick, int endTick) {
                     } else {
                         const QSet<MidiEvent *> excluded(events.begin(), events.end());
                         _voiceLaneWidget->setPreviewSamples(
-                            FfxivVoiceAnalyzer::resultExcluding(file, excluded)
+                            FfxivVoiceAnalyzer::resultExcluding(dialogFile, excluded)
                                 .voiceSamples);
                     }
                 }
                 updateAll();
             });
-    const int rc = dialog.exec();
-    if (_voiceLaneWidget) {
-        _voiceLaneWidget->clearPreview();
-    }
-    // The live preview keeps the victim set selected; after an apply those
-    // pointers are dangling (stale selection entries get re-inserted into
-    // the channel map by any later selection edit), and after a cancel the
-    // highlight is just noise - drop the selection either way.
-    Selection::instance()->clearSelection();
-    eventWidget()->reportSelectionChangedByTool();
-    if (rc == QDialog::Accepted) {
-        statusBar()->showMessage(dialog.resultSummary(), 5000);
-    }
-    updateAll();
+    connect(dialog, &QDialog::finished, this, [this, dialog](int rc) {
+        if (_voiceLaneWidget) {
+            _voiceLaneWidget->clearPreview();
+        }
+        // The live preview keeps the victim set selected; after an apply
+        // those pointers are dangling, after a cancel the highlight is just
+        // noise - drop the selection either way.
+        Selection::instance()->clearSelection();
+        eventWidget()->reportSelectionChangedByTool();
+        if (rc == QDialog::Accepted) {
+            statusBar()->showMessage(dialog->resultSummary(), 5000);
+        }
+        updateAll();
+    });
+    dialog->show();
 }
 
 // ---------------------------------------------------------------------------
