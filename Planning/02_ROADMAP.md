@@ -12531,3 +12531,51 @@ scope for track-scoped ops).
 16. [#2] regression test: transpose-run THEN a fix leaves drum tracks melodic/off-CH9 with distinct channels.
 17. pre-release: plain Tier 3 byte-identical ([[feedback_ffxiv_fixer_tier3]]); name scrub clean (no real names in tracked files); no Co-Authored-By.
 
+
+---
+
+## v2.1.0 - FFXIV Workflow Expansion (planned 2026-07-19)
+
+v2.0 built the FFXIV drum feature set; v2.1 extends it plus the two collected
+fixes (FluidSynth driver hardening, TEMPO-SMOOTH-001). Full working plan with
+code-verified wiring points: local Planning/12_V2.1.0_PLAN.md.
+
+### #1 Auto-Fit Voice Load (headliner)
+
+The action counterpart to the Voice Limiter analysis (Phase 32/35). Always
+optional, always behind an explicit confirmation dialog (dry-run summary,
+Preview-as-selection, Apply/Cancel), always one undo step. Two problem classes:
+
+- **Voice-ceiling overflows (>16 concurrent voices)**: remove duplicates
+  first, then limit chords to a configurable max of 2-3 voices per channel
+  (outer voices survive, loudest middles kept), then thin by the deterministic
+  priority list (quietest velocity -> shortest duration -> lowest channel).
+  Percussion is never thinned for voice count.
+- **Rate-hotspot desaturation**: dense cymbal patterns and 32nd/64th staccato
+  runs exceed the 14 notes/sec per-channel limit; thin by keeping 1 of N
+  (factor from the measured rate), keeping the loudest note of each group so
+  accents survive.
+
+Engine: new headless `AutoFitVoiceLoadService` (TempoConversionService
+pattern), reusing the analyzer's cached result. Surfaces: Tools menu + AI tool
+`auto_fit_voice_load` (dry-run parameter) + context-menu entry on the
+voice-lane overflow ranges. Dedicated test target.
+
+### #2 Drum-Kit Preset Editor
+
+Edit the FFXIV pitch-mapping kits and save user kits. Built-in kits stay
+read-only; **any kit can be duplicated and then edited** (copy-then-edit, no
+starting from zero). Mappings-only editing: group names and programs are fixed
+(they are the engine's instrument contract). Persistence via a
+`FfxivDrumKitStore` following the equalizer preset-store pattern; the split
+dialog gains an "Edit kit..." entry and reloads kits live. The bard-range and
+duplicate-source validations move from test-only into the editor.
+
+### #3 Tempo Transition Easing
+
+The Smooth Transition in Edit Tempo gains a curve option: Linear (default),
+Ease-in, Ease-out (optionally S-curve). Builds on the TEMPO-SMOOTH-001 fix:
+still exactly one tempo event per BPM step - the curve only shifts where the
+steps land. Matches how musical accelerandos are edited by hand.
+
+Order: #3 -> #1 -> #2.
