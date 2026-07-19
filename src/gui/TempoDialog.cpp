@@ -7,6 +7,8 @@
 #include <QPushButton>
 #include <QMap>
 
+#include <cmath>
+
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/TempoChangeEvent.h"
 #include "../protocol/Protocol.h"
@@ -92,6 +94,23 @@ TempoDialog::TempoDialog(MidiFile *file, int startTick, int endTick, QWidget *pa
     _endBeats->setValue(beats);
     layout->addWidget(_endBeats, 5, 2, 1, 1);
 
+    // Curve shape for the smooth transition. The curve only shifts WHERE the
+    // per-BPM steps land in time - the number of tempo events stays the same.
+    QLabel *curveLabel = new QLabel("Curve:");
+    layout->addWidget(curveLabel, 6, 1, 1, 1);
+    _curveCombo = new QComboBox();
+    _curveCombo->addItem("Linear");
+    _curveCombo->addItem("Ease-in (gentle start)");
+    _curveCombo->addItem("Ease-out (gentle end)");
+    _curveCombo->addItem("S-curve (gentle start and end)");
+    _curveCombo->setCurrentIndex(0);
+    _curveCombo->setToolTip(
+        "How the tempo moves from the starting value to the new one:\n"
+        "Linear - even change across the whole range.\n"
+        "Ease-in - barely changes at first, then speeds up (natural accelerando).\n"
+        "Ease-out - changes quickly at first, then settles into the target.\n"
+        "S-curve - gentle at both ends.");
+    layout->addWidget(_curveCombo, 6, 2, 1, 1);
 
     if (_endTick > -1) {
         _smoothTransition->setCheckable(true);
@@ -100,12 +119,18 @@ TempoDialog::TempoDialog(MidiFile *file, int startTick, int endTick, QWidget *pa
                 _startBeats, SLOT(setEnabled(bool)));
         connect(_smoothTransition, SIGNAL(toggled(bool)),
                 beginLabel, SLOT(setEnabled(bool)));
+        connect(_smoothTransition, SIGNAL(toggled(bool)),
+                _curveCombo, SLOT(setEnabled(bool)));
+        connect(_smoothTransition, SIGNAL(toggled(bool)),
+                curveLabel, SLOT(setEnabled(bool)));
     } else {
         _smoothTransition->setChecked(false);
         _smoothTransition->setCheckable(false);
         _smoothTransition->setEnabled(false);
         _startBeats->setEnabled(false);
         beginLabel->setEnabled(false);
+        _curveCombo->setEnabled(false);
+        curveLabel->setEnabled(false);
     }
 
     QFrame *f = new QFrame(this);
@@ -165,11 +190,25 @@ void TempoDialog::accept() {
                 new TempoChangeEvent(17, 60000000 / endBeats, generalTrack),
                 _startTick, false);
         } else {
+            // The curve maps BPM progress to time: step k (BPM fraction
+            // x = k/steps) lands at startTick + span * g(x), where g is the
+            // inverse of the tempo curve f (bpm(t) = start + delta * f(t)).
+            const int curve = _curveCombo ? _curveCombo->currentIndex() : 0;
             int lastTick = -1;
             for (int k = 0; k <= steps; ++k) {
                 const int beats = startBeats + ((endBeats - startBeats) * k) / steps;
+                const double x = static_cast<double>(k) / steps;
+                double gx = x;                                    // Linear
+                switch (curve) {
+                case 1: gx = std::sqrt(x); break;                 // Ease-in: f(t)=t^2
+                case 2: gx = 1.0 - std::sqrt(1.0 - x); break;     // Ease-out: f(t)=1-(1-t)^2
+                case 3:                                           // S-curve: f = smoothstep
+                    gx = 0.5 - std::sin(std::asin(1.0 - 2.0 * x) / 3.0);
+                    break;
+                default: break;
+                }
                 const int tick = _startTick
-                    + static_cast<int>((static_cast<qint64>(span) * k) / steps);
+                    + static_cast<int>(static_cast<double>(span) * gx + 0.5);
                 if (tick == lastTick) {
                     continue; // range shorter than the BPM step count
                 }
@@ -186,6 +225,9 @@ void TempoDialog::accept() {
             _startTick, false);
     }
     tempoChannel->protocol(snap, tempoChannel);
+    // Tempo changes alter the file's total length in ms - recompute so the
+    // timeline extends/shrinks immediately (also emits recalcWidgetSize).
+    _file->calcMaxTime();
     hide();
 
     _file->protocol()->endAction();

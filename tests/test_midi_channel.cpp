@@ -68,6 +68,7 @@ public:
     Protocol *protocol();
     void setSaved(bool v);
     void setProtocol(Protocol *p);   // test-only helper
+    void calcMaxTime();
 private:
     Protocol *_protocol;
 };
@@ -75,6 +76,9 @@ MidiFile::MidiFile() : _protocol(nullptr) {}
 Protocol *MidiFile::protocol() { return _protocol; }
 void MidiFile::setSaved(bool /*v*/) {}
 void MidiFile::setProtocol(Protocol *p) { _protocol = p; }
+// no-op: MidiChannel::reloadState recomputes the file length for the tempo
+// channel (ch 17); these tests exercise channel logic, not timeline length.
+void MidiFile::calcMaxTime() {}
 
 // ---- ODR shims: MidiTrack (vtable + a couple of accessors) --------------
 // MidiChannel::removeEvent calls event->track()->setNameEvent(0) on the

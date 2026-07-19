@@ -375,7 +375,14 @@
                         <br>
                         You can also select a time period by letting the mouse pressed after clicking and
                         moving the mouse to the end of the time period. This allows you to gradually increase
-                        or decrease the tempo.
+                        or decrease the tempo (Smooth Transition).
+                        <br>
+                        For a smooth transition, the Curve option controls how the tempo moves from the
+                        starting value to the new one: Linear changes evenly across the whole range,
+                        Ease-in barely changes at first and then speeds up (a natural accelerando),
+                        Ease-out changes quickly at first and then settles into the target, and S-curve
+                        is gentle at both ends. The transition writes one tempo event per BPM step and
+                        is undone as a single step.
 		</td>
 	</tr>
 	<tr>

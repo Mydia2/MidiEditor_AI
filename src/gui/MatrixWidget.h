@@ -598,6 +598,16 @@ private:
     // === Helper Methods ===
 
     /**
+     * \brief Applies a new horizontal scale while keeping an anchor stable.
+     *
+     * Anchor = the cursor/marker position when it is inside the visible
+     * range (it keeps its relative screen position), otherwise the viewport
+     * centre. Without this, zooming is anchored to the viewport's left edge.
+     * \param newScaleX The horizontal scale factor to apply
+     */
+    void zoomHorAnchored(double newScaleX);
+
+    /**
      * \brief Handles piano emulation for keyboard input.
      * \param event The key event to process for piano emulation
      */

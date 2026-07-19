@@ -1930,15 +1930,47 @@ void MatrixWidget::resetView() {
 
 void MatrixWidget::zoomHorIn() {
     if (scaleX <= 3.0) { // Prevent excessive zoom in
-        scaleX += 0.1;
-        calcSizes();
+        zoomHorAnchored(scaleX + 0.1);
     }
 }
 
 void MatrixWidget::zoomHorOut() {
     if (scaleX >= 0.2) {
-        scaleX -= 0.1;
+        zoomHorAnchored(scaleX - 0.1);
+    }
+}
+
+void MatrixWidget::zoomHorAnchored(double newScaleX) {
+    if (!file) {
+        scaleX = newScaleX;
         calcSizes();
+        return;
+    }
+
+    // Pick the anchor BEFORE rescaling: the cursor/marker if it is visible
+    // (it keeps its relative screen position - zooming dives into the
+    // marker), otherwise the viewport centre stays put.
+    const int viewMs = endTimeX - startTimeX;
+    int anchorMs = startTimeX + viewMs / 2;
+    double anchorFrac = 0.5;
+    if (viewMs > 0) {
+        const int cursorMs = msOfTick(file->cursorTick());
+        if (cursorMs >= startTimeX && cursorMs <= endTimeX) {
+            anchorMs = cursorMs;
+            anchorFrac = static_cast<double>(cursorMs - startTimeX) / viewMs;
+        }
+    }
+
+    scaleX = newScaleX;
+    calcSizes();
+
+    const int newViewMs = endTimeX - startTimeX;
+    if (newViewMs > 0) {
+        int newStart = anchorMs - static_cast<int>(anchorFrac * newViewMs);
+        if (newStart < 0) {
+            newStart = 0;
+        }
+        scrollXChanged(newStart);
     }
 }
 

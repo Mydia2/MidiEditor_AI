@@ -80,12 +80,16 @@ public:
     MidiFile();
     Protocol *protocol();
     void setSaved(bool v);
+    void calcMaxTime();
 private:
     Protocol *_protocol;
 };
 MidiFile::MidiFile() : _protocol(nullptr) {}
 Protocol *MidiFile::protocol() { return _protocol; }
 void MidiFile::setSaved(bool /*v*/) {}
+// no-op: MidiChannel::reloadState recomputes the file length for the tempo
+// channel (ch 17); the perf test never touches channel 17 timing.
+void MidiFile::calcMaxTime() {}
 
 // ---- ODR shims: MidiTrack -----------------------------------------------
 #include "../src/protocol/ProtocolEntry.h"

@@ -23,6 +23,7 @@
 #include <QDialog>
 #include <QSpinBox>
 #include <QCheckBox>
+#include <QComboBox>
 
 // Project includes
 #include "../midi/MidiFile.h"
@@ -70,6 +71,9 @@ private:
 
     /** \brief Checkbox for smooth tempo transition */
     QCheckBox *_smoothTransition;
+
+    /** \brief Curve shape for smooth transitions (linear/ease-in/ease-out/s-curve) */
+    QComboBox *_curveCombo;
 
     /** \brief Time range for the tempo change */
     int _startTick, _endTick;

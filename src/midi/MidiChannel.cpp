@@ -77,6 +77,14 @@ void MidiChannel::reloadState(ProtocolEntry *entry) {
     }
     _events = other->_events;
     _num = other->_num;
+
+    // The tempo channel decides the file's total length in ms. Undo/redo of a
+    // channel-level tempo action restores only THIS snapshot - without the
+    // recompute the timeline keeps the stale length until the file is
+    // reloaded (the file-level reloadState already does the same).
+    if (_num == 17 && _midiFile) {
+        _midiFile->calcMaxTime();
+    }
 }
 
 MidiFile *MidiChannel::file() {
