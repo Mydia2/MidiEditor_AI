@@ -71,7 +71,8 @@ struct AutoFitRemovedNote {
     QString reason;            ///< "duplicate" | "chord-limit" | "voice-ceiling" | "note-rate"
 };
 
-/// Per-track dry-run breakdown for the confirmation dialog.
+/// Per-track dry-run breakdown for the confirmation dialog. One entry per
+/// track that has notes inside the scope (removed may be 0).
 struct AutoFitTrackSummary {
     int track = 0;
     QString name;

@@ -7,9 +7,11 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QMap>
 #include <QGroupBox>
 #include <QLabel>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSlider>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -28,7 +30,6 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
       _file(file),
       _startTick(startTick),
       _endTick(endTick),
-      _trackScopeCombo(nullptr),
       _ceilingSpin(nullptr),
       _chordCheck(nullptr),
       _chordLimitSpin(nullptr),
@@ -44,10 +45,14 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
 
     setWindowTitle(tr("Auto-Fit Voice Load"));
     setModal(true);
-    setMinimumWidth(520);
+    setMinimumWidth(760);
     setWindowIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/icon.png"));
 
-    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+    // Two columns: options + summary on the left, the track list with
+    // per-track live statistics on the right.
+    QHBoxLayout *columns = new QHBoxLayout(this);
+    QVBoxLayout *mainLayout = new QVBoxLayout();
+    columns->addLayout(mainLayout, 3);
 
     QLabel *info = new QLabel(
         (_startTick >= 0 || _endTick >= 0)
@@ -58,28 +63,6 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
         this);
     info->setWordWrap(true);
     mainLayout->addWidget(info);
-
-    // --- Track scope -------------------------------------------------------
-    // Notes outside the scope still COUNT toward voices and density, they
-    // just never become victims - so a single overloaded track (e.g. the
-    // Cymbal track) can be thinned without touching the rest.
-    QHBoxLayout *scopeRow = new QHBoxLayout();
-    scopeRow->addWidget(new QLabel(tr("Apply to:"), this));
-    _trackScopeCombo = new QComboBox(this);
-    _trackScopeCombo->addItem(tr("All tracks"), -1);
-    _trackScopeCombo->addItem(tr("Visible tracks only"), -2);
-    if (_file && _file->tracks()) {
-        for (MidiTrack *t : *_file->tracks()) {
-            if (!t) continue;
-            const QString name = t->name().isEmpty()
-                ? tr("(unnamed)") : t->name();
-            _trackScopeCombo->addItem(
-                tr("Track %1: %2").arg(t->number()).arg(name), t->number());
-        }
-    }
-    _trackScopeCombo->setCurrentIndex(0);
-    scopeRow->addWidget(_trackScopeCombo, 1);
-    mainLayout->addLayout(scopeRow);
 
     // --- Density desaturation (the main control) ---------------------------
     QGroupBox *rateBox = new QGroupBox(tr("Density desaturation (per track)"), this);
@@ -188,8 +171,74 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     mainLayout->addWidget(buttons);
 
-    connect(_trackScopeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &AutoFitVoiceLoadDialog::refreshPreview);
+    // --- Right column: track list with checkboxes + live stats -------------
+    QGroupBox *tracksBox = new QGroupBox(tr("Apply to tracks"), this);
+    QVBoxLayout *tracksLayout = new QVBoxLayout(tracksBox);
+
+    QHBoxLayout *quickRow = new QHBoxLayout();
+    QPushButton *allButton = new QPushButton(tr("All"), this);
+    QPushButton *visibleButton = new QPushButton(tr("Visible"), this);
+    QPushButton *noneButton = new QPushButton(tr("None"), this);
+    quickRow->addWidget(allButton);
+    quickRow->addWidget(visibleButton);
+    quickRow->addWidget(noneButton);
+    quickRow->addStretch();
+    tracksLayout->addLayout(quickRow);
+
+    QScrollArea *trackScroll = new QScrollArea(this);
+    trackScroll->setWidgetResizable(true);
+    trackScroll->setFrameShape(QFrame::NoFrame);
+    QWidget *trackListWidget = new QWidget(trackScroll);
+    QVBoxLayout *trackListLayout = new QVBoxLayout(trackListWidget);
+    trackListLayout->setSpacing(2);
+
+    QList<bool> trackHidden;
+    if (_file && _file->tracks()) {
+        for (MidiTrack *t : *_file->tracks()) {
+            if (!t) continue;
+            const QString name = t->name().isEmpty() ? tr("(unnamed)") : t->name();
+            QCheckBox *cb = new QCheckBox(
+                tr("Track %1: %2").arg(t->number()).arg(name), trackListWidget);
+            cb->setChecked(true);
+            QLabel *stat = new QLabel(trackListWidget);
+            stat->setStyleSheet("QLabel { color: gray; font-size: 10px; margin-left: 20px; }");
+            trackListLayout->addWidget(cb);
+            trackListLayout->addWidget(stat);
+            _trackChecks.append(cb);
+            _trackStatLabels.append(stat);
+            _trackNumbers.append(t->number());
+            trackHidden.append(t->hidden());
+            connect(cb, &QCheckBox::toggled,
+                    this, &AutoFitVoiceLoadDialog::refreshPreview);
+        }
+    }
+    trackListLayout->addStretch();
+    trackScroll->setWidget(trackListWidget);
+    tracksLayout->addWidget(trackScroll, 1);
+    columns->addWidget(tracksBox, 2);
+
+    connect(allButton, &QPushButton::clicked, this, [this]() {
+        for (QCheckBox *cb : _trackChecks) {
+            const QSignalBlocker b(cb);
+            cb->setChecked(true);
+        }
+        refreshPreview();
+    });
+    connect(noneButton, &QPushButton::clicked, this, [this]() {
+        for (QCheckBox *cb : _trackChecks) {
+            const QSignalBlocker b(cb);
+            cb->setChecked(false);
+        }
+        refreshPreview();
+    });
+    connect(visibleButton, &QPushButton::clicked, this, [this, trackHidden]() {
+        for (int i = 0; i < _trackChecks.size(); ++i) {
+            const QSignalBlocker b(_trackChecks[i]);
+            _trackChecks[i]->setChecked(i < trackHidden.size() && !trackHidden[i]);
+        }
+        refreshPreview();
+    });
+
     connect(_intensitySlider, &QSlider::valueChanged,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
     connect(_ceilingSpin, QOverload<int>::of(&QSpinBox::valueChanged),
@@ -210,7 +259,7 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     connect(_livePreviewCheck, &QCheckBox::toggled,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
 
-    setLayout(mainLayout);
+    setLayout(columns);
     refreshPreview();
 }
 
@@ -218,17 +267,17 @@ AutoFitOptions AutoFitVoiceLoadDialog::currentOptions(bool dryRun) const {
     AutoFitOptions opts;
     opts.startTick = _startTick;
     opts.endTick = _endTick;
-    const int scope = _trackScopeCombo->currentData().toInt();
-    if (scope == -2) {
-        // Visible tracks only.
-        if (_file && _file->tracks()) {
-            for (MidiTrack *t : *_file->tracks()) {
-                if (t && !t->hidden()) opts.trackFilter.insert(t->number());
-            }
-        }
-    } else if (scope >= 0) {
-        opts.trackFilter.insert(scope);
-    } // -1 = all tracks -> empty filter
+    // Checked tracks form the filter. All checked -> empty filter (= all);
+    // none checked -> impossible sentinel so nothing is removable.
+    QSet<int> checked;
+    for (int i = 0; i < _trackChecks.size(); ++i) {
+        if (_trackChecks[i]->isChecked()) checked.insert(_trackNumbers[i]);
+    }
+    if (checked.isEmpty()) {
+        opts.trackFilter.insert(-1);
+    } else if (checked.size() < _trackChecks.size()) {
+        opts.trackFilter = checked;
+    } // all checked -> leave empty (= all tracks)
     opts.targetCeiling = _ceilingSpin->value();
     opts.chordLimit = _chordCheck->isChecked() ? _chordLimitSpin->value() : 0;
     opts.desaturateRates = _rateCheck->isChecked();
@@ -273,21 +322,38 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
                     .arg(_lastDry.chordRemoved)
                     .arg(_lastDry.ceilingRemoved)
                     .arg(_lastDry.rateRemoved);
-        for (const AutoFitTrackSummary &s : _lastDry.trackSummaries) {
-            const double tp = s.notes > 0 ? 100.0 * s.removed / s.notes : 0.0;
-            text += QStringLiteral("\n");
-            text += tr("    Track %1 %2: -%3 of %4 (%5%)")
-                        .arg(s.track)
-                        .arg(s.name.isEmpty() ? QStringLiteral("(unnamed)") : s.name)
-                        .arg(s.removed)
-                        .arg(s.notes)
-                        .arg(QString::number(tp, 'f', 1));
-        }
         text += QStringLiteral("\n");
         text += tr("Peak afterwards: %1. One Ctrl+Z restores everything.")
                     .arg(_lastDry.remainingPeak);
     }
     _summaryLabel->setText(text);
+
+    // Per-track live statistics in the right column.
+    QMap<int, const AutoFitTrackSummary *> byTrack;
+    for (const AutoFitTrackSummary &s : _lastDry.trackSummaries)
+        byTrack.insert(s.track, &s);
+    for (int i = 0; i < _trackChecks.size(); ++i) {
+        QLabel *stat = _trackStatLabels[i];
+        const AutoFitTrackSummary *s = byTrack.value(_trackNumbers[i], nullptr);
+        if (!_trackChecks[i]->isChecked()) {
+            stat->setText(s ? tr("not applied (%1 notes)").arg(s->notes)
+                            : tr("not applied"));
+            stat->setStyleSheet("QLabel { color: gray; font-size: 10px; margin-left: 20px; }");
+        } else if (!s || s->notes == 0) {
+            stat->setText(tr("no notes in range"));
+            stat->setStyleSheet("QLabel { color: gray; font-size: 10px; margin-left: 20px; }");
+        } else if (s->removed == 0) {
+            stat->setText(tr("no removals (%1 notes)").arg(s->notes));
+            stat->setStyleSheet("QLabel { color: gray; font-size: 10px; margin-left: 20px; }");
+        } else {
+            const double tp = 100.0 * s->removed / s->notes;
+            stat->setText(tr("-%1 of %2 notes (%3%)")
+                              .arg(s->removed)
+                              .arg(s->notes)
+                              .arg(QString::number(tp, 'f', 1)));
+            stat->setStyleSheet("QLabel { color: #f0883e; font-size: 10px; margin-left: 20px; }");
+        }
+    }
     _previewButton->setEnabled(_lastDry.removedCount > 0);
     _applyButton->setEnabled(_lastDry.removedCount > 0);
 

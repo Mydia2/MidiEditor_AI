@@ -14,6 +14,7 @@
 #define AUTOFITVOICELOADDIALOG_H
 
 #include <QDialog>
+#include <QList>
 
 #include "../converter/AutoFitVoiceLoadService.h"
 
@@ -53,7 +54,12 @@ private:
     int _startTick;
     int _endTick;
 
-    QComboBox *_trackScopeCombo;
+    /// Track list (right column): checkbox per track for multi-selection +
+    /// a live stats label per row. Parallel lists, same index.
+    QList<QCheckBox *> _trackChecks;
+    QList<QLabel *> _trackStatLabels;
+    QList<int> _trackNumbers;
+
     QSpinBox *_ceilingSpin;
     QCheckBox *_chordCheck;
     QSpinBox *_chordLimitSpin;

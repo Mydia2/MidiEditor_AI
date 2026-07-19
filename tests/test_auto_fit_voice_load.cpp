@@ -26,8 +26,9 @@
  *   8. chordLimit_reducesChord          — the per-channel chord limit drops
  *      the quietest middles and keeps lowest + highest + loudest middle.
  *   9. trackSummaries_reportScopedCounts — totalNotesInScope counts every
- *      in-scope note; trackSummaries lists only tracks with removals, with
- *      that track's in-scope note count.
+ *      in-scope note; trackSummaries has one entry per track WITH in-scope
+ *      notes (including removed == 0 tracks, for the dialog's per-track
+ *      checkbox list), each carrying that track's in-scope note count.
  *  10. rateKeepOneOf_controlsAggressiveness — keep-1-of-3 removes more than
  *      keep-1-of-2 on identical fixtures.
  *  11. rateDefault_keepsUpperVoice — with preferLoudest OFF (default) the
@@ -315,6 +316,13 @@ int countNotesWithPitch(MidiFile *file, int channelNum, int pitch) {
         if (on && on->note() == pitch) ++n;
     }
     return n;
+}
+
+const AutoFitTrackSummary *summaryFor(const AutoFitResult &r, int track) {
+    for (const AutoFitTrackSummary &s : r.trackSummaries) {
+        if (s.track == track) return &s;
+    }
+    return nullptr;
 }
 
 AutoFitOptions baseOptions() {
@@ -612,14 +620,19 @@ void TestAutoFitVoiceLoadService::trackSummaries_reportScopedCounts() {
     QVERIFY(r.ok);
     QCOMPARE(r.totalNotesInScope, 35); // every in-scope note, both tracks
     QVERIFY(r.rateRemoved > 0);
-    // Only tracks WITH removals are listed: the sparse track must be absent.
-    QCOMPARE(r.trackSummaries.size(), 1);
-    const AutoFitTrackSummary &s = r.trackSummaries.first();
-    QCOMPARE(s.track, 0);
-    QCOMPARE(s.notes, 30);            // the dense track's in-scope count
-    QCOMPARE(s.removed, r.rateRemoved);
-    QVERIFY(s.removed > 0);
-    QVERIFY(s.removed < s.notes);     // thinning, not wholesale deletion
+    // One entry per track with in-scope notes — including the untouched
+    // sparse track (removed == 0), for the dialog's per-track stats list.
+    QCOMPARE(r.trackSummaries.size(), 2);
+    const AutoFitTrackSummary *dense = summaryFor(r, 0);
+    QVERIFY(dense);
+    QCOMPARE(dense->notes, 30);        // the dense track's in-scope count
+    QCOMPARE(dense->removed, r.rateRemoved);
+    QVERIFY(dense->removed > 0);
+    QVERIFY(dense->removed < dense->notes); // thinning, not wholesale deletion
+    const AutoFitTrackSummary *sparse = summaryFor(r, 1);
+    QVERIFY(sparse);
+    QCOMPARE(sparse->notes, 5);        // listed with its in-scope count...
+    QCOMPARE(sparse->removed, 0);      // ...but nothing removed
 }
 
 // -------------------------------------------------------------------------
@@ -717,11 +730,17 @@ void TestAutoFitVoiceLoadService::trackFilter_limitsVictims() {
         QVERIFY(rn.tick >= 5000);         // from the dense run...
         QVERIFY(rn.tick <= 5232);         // ...not from the sparse control
     }
-    // Track 0's dense run lost nothing: only track 1 is summarised.
-    QCOMPARE(r.trackSummaries.size(), 1);
-    QCOMPARE(r.trackSummaries.first().track, 1);
-    QCOMPARE(r.trackSummaries.first().removed, 15);
-    QCOMPARE(r.trackSummaries.first().notes, 35); // 30 dense + 5 sparse
+    // Both tracks are summarised (per-track stats list); track 0's equally
+    // dense run lost NOTHING, track 1 carries all 15 removals.
+    QCOMPARE(r.trackSummaries.size(), 2);
+    const AutoFitTrackSummary *t0 = summaryFor(r, 0);
+    QVERIFY(t0);
+    QCOMPARE(t0->removed, 0);          // filtered out: never a victim
+    QCOMPARE(t0->notes, 30);
+    const AutoFitTrackSummary *t1 = summaryFor(r, 1);
+    QVERIFY(t1);
+    QCOMPARE(t1->removed, 15);
+    QCOMPARE(t1->notes, 35);           // 30 dense + 5 sparse
 
     // --- Empty filter on the same (unmutated, dryRun) file: both dense ----
     // runs are thinned.
@@ -732,7 +751,13 @@ void TestAutoFitVoiceLoadService::trackFilter_limitsVictims() {
     QVERIFY(ra.ok);
     QCOMPARE(ra.rateRemoved, 30); // 15 per dense run
     QCOMPARE(ra.rateRemoved, ra.removedCount);
-    QCOMPARE(ra.trackSummaries.size(), 2); // both tracks now have removals
+    QCOMPARE(ra.trackSummaries.size(), 2);
+    const AutoFitTrackSummary *a0 = summaryFor(ra, 0);
+    const AutoFitTrackSummary *a1 = summaryFor(ra, 1);
+    QVERIFY(a0);
+    QVERIFY(a1);
+    QCOMPARE(a0->removed, 15);         // both dense runs thinned now
+    QCOMPARE(a1->removed, 15);
     int track0Removed = 0, track1Removed = 0;
     for (const AutoFitRemovedNote &rn : ra.removed) {
         QCOMPARE(rn.reason, QStringLiteral("note-rate"));

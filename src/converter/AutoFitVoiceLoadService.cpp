@@ -353,8 +353,9 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
             ++s.notes;
             if (n.removed) ++s.removed;
         }
+        // Every track with notes in scope is reported (removed may be 0) so
+        // the dialog's track list can show live per-track statistics.
         for (auto it = perTrack.begin(); it != perTrack.end(); ++it) {
-            if (it->removed == 0) continue;
             MidiTrack *t = file->track(it->track);
             it->name = t ? t->name() : QString();
             result.trackSummaries.append(it.value());
