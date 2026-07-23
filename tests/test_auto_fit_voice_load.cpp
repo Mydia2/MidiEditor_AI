@@ -43,6 +43,10 @@
  *      pass on for one track while the global ratePercent is 0 (off);
  *      entries for tracks that do not exist change nothing (global
  *      fallback).
+ *  14. percussionStreams_thinPerPitch — on the drum channel (9) density
+ *      streams are per (track, pitch), because every drum pitch is a
+ *      different instrument: a dense crash wall thins to its own quota
+ *      while interleaved accents on another drum pitch survive untouched.
  *
  * Strategy
  * --------
@@ -56,10 +60,12 @@
  *
  * The remodeled service uses RAW concurrency for the voice pass (no
  * sample-tail extension; FfxivVoiceLoadCore is no longer referenced) and a
- * per-track percent-of-track quota for rate desaturation: 1-second-window
- * densities feed an auto-tuned cutoff that thins the densest passages first
- * until about ratePercent% of the track's thinnable notes are removed
- * (quota = n*pct/100, integer division). The MidiFile shim
+ * per-STREAM percent quota for rate desaturation: melodic tracks are one
+ * stream per track, percussion (channel 9) one stream per (track, pitch).
+ * 1-second-window densities feed an auto-tuned cutoff that thins the
+ * densest passages first until about ratePercent% of the stream's
+ * thinnable notes are removed (quota = n*pct/100, integer division;
+ * streams with fewer than 3 notes are never thinned). The MidiFile shim
  * uses a LINEAR 1:1 tick<->ms model (timeMS(t) == t, tick(ms) == ms) so
  * window arithmetic is exact: N ticks apart == N ms apart. The service
  * resolves per-track names via MidiFile::track(n)->name(), so the MidiTrack
@@ -362,6 +368,7 @@ private slots:
     void rateDefault_keepsUpperVoice();
     void trackFilter_limitsVictims();
     void perTrackPercent_overridesGlobal();
+    void percussionStreams_thinPerPitch();
 };
 
 // -------------------------------------------------------------------------
@@ -857,6 +864,47 @@ void TestAutoFitVoiceLoadService::perTrackPercent_overridesGlobal() {
     QVERIFY(r2.ok);
     QCOMPARE(r2.rateRemoved, 0);
     QCOMPARE(r2.removedCount, 0);
+}
+
+// -------------------------------------------------------------------------
+void TestAutoFitVoiceLoadService::percussionStreams_thinPerPitch() {
+    ScopedFile f;
+    // PERCUSSION (channel 9) density streams are per (track, pitch): every
+    // drum pitch is a different instrument. ONE track, two interleaved
+    // streams in the SAME time range:
+    //  - pitch-84 "crash wall": 30 notes every 8 ticks from tick 1000
+    //    (n = 30, quota = 30*50/100 = 15 -> exactly 15 pair-removals, the
+    //    highest cutoff already reaches the quota);
+    //  - pitch-72 "china accents": 2 notes at ticks 1050/1120, temporally
+    //    INSIDE the wall. As their own stream n = 2 falls under the n < 3
+    //    guard, so the accents survive untouched. NOTE: 3 accents would NOT
+    //    be safe — n == 3 passes the guard and quota = 3*50/100 = 1 removes
+    //    one of them; 2 keeps the survival assertion exact.
+    // Were percussion lumped per track (the melodic rule), the stream would
+    // be n = 32 with quota 16 and the accents inside the hot run would be
+    // fair game — the exact 15 / pitch-84-only assertions discriminate.
+    for (int i = 0; i < 30; ++i) {
+        f.addNote(9, 1000 + 8 * i, 4, 84, 100, f.track0);
+    }
+    f.addNote(9, 1050, 4, 72, 100, f.track0);
+    f.addNote(9, 1120, 4, 72, 100, f.track0);
+
+    AutoFitOptions o = baseOptions();
+    o.desaturateRates = true;
+    o.ratePercent = 50;
+    o.rateKeepOneOf = 2;  // halve (the default, explicit for the math above)
+    o.targetCeiling = 32; // voice pass idle (drums are exempt from it anyway)
+    AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
+
+    QVERIFY(r.ok);
+    QCOMPARE(r.rateRemoved, 15); // the crash wall's own quota, nothing more
+    QCOMPARE(r.rateRemoved, r.removedCount); // nothing from other passes
+    for (const AutoFitRemovedNote &rn : r.removed) {
+        QCOMPARE(rn.reason, QStringLiteral("note-rate"));
+        QCOMPARE(rn.track, 0);
+        QCOMPARE(rn.channel, 9);
+        QCOMPARE(rn.pitch, 84); // never a china accent
+    }
 }
 
 QTEST_MAIN(TestAutoFitVoiceLoadService)

@@ -280,14 +280,22 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
         // steady 8th-note pattern even though it saturates the performer.
         const int windowMs = 1000;
 
-        QMap<int, QList<int>> byTrack;
+        // Stream = the unit density is measured on. Melodic tracks are ONE
+        // stream (a staccato run wanders across pitches). Percussion tracks
+        // (drum channel) are one stream PER PITCH, because there every pitch
+        // is a different instrument: a dense C6 crash wall must thin while a
+        // lone C5 china accent sitting inside it survives untouched.
+        QMap<QPair<int, int>, QList<int>> byStream;
         for (int i = 0; i < notes.size(); ++i) {
-            if (!notes[i].removed && notes[i].thinnable)
-                byTrack[notes[i].track].append(i);
+            if (!notes[i].removed && notes[i].thinnable) {
+                const int streamPitch = notes[i].drum ? notes[i].pitch : -1;
+                byStream[qMakePair(notes[i].track, streamPitch)].append(i);
+            }
         }
-        for (auto it = byTrack.begin(); it != byTrack.end(); ++it) {
+        for (auto it = byStream.begin(); it != byStream.end(); ++it) {
             const int pct = qBound(
-                0, opts.ratePercentPerTrack.value(it.key(), opts.ratePercent), 85);
+                0, opts.ratePercentPerTrack.value(it.key().first, opts.ratePercent),
+                85);
             if (pct <= 0) continue;
             QList<int> idxs = it.value();
             std::sort(idxs.begin(), idxs.end(), [&](int x, int y) {
@@ -296,7 +304,10 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
                 return notes[x].pitch < notes[y].pitch;
             });
             const int n = idxs.size();
-            if (n < 3) continue;
+            // Percussion pitch-streams below 8 hits are accent figures (a
+            // lone china, a 3-hit fill), never walls - leave them alone.
+            const int minStream = (it.key().second >= 0) ? 8 : 3;
+            if (n < minStream) continue;
             const int quota = (n * pct) / 100;
             if (quota <= 0) continue;
 
