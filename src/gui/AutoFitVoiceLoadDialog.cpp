@@ -40,7 +40,8 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
       _rateCheck(nullptr),
       _intensitySlider(nullptr),
       _intensityLabel(nullptr),
-      _rateKeepCombo(nullptr),
+      _rateKeepSlider(nullptr),
+      _rateKeepLabel(nullptr),
       _preferLoudestCheck(nullptr),
       _livePreviewCheck(nullptr),
       _summaryLabel(nullptr),
@@ -95,15 +96,18 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     rateLayout->addWidget(_intensityLabel);
 
     QHBoxLayout *keepRow = new QHBoxLayout();
-    keepRow->addWidget(new QLabel(tr("In dense runs:"), this));
-    _rateKeepCombo = new QComboBox(this);
-    _rateKeepCombo->addItem(tr("keep every 2nd note (halve)"));
-    _rateKeepCombo->addItem(tr("keep every 3rd note (third)"));
-    _rateKeepCombo->addItem(tr("keep every 4th note"));
-    _rateKeepCombo->setCurrentIndex(0);
-    keepRow->addWidget(_rateKeepCombo);
-    keepRow->addStretch();
+    keepRow->addWidget(new QLabel(tr("In dense runs skip:"), this));
+    _rateKeepSlider = new QSlider(Qt::Horizontal, this);
+    _rateKeepSlider->setRange(1, 5);      // skip N per group = keep 1 of N+1
+    _rateKeepSlider->setValue(1);         // skip 1 = halve
+    _rateKeepSlider->setTracking(true);
+    _rateKeepSlider->setTickPosition(QSlider::TicksBelow);
+    _rateKeepSlider->setTickInterval(1);
+    keepRow->addWidget(_rateKeepSlider, 1);
     rateLayout->addLayout(keepRow);
+    _rateKeepLabel = new QLabel(this);
+    _rateKeepLabel->setStyleSheet("QLabel { color: gray; }");
+    rateLayout->addWidget(_rateKeepLabel);
 
     QLabel *rateHint = new QLabel(
         tr("The higher voice of each group survives (in two-voice passages the "
@@ -302,10 +306,10 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     connect(_chordLimitSpin, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &AutoFitVoiceLoadDialog::refreshPreview);
     connect(_rateCheck, &QCheckBox::toggled, _intensitySlider, &QSlider::setEnabled);
-    connect(_rateCheck, &QCheckBox::toggled, _rateKeepCombo, &QComboBox::setEnabled);
+    connect(_rateCheck, &QCheckBox::toggled, _rateKeepSlider, &QSlider::setEnabled);
     connect(_rateCheck, &QCheckBox::toggled,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
-    connect(_rateKeepCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(_rateKeepSlider, &QSlider::valueChanged,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
     connect(_preferLoudestCheck, &QCheckBox::toggled,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
@@ -347,7 +351,7 @@ AutoFitOptions AutoFitVoiceLoadDialog::currentOptions(bool dryRun) const {
     opts.desaturateRates = _rateCheck->isChecked();
     opts.rateThresholdPerSec = thresholdForSlider(_intensitySlider->value());
     opts.rateThresholdPerTrack = _trackThresholds;
-    opts.rateKeepOneOf = _rateKeepCombo->currentIndex() + 2;
+    opts.rateKeepOneOf = _rateKeepSlider->value() + 1;
     opts.preferLoudest = _preferLoudestCheck->isChecked();
     opts.dryRun = dryRun;
     return opts;
@@ -368,6 +372,14 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
         tr("Threshold: %1 notes/sec per track - removes %2% of the notes")
             .arg(thresholdForSlider(_intensitySlider->value()))
             .arg(QString::number(pct, 'f', 1)));
+    {
+        const int keepN = _rateKeepSlider->value() + 1;
+        _rateKeepLabel->setText(
+            tr("Skips %1 of every %2 notes in a dense run (about %3% of the run)")
+                .arg(keepN - 1)
+                .arg(keepN)
+                .arg(100 * (keepN - 1) / keepN));
+    }
 
     QString text;
     text += tr("Peak %1/%2 sounding voices, %3 overflow range(s).")

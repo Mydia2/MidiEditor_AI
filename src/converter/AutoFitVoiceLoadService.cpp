@@ -62,7 +62,7 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
     opts.targetCeiling = qBound(2, opts.targetCeiling, 32);
     if (opts.chordLimit != 0) opts.chordLimit = qBound(2, opts.chordLimit, 16);
     opts.rateThresholdPerSec = qBound(4, opts.rateThresholdPerSec, 30);
-    opts.rateKeepOneOf = qBound(2, opts.rateKeepOneOf, 4);
+    opts.rateKeepOneOf = qBound(2, opts.rateKeepOneOf, 6);
     const int scopeStart = (opts.startTick >= 0) ? opts.startTick : 0;
     const int scopeEnd = (opts.endTick >= 0) ? opts.endTick : file->endTick();
     if (scopeEnd <= scopeStart) {

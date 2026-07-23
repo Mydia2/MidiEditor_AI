@@ -58,7 +58,7 @@ struct AutoFitOptions {
     /// notes/sec, same clamp). Lets the dialog keep an individual thinning
     /// intensity per track.
     QMap<int, int> rateThresholdPerTrack;
-    int rateKeepOneOf = 2;     ///< keep 1 of N notes in dense passages (2 = halve, 3 = third), clamped [2, 4]
+    int rateKeepOneOf = 2;     ///< keep 1 of N notes in dense passages (2 = halve, 3 = third), clamped [2, 6]
     /// When thinning dense runs, prefer keeping louder notes (accents) before
     /// the higher voice. OFF by default: the channel fixer normalizes all
     /// velocities to 100, so loudness carries no information in the typical

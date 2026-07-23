@@ -77,7 +77,8 @@ private:
     QCheckBox *_rateCheck;
     QSlider *_intensitySlider;
     QLabel *_intensityLabel;
-    QComboBox *_rateKeepCombo;
+    QSlider *_rateKeepSlider;
+    QLabel *_rateKeepLabel;
     QCheckBox *_preferLoudestCheck;
     QCheckBox *_livePreviewCheck;
     QLabel *_summaryLabel;
