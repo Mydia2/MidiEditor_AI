@@ -48,16 +48,17 @@ struct AutoFitOptions {
     int targetCeiling = 16;    ///< RAW concurrent-voice ceiling, clamped [2, 32]
     int chordLimit = 3;        ///< max simultaneous voices per channel; 0 = off
     bool desaturateRates = true;
-    /// Per-track SUSTAINED density (notes/sec, measured over a 1-second
-    /// window) that counts as "too dense", clamped [4, 30]. The low end
-    /// exists on purpose: a steady 8th-note cymbal wall at 200 BPM is only
-    /// ~6.7 notes/sec but is exactly the material that overloads an FFXIV
-    /// performer - short burst windows can never see it.
-    int rateThresholdPerSec = 16;
-    /// Optional per-track override of rateThresholdPerSec (track number ->
-    /// notes/sec, same clamp). Lets the dialog keep an individual thinning
-    /// intensity per track.
-    QMap<int, int> rateThresholdPerTrack;
+    /// Density desaturation target: thin about this PERCENTAGE of a track's
+    /// notes, taking its DENSEST passages first (clamped [0, 85], 0 = off).
+    /// Percent-of-track instead of an absolute notes/sec threshold because
+    /// musical density is relative to tempo and instrument - a slow ride
+    /// cymbal wall and a 200-BPM shred run are both "too dense" at wildly
+    /// different absolute rates. The service auto-tunes an internal density
+    /// cutoff per track until the target is reached, so the slider always
+    /// has an effect.
+    int ratePercent = 10;
+    /// Optional per-track override of ratePercent (track number -> percent).
+    QMap<int, int> ratePercentPerTrack;
     int rateKeepOneOf = 2;     ///< keep 1 of N notes in dense passages (2 = halve, 3 = third), clamped [2, 6]
     /// When thinning dense runs, prefer keeping louder notes (accents) before
     /// the higher voice. OFF by default: the channel fixer normalizes all

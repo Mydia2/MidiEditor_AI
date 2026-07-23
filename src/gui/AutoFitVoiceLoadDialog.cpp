@@ -21,12 +21,6 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
-namespace {
-// Slider position (0..26, right = stronger thinning) <-> sustained density
-// threshold (30..4 notes/sec over a 1-second window). The low end reaches
-// steady cymbal walls (~6.7 notes/sec at 200 BPM eighths).
-int thresholdForSlider(int sliderValue) { return 30 - sliderValue; }
-} // namespace
 
 AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
                                                int endTick, QWidget *parent)
@@ -84,8 +78,8 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     QHBoxLayout *sliderRow = new QHBoxLayout();
     sliderRow->addWidget(new QLabel(tr("mild"), this));
     _intensitySlider = new QSlider(Qt::Horizontal, this);
-    _intensitySlider->setRange(0, 26);          // threshold 30 .. 4 notes/sec
-    _intensitySlider->setValue(14);             // threshold 16 notes/sec
+    _intensitySlider->setRange(0, 80);          // percent of the track to thin
+    _intensitySlider->setValue(10);
     _intensitySlider->setTracking(true);        // live recompute while dragging
     sliderRow->addWidget(_intensitySlider, 1);
     sliderRow->addWidget(new QLabel(tr("aggressive"), this));
@@ -240,13 +234,13 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
                 bool same = true;
                 for (int i = 0; i < _trackChecks.size(); ++i) {
                     if (!_trackChecks[i]->isChecked()) continue;
-                    const int v = _trackThresholds.value(_trackNumbers[i]);
+                    const int v = _trackPercents.value(_trackNumbers[i]);
                     if (shared == INT_MIN) shared = v;
                     else if (v != shared) { same = false; break; }
                 }
                 if (same && shared != INT_MIN) {
                     _sliderGuard = true;
-                    _intensitySlider->setValue(30 - shared);
+                    _intensitySlider->setValue(shared);
                     _sliderGuard = false;
                 }
                 refreshPreview();
@@ -293,7 +287,7 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
             // their individually stored thresholds.
             for (int i = 0; i < _trackChecks.size(); ++i) {
                 if (_trackChecks[i]->isChecked())
-                    _trackThresholds[_trackNumbers[i]] = thresholdForSlider(value);
+                    _trackPercents[_trackNumbers[i]] = value;
             }
         }
         refreshPreview();
@@ -316,9 +310,9 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     connect(_livePreviewCheck, &QCheckBox::toggled,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
 
-    // Seed every track with the default threshold.
+    // Seed every track with the default target percentage.
     for (int number : _trackNumbers)
-        _trackThresholds.insert(number, thresholdForSlider(_intensitySlider->value()));
+        _trackPercents.insert(number, _intensitySlider->value());
 
     // Modeless safety: any edit in the editor (or an undo) invalidates the
     // dry-run's event pointers - recompute on every finished action.
@@ -349,8 +343,8 @@ AutoFitOptions AutoFitVoiceLoadDialog::currentOptions(bool dryRun) const {
     opts.targetCeiling = _ceilingSpin->value();
     opts.chordLimit = _chordCheck->isChecked() ? _chordLimitSpin->value() : 0;
     opts.desaturateRates = _rateCheck->isChecked();
-    opts.rateThresholdPerSec = thresholdForSlider(_intensitySlider->value());
-    opts.rateThresholdPerTrack = _trackThresholds;
+    opts.ratePercent = _intensitySlider->value();
+    opts.ratePercentPerTrack = _trackPercents;
     opts.rateKeepOneOf = _rateKeepSlider->value() + 1;
     opts.preferLoudest = _preferLoudestCheck->isChecked();
     opts.dryRun = dryRun;
@@ -369,8 +363,9 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
     const double pct = (_lastDry.totalNotesInScope > 0)
         ? (100.0 * _lastDry.removedCount / _lastDry.totalNotesInScope) : 0.0;
     _intensityLabel->setText(
-        tr("Threshold: %1 notes/sec per track - removes %2% of the notes")
-            .arg(thresholdForSlider(_intensitySlider->value()))
+        tr("Target: thin about %1% of each selected track (densest passages "
+           "first) - overall removes %2% of the notes")
+            .arg(_intensitySlider->value())
             .arg(QString::number(pct, 'f', 1)));
     {
         const int keepN = _rateKeepSlider->value() + 1;
@@ -424,8 +419,8 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
             stat->setStyleSheet("QLabel { color: gray; font-size: 10px; margin-left: 20px; }");
         } else {
             const double tp = 100.0 * s->removed / s->notes;
-            stat->setText(tr("%1/s - -%2 of %3 notes (%4%)")
-                              .arg(_trackThresholds.value(_trackNumbers[i]))
+            stat->setText(tr("target %1% - -%2 of %3 notes (%4%)")
+                              .arg(_trackPercents.value(_trackNumbers[i]))
                               .arg(s->removed)
                               .arg(s->notes)
                               .arg(QString::number(tp, 'f', 1)));

@@ -65,10 +65,10 @@ private:
     QList<int> _trackNumbers;
     QList<class MidiTrack *> _tracks;
 
-    /// Per-track thinning threshold (notes/sec). The slider edits the
-    /// CHECKED tracks; values survive check/uncheck cycles, so each track
-    /// can be tuned individually and all settings apply together on Apply.
-    QMap<int, int> _trackThresholds;
+    /// Per-track thinning target (percent of the track's notes). The slider
+    /// edits the CHECKED tracks; values survive check/uncheck cycles, so
+    /// each track can be tuned individually and all settings apply together.
+    QMap<int, int> _trackPercents;
     bool _sliderGuard = false; ///< true while the code moves the slider
 
     QSpinBox *_ceilingSpin;

@@ -61,7 +61,7 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
     AutoFitOptions opts = optionsIn;
     opts.targetCeiling = qBound(2, opts.targetCeiling, 32);
     if (opts.chordLimit != 0) opts.chordLimit = qBound(2, opts.chordLimit, 16);
-    opts.rateThresholdPerSec = qBound(4, opts.rateThresholdPerSec, 30);
+    opts.ratePercent = qBound(0, opts.ratePercent, 85);
     opts.rateKeepOneOf = qBound(2, opts.rateKeepOneOf, 6);
     const int scopeStart = (opts.startTick >= 0) ? opts.startTick : 0;
     const int scopeEnd = (opts.endTick >= 0) ? opts.endTick : file->endTick();
@@ -286,12 +286,9 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
                 byTrack[notes[i].track].append(i);
         }
         for (auto it = byTrack.begin(); it != byTrack.end(); ++it) {
-            const int trackThreshold = qBound(
-                4, opts.rateThresholdPerTrack.value(it.key(),
-                                                    opts.rateThresholdPerSec),
-                30);
-            const int winLimit =
-                std::max(1, (trackThreshold * windowMs) / 1000);
+            const int pct = qBound(
+                0, opts.ratePercentPerTrack.value(it.key(), opts.ratePercent), 85);
+            if (pct <= 0) continue;
             QList<int> idxs = it.value();
             std::sort(idxs.begin(), idxs.end(), [&](int x, int y) {
                 if (notes[x].startMs != notes[y].startMs)
@@ -299,15 +296,60 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
                 return notes[x].pitch < notes[y].pitch;
             });
             const int n = idxs.size();
+            if (n < 3) continue;
+            const int quota = (n * pct) / 100;
+            if (quota <= 0) continue;
+
+            // Density per note: peak size of any 1-second window containing
+            // it. The percent target is met by auto-tuning a density cutoff
+            // for THIS track - densest passages thin first, and the slider
+            // works at every tempo and for every instrument (a slow ride
+            // wall and a shred run are both relative, not absolute, density).
             QVector<bool> hot(n, false);
-            int j0 = 0;
-            for (int j1 = 0; j1 < n; ++j1) {
-                while (notes[idxs[j1]].startMs - notes[idxs[j0]].startMs > windowMs)
-                    ++j0;
-                if (j1 - j0 + 1 > winLimit) {
-                    for (int k = j0; k <= j1; ++k) hot[k] = true;
+            auto markHot = [&](int winLimit) {
+                hot.fill(false);
+                int j0 = 0;
+                for (int j1 = 0; j1 < n; ++j1) {
+                    while (notes[idxs[j1]].startMs - notes[idxs[j0]].startMs
+                           > windowMs)
+                        ++j0;
+                    if (j1 - j0 + 1 > winLimit) {
+                        for (int k = j0; k <= j1; ++k) hot[k] = true;
+                    }
+                }
+                // exact keep-1-of-N removals over the resulting runs
+                int removals = 0;
+                int k = 0;
+                while (k < n) {
+                    if (!hot[k]) { ++k; continue; }
+                    int k2 = k;
+                    while (k2 < n && hot[k2]) ++k2;
+                    for (int g = k; g < k2; g += opts.rateKeepOneOf) {
+                        const int len = std::min(g + opts.rateKeepOneOf, k2) - g;
+                        if (len >= 2) removals += len - 1;
+                    }
+                    k = k2;
+                }
+                return removals;
+            };
+            // Highest cutoff (densest passages only) whose thinning still
+            // reaches the quota; walk down until it does or the floor is hit.
+            int maxWin = 1;
+            {
+                int j0 = 0;
+                for (int j1 = 0; j1 < n; ++j1) {
+                    while (notes[idxs[j1]].startMs - notes[idxs[j0]].startMs
+                           > windowMs)
+                        ++j0;
+                    maxWin = std::max(maxWin, j1 - j0 + 1);
                 }
             }
+            int chosen = 1;
+            for (int winLimit = maxWin - 1; winLimit >= 1; --winLimit) {
+                if (markHot(winLimit) >= quota) { chosen = winLimit; break; }
+            }
+            markHot(chosen); // leave `hot` marked at the chosen cutoff
+
             int k = 0;
             while (k < n) {
                 if (!hot[k]) { ++k; continue; }

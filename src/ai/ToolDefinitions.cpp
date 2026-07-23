@@ -517,14 +517,15 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                                 "0 disables the chord limit). Outer voices always survive."}};
             props["desaturateRates"] = QJsonObject{
                 {"type", "boolean"},
-                {"description", "Also thin per-TRACK passages denser than rateThresholdPerSec (dense "
-                                "cymbals, 32nd/64th staccato runs) by keeping 1 of rateKeepOneOf notes "
-                                "(the loudest of each group). Default true."}};
-            props["rateThresholdPerSec"] = QJsonObject{
+                {"description", "Also thin each track's DENSEST passages (dense cymbal walls, 32nd/64th "
+                                "staccato runs) by keeping 1 of rateKeepOneOf notes per group. "
+                                "Default true."}};
+            props["ratePercent"] = QJsonObject{
                 {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
-                {"description", "Per-track SUSTAINED density (notes/sec over a 1-second window) that "
-                                "counts as too dense (default 16, clamped 4-30). Lower = more gets "
-                                "thinned; values 4-6 reach steady cymbal walls."}};
+                {"description", "Density target: thin about this percent of each track's notes, densest "
+                                "passages first (default 10, clamped 0-85, 0 = off). Percent-of-track "
+                                "instead of an absolute rate because density is relative to tempo and "
+                                "instrument - the tool auto-tunes the cutoff per track."}};
             props["rateKeepOneOf"] = QJsonObject{
                 {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
                 {"description", "Keep 1 of N notes in dense passages: 2 = halve (default), 3 = third, "
@@ -1334,8 +1335,8 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
         opts.chordLimit = args.value("chordLimit").toInt();
     if (args.contains("desaturateRates"))
         opts.desaturateRates = args.value("desaturateRates").toBool(true);
-    if (args.contains("rateThresholdPerSec") && !args.value("rateThresholdPerSec").isNull())
-        opts.rateThresholdPerSec = args.value("rateThresholdPerSec").toInt();
+    if (args.contains("ratePercent") && !args.value("ratePercent").isNull())
+        opts.ratePercent = args.value("ratePercent").toInt();
     if (args.contains("rateKeepOneOf") && !args.value("rateKeepOneOf").isNull())
         opts.rateKeepOneOf = args.value("rateKeepOneOf").toInt();
     if (args.contains("preferLoudest"))

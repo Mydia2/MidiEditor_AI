@@ -20,9 +20,11 @@
  *      exactly one undo step.
  *   6. determinism                      — two identical files produce
  *      identical removed lists.
- *   7. rateDesaturation_thinsAndKeepsAccents — the PER-TRACK note-rate pass
- *      thins a dense staccato run (keeping the loudest note of each 1-of-N
- *      group) while a sparse track is left alone.
+ *   7. rateDesaturation_thinsAndKeepsAccents — the PER-TRACK percent-based
+ *      rate pass thins ratePercent% of a track's notes, densest passages
+ *      first (keeping the loudest note of each 1-of-N group when
+ *      preferLoudest is on); a control track opted out via
+ *      ratePercentPerTrack {track: 0} is left alone.
  *   8. chordLimit_reducesChord          — the per-channel chord limit drops
  *      the quietest middles and keeps lowest + highest + loudest middle.
  *   9. trackSummaries_reportScopedCounts — totalNotesInScope counts every
@@ -37,9 +39,10 @@
  *  12. trackFilter_limitsVictims — with trackFilter = {1} only track 1's
  *      notes may be removed (track 0's equally dense run is untouched);
  *      an empty filter thins both dense runs.
- *  13. perTrackThreshold_overridesGlobal — rateThresholdPerTrack lowers the
- *      density threshold for one track only; entries for tracks that do not
- *      exist change nothing (global fallback).
+ *  13. perTrackPercent_overridesGlobal — ratePercentPerTrack turns the rate
+ *      pass on for one track while the global ratePercent is 0 (off);
+ *      entries for tracks that do not exist change nothing (global
+ *      fallback).
  *
  * Strategy
  * --------
@@ -53,7 +56,10 @@
  *
  * The remodeled service uses RAW concurrency for the voice pass (no
  * sample-tail extension; FfxivVoiceLoadCore is no longer referenced) and a
- * per-track sliding 250 ms window for rate desaturation. The MidiFile shim
+ * per-track percent-of-track quota for rate desaturation: 1-second-window
+ * densities feed an auto-tuned cutoff that thins the densest passages first
+ * until about ratePercent% of the track's thinnable notes are removed
+ * (quota = n*pct/100, integer division). The MidiFile shim
  * uses a LINEAR 1:1 tick<->ms model (timeMS(t) == t, tick(ms) == ms) so
  * window arithmetic is exact: N ticks apart == N ms apart. The service
  * resolves per-track names via MidiFile::track(n)->name(), so the MidiTrack
@@ -355,7 +361,7 @@ private slots:
     void rateKeepOneOf_controlsAggressiveness();
     void rateDefault_keepsUpperVoice();
     void trackFilter_limitsVictims();
-    void perTrackThreshold_overridesGlobal();
+    void perTrackPercent_overridesGlobal();
 };
 
 // -------------------------------------------------------------------------
@@ -526,23 +532,29 @@ void TestAutoFitVoiceLoadService::determinism() {
 void TestAutoFitVoiceLoadService::rateDesaturation_thinsAndKeepsAccents() {
     ScopedFile f;
     // Dense run on TRACK 0: 30 staccato notes (4 ticks each) every 8 ticks.
-    // With the 1:1 model that is 30 NoteOns inside ~240 ms; the default
-    // threshold of 20/s allows only 5 per 250 ms window, so the whole run is
-    // marked dense. Raw concurrency never exceeds 1 (4-tick notes, 8-tick
-    // gaps), so the voice pass is idle and every removal must come from the
+    // With the 1:1 model all 30 NoteOns sit inside ONE 1-second window, so
+    // every density cutoff marks the whole run hot. ratePercent = 50 ->
+    // quota = 30*50/100 = 15; keep-1-of-2 over the fully-hot run removes
+    // exactly 15, so the highest cutoff (winLimit 29) already reaches the
+    // quota. Raw concurrency never exceeds 1 (4-tick notes, 8-tick gaps),
+    // so the voice pass is idle and every removal must come from the
     // per-track rate pass.
     const int accentTick = 1000 + 8 * 15;
     for (int i = 0; i < 30; ++i) {
         f.addNote(0, 1000 + 8 * i, 4, 60, (i == 15) ? 127 : 100, f.track0);
     }
-    // Sparse control run on TRACK 1: 5 notes 1000 ticks (= 1000 ms) apart —
-    // far below the threshold, must not be touched.
+    // Sparse control run on TRACK 1: 5 notes 1000 ticks (= 1000 ms) apart.
+    // The percent quota applies per track REGARDLESS of absolute density
+    // (50% of 5 notes would remove 2), so the control track opts out via a
+    // per-track 0% override — it must then lose nothing.
     for (int i = 0; i < 5; ++i) {
         f.addNote(1, 20000 + 1000 * i, 4, 72, 100, f.track1);
     }
 
     AutoFitOptions o = baseOptions();
-    o.desaturateRates = true; // defaults: 20/s threshold, keep 1 of 2
+    o.desaturateRates = true;
+    o.ratePercent = 50;                 // 50% of track 0's 30 notes = 15
+    o.ratePercentPerTrack.insert(1, 0); // control track: rate pass off
     // The default keep rule prefers the higher pitch (see test 11); opt in
     // to accent preservation so the velocity-127 assertion is meaningful.
     o.preferLoudest = true;
@@ -551,15 +563,18 @@ void TestAutoFitVoiceLoadService::rateDesaturation_thinsAndKeepsAccents() {
     QVERIFY(r.ok);
     QVERIFY(r.rateRemoved > 0);
     QCOMPARE(r.rateRemoved, r.removedCount); // nothing from other passes
-    // Keep-1-of-2 over a fully dense 30-note run: 15 pairs, one removal each.
+    // Quota 15 over the fully-hot 30-note run: 15 pairs, one removal each.
     QCOMPARE(r.rateRemoved, 15);
     for (const AutoFitRemovedNote &rn : r.removed) {
         QCOMPARE(rn.reason, QStringLiteral("note-rate"));
-        QCOMPARE(rn.track, 0);           // the sparse track is untouched
+        QCOMPARE(rn.track, 0);           // the opted-out track is untouched
         // The accented note survives (loudest of its group is kept).
         QVERIFY(rn.tick != accentTick);
         QVERIFY(rn.velocity != 127);
     }
+    const AutoFitTrackSummary *sparse = summaryFor(r, 1);
+    QVERIFY(sparse);
+    QCOMPARE(sparse->removed, 0);        // per-track 0% override respected
 }
 
 // -------------------------------------------------------------------------
@@ -609,7 +624,8 @@ void TestAutoFitVoiceLoadService::chordLimit_reducesChord() {
 void TestAutoFitVoiceLoadService::trackSummaries_reportScopedCounts() {
     ScopedFile f;
     // Same shape as the rate test: dense 30-note run on track 0, sparse
-    // 5-note run on track 1. Only track 0 gets removals.
+    // 5-note run on track 1 (opted out via its per-track 0% so only track 0
+    // gets removals — the percent quota ignores absolute density).
     for (int i = 0; i < 30; ++i) {
         f.addNote(0, 1000 + 8 * i, 4, 60, 100, f.track0);
     }
@@ -619,19 +635,21 @@ void TestAutoFitVoiceLoadService::trackSummaries_reportScopedCounts() {
 
     AutoFitOptions o = baseOptions();
     o.desaturateRates = true;
+    o.ratePercent = 50;                 // quota: 50% of 30 = 15 on track 0
+    o.ratePercentPerTrack.insert(1, 0); // sparse control: rate pass off
     AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
 
     QVERIFY(r.ok);
     QCOMPARE(r.totalNotesInScope, 35); // every in-scope note, both tracks
-    QVERIFY(r.rateRemoved > 0);
+    QCOMPARE(r.rateRemoved, 15);       // exactly track 0's 50% quota
     // One entry per track with in-scope notes — including the untouched
     // sparse track (removed == 0), for the dialog's per-track stats list.
     QCOMPARE(r.trackSummaries.size(), 2);
     const AutoFitTrackSummary *dense = summaryFor(r, 0);
     QVERIFY(dense);
     QCOMPARE(dense->notes, 30);        // the dense track's in-scope count
+    QCOMPARE(dense->removed, 15);      // 30*50/100 pair-removals
     QCOMPARE(dense->removed, r.rateRemoved);
-    QVERIFY(dense->removed > 0);
     QVERIFY(dense->removed < dense->notes); // thinning, not wholesale deletion
     const AutoFitTrackSummary *sparse = summaryFor(r, 1);
     QVERIFY(sparse);
@@ -653,6 +671,9 @@ void TestAutoFitVoiceLoadService::rateKeepOneOf_controlsAggressiveness() {
 
     AutoFitOptions o2 = baseOptions();
     o2.desaturateRates = true;
+    o2.ratePercent = 80;  // quota = 30*80/100 = 24 — more than keep-1-of-N
+                          // can ever remove, so the cutoff walks to the
+                          // floor and the group rule caps the removals
     o2.rateKeepOneOf = 2; // halve: remove 1 of every 2
     AutoFitOptions o3 = o2;
     o3.rateKeepOneOf = 3; // third: remove 2 of every 3
@@ -664,8 +685,9 @@ void TestAutoFitVoiceLoadService::rateKeepOneOf_controlsAggressiveness() {
     QVERIFY(r3.ok);
     QVERIFY(r2.rateRemoved > 0);
     QVERIFY(r3.rateRemoved > r2.rateRemoved);
-    // Exact model: 30 dense notes -> 15 pair-removals vs 10 triplet-groups
-    // removing 2 each.
+    // Exact model: quota 24 is unreachable for either N, so the whole run
+    // is thinned at cutoff 1: keep-1-of-2 -> 15 pair-removals; keep-1-of-3
+    // -> 10 triplet-groups removing 2 each = 20.
     QCOMPARE(r2.rateRemoved, 15);
     QCOMPARE(r3.rateRemoved, 20);
 }
@@ -683,8 +705,9 @@ void TestAutoFitVoiceLoadService::rateDefault_keepsUpperVoice() {
     }
 
     AutoFitOptions o = baseOptions();
-    o.desaturateRates = true; // defaults: 20/s threshold, keep 1 of 2,
-                              // preferLoudest = false
+    o.desaturateRates = true; // keep 1 of 2, preferLoudest = false (defaults)
+    o.ratePercent = 50;       // quota = 40*50/100 = 20 = one removal per
+                              // pair (the default 10% would stop after 4)
     o.targetCeiling = 32;     // voice pass idle (raw concurrency is only 2)
     AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
 
@@ -713,20 +736,26 @@ void TestAutoFitVoiceLoadService::trackFilter_limitsVictims() {
     for (int i = 0; i < 30; ++i) {
         f.addNote(1, 5000 + 8 * i, 4, 60, 100, f.track1);
     }
-    // Sparse control, also on TRACK 1: 5 notes 1000 ticks (= 1000 ms) apart,
-    // far away from both dense runs.
+    // Sparse control on its OWN track 2: the percent quota is per track, so
+    // sharing track 1 would fold these 5 notes into that track's quota math
+    // (quota 17 of 35 instead of 15 of 30). Its per-track 0% override keeps
+    // it out of the rate pass in both runs below.
+    MidiTrack *track2 = new MidiTrack(2);
+    f.file->addTrack(track2);
     for (int i = 0; i < 5; ++i) {
-        f.addNote(1, 20000 + 1000 * i, 4, 72, 100, f.track1);
+        f.addNote(1, 20000 + 1000 * i, 4, 72, 100, track2);
     }
 
     // --- Filtered run: only track 1 may lose notes. ----------------------
     AutoFitOptions o = baseOptions();
-    o.desaturateRates = true; // defaults: 16/s over 1 s, keep 1 of 2
+    o.desaturateRates = true;
+    o.ratePercent = 50;                 // 50% of each dense 30-note run = 15
+    o.ratePercentPerTrack.insert(2, 0); // sparse control: rate pass off
     o.trackFilter = QSet<int>({1});
     AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
 
     QVERIFY(r.ok);
-    QCOMPARE(r.rateRemoved, 15); // exactly track 1's dense-run expectation
+    QCOMPARE(r.rateRemoved, 15); // exactly track 1's 50%-of-30 quota
     QCOMPARE(r.rateRemoved, r.removedCount);
     for (const AutoFitRemovedNote &rn : r.removed) {
         QCOMPARE(rn.reason, QStringLiteral("note-rate"));
@@ -734,9 +763,9 @@ void TestAutoFitVoiceLoadService::trackFilter_limitsVictims() {
         QVERIFY(rn.tick >= 5000);         // from the dense run...
         QVERIFY(rn.tick <= 5232);         // ...not from the sparse control
     }
-    // Both tracks are summarised (per-track stats list); track 0's equally
-    // dense run lost NOTHING, track 1 carries all 15 removals.
-    QCOMPARE(r.trackSummaries.size(), 2);
+    // All three tracks are summarised (per-track stats list); track 0's
+    // equally dense run lost NOTHING, track 1 carries all 15 removals.
+    QCOMPARE(r.trackSummaries.size(), 3);
     const AutoFitTrackSummary *t0 = summaryFor(r, 0);
     QVERIFY(t0);
     QCOMPARE(t0->removed, 0);          // filtered out: never a victim
@@ -744,10 +773,15 @@ void TestAutoFitVoiceLoadService::trackFilter_limitsVictims() {
     const AutoFitTrackSummary *t1 = summaryFor(r, 1);
     QVERIFY(t1);
     QCOMPARE(t1->removed, 15);
-    QCOMPARE(t1->notes, 35);           // 30 dense + 5 sparse
+    QCOMPARE(t1->notes, 30);
+    const AutoFitTrackSummary *t2 = summaryFor(r, 2);
+    QVERIFY(t2);
+    QCOMPARE(t2->removed, 0);          // 0% override: never thinned
+    QCOMPARE(t2->notes, 5);
 
     // --- Empty filter on the same (unmutated, dryRun) file: both dense ----
-    // runs are thinned.
+    // runs are thinned to their 50% quota; the 0%-override control still
+    // loses nothing.
     AutoFitOptions all = o;
     all.trackFilter.clear();
     AutoFitResult ra = AutoFitVoiceLoadService::apply(f.file, all);
@@ -755,13 +789,16 @@ void TestAutoFitVoiceLoadService::trackFilter_limitsVictims() {
     QVERIFY(ra.ok);
     QCOMPARE(ra.rateRemoved, 30); // 15 per dense run
     QCOMPARE(ra.rateRemoved, ra.removedCount);
-    QCOMPARE(ra.trackSummaries.size(), 2);
+    QCOMPARE(ra.trackSummaries.size(), 3);
     const AutoFitTrackSummary *a0 = summaryFor(ra, 0);
     const AutoFitTrackSummary *a1 = summaryFor(ra, 1);
+    const AutoFitTrackSummary *a2 = summaryFor(ra, 2);
     QVERIFY(a0);
     QVERIFY(a1);
+    QVERIFY(a2);
     QCOMPARE(a0->removed, 15);         // both dense runs thinned now
     QCOMPARE(a1->removed, 15);
+    QCOMPARE(a2->removed, 0);          // control still exempt
     int track0Removed = 0, track1Removed = 0;
     for (const AutoFitRemovedNote &rn : ra.removed) {
         QCOMPARE(rn.reason, QStringLiteral("note-rate"));
@@ -774,57 +811,52 @@ void TestAutoFitVoiceLoadService::trackFilter_limitsVictims() {
 }
 
 // -------------------------------------------------------------------------
-void TestAutoFitVoiceLoadService::perTrackThreshold_overridesGlobal() {
+void TestAutoFitVoiceLoadService::perTrackPercent_overridesGlobal() {
     ScopedFile f;
-    // MODERATE density on both tracks: 10 notes spaced 110 ticks (= 110 ms)
-    // apart — the run spans ~990 ms, so one 1000 ms window sees all 10 notes
-    // (~9-10 notes/sec). That sits BETWEEN the two thresholds used below:
-    // not dense at the global 16/s (winLimit 16), dense at 6/s (winLimit 6).
-    for (int i = 0; i < 10; ++i) {
-        f.addNote(0, 1000 + 110 * i, 4, 60, 100, f.track0);
+    // Identical dense 30-note runs on BOTH tracks (channels 0/1, offset so
+    // they never overlap; raw concurrency stays 1, voice pass idle).
+    // Whether a run is thinned is decided purely by the percent that
+    // applies to its track.
+    for (int i = 0; i < 30; ++i) {
+        f.addNote(0, 1000 + 8 * i, 4, 60, 100, f.track0);
     }
-    for (int i = 0; i < 10; ++i) {
-        f.addNote(1, 10000 + 110 * i, 4, 60, 100, f.track1);
+    for (int i = 0; i < 30; ++i) {
+        f.addNote(1, 5000 + 8 * i, 4, 60, 100, f.track1);
     }
 
-    // --- Global threshold only: neither run is dense. ---------------------
+    // --- Global 0% (off) + 50% override for track 0 only. -----------------
     AutoFitOptions o = baseOptions();
     o.desaturateRates = true;
-    o.rateThresholdPerSec = 16;
+    o.ratePercent = 0;                   // globally OFF
+    o.ratePercentPerTrack.insert(0, 50); // ...but track 0 thins 50%
     AutoFitResult r1 = AutoFitVoiceLoadService::apply(f.file, o);
     QVERIFY(r1.ok);
-    QCOMPARE(r1.rateRemoved, 0);
-    QCOMPARE(r1.removedCount, 0);
-
-    // --- Per-track override for track 0 only (global still 16). -----------
-    AutoFitOptions ov = o;
-    ov.rateThresholdPerTrack.insert(0, 6);
-    AutoFitResult r2 = AutoFitVoiceLoadService::apply(f.file, ov);
-    QVERIFY(r2.ok);
-    // 10 hot notes, keep-1-of-2: 5 pair-removals — all on track 0.
-    QCOMPARE(r2.rateRemoved, 5);
-    QCOMPARE(r2.rateRemoved, r2.removedCount);
-    for (const AutoFitRemovedNote &rn : r2.removed) {
+    // 50% of track 0's 30 notes = quota 15; keep-1-of-2 over the fully-hot
+    // run removes exactly 15 — all on track 0.
+    QCOMPARE(r1.rateRemoved, 15);
+    QCOMPARE(r1.rateRemoved, r1.removedCount);
+    for (const AutoFitRemovedNote &rn : r1.removed) {
         QCOMPARE(rn.reason, QStringLiteral("note-rate"));
         QCOMPARE(rn.track, 0);
     }
-    const AutoFitTrackSummary *s0 = summaryFor(r2, 0);
+    const AutoFitTrackSummary *s0 = summaryFor(r1, 0);
     QVERIFY(s0);
-    QVERIFY(s0->removed > 0);
-    QCOMPARE(s0->removed, 5);
-    QCOMPARE(s0->notes, 10);
-    const AutoFitTrackSummary *s1 = summaryFor(r2, 1);
+    QCOMPARE(s0->removed, 15);
+    QCOMPARE(s0->notes, 30);
+    const AutoFitTrackSummary *s1 = summaryFor(r1, 1);
     QVERIFY(s1);
-    QCOMPARE(s1->removed, 0); // track 1 keeps the global threshold
-    QCOMPARE(s1->notes, 10);
+    QCOMPARE(s1->removed, 0); // track 1 keeps the global 0% (off)
+    QCOMPARE(s1->notes, 30);
 
     // --- Fallback: an override for a NONEXISTENT track changes nothing. ---
-    AutoFitOptions ghost = o;
-    ghost.rateThresholdPerTrack.insert(7, 4); // no track 7 in the file
-    AutoFitResult r3 = AutoFitVoiceLoadService::apply(f.file, ghost);
-    QVERIFY(r3.ok);
-    QCOMPARE(r3.rateRemoved, 0);
-    QCOMPARE(r3.removedCount, 0);
+    AutoFitOptions ghost = baseOptions();
+    ghost.desaturateRates = true;
+    ghost.ratePercent = 0;                   // globally OFF
+    ghost.ratePercentPerTrack.insert(7, 50); // no track 7 in the file
+    AutoFitResult r2 = AutoFitVoiceLoadService::apply(f.file, ghost);
+    QVERIFY(r2.ok);
+    QCOMPARE(r2.rateRemoved, 0);
+    QCOMPARE(r2.removedCount, 0);
 }
 
 QTEST_MAIN(TestAutoFitVoiceLoadService)
