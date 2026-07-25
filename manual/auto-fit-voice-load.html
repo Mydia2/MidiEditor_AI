@@ -21,7 +21,12 @@
 .info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
 .info-table th { background: var(--bg-secondary); font-weight: 600; }
 .info-table tr:nth-child(even) td { background: var(--table-alt); }
-.step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+/* The four removal passes sit in a fixed 2x2 grid. An auto-fit row leaves the
+   fourth card dangling on its own at this content width, and forcing four
+   columns would squeeze the text; 2x2 stays even and readable. Collapses to
+   one column on narrow screens. */
+.step-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin: 1.5rem 0; }
+@media (max-width: 700px) { .step-grid { grid-template-columns: 1fr; } }
 .step-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -38,30 +43,6 @@
     border-radius: 0 8px 8px 0;
 }
 .highlight-box p { margin: 0; }
-/* Placeholders for screenshots and videos that are not shot yet. Replace the
-   whole block with the matching .screenshot-single markup once the asset
-   exists - the intended file name is part of every placeholder. */
-.media-todo {
-    border: 2px dashed var(--border);
-    border-radius: 8px;
-    background: var(--bg-secondary);
-    padding: 1rem 1.25rem;
-    margin: 1.5rem 0;
-}
-.media-todo .media-kind {
-    display: inline-block;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-weight: 700;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    padding: 0.1rem 0.6rem;
-    margin-bottom: 0.6rem;
-}
-.media-todo p { margin: 0.35rem 0; font-size: 0.92em; }
-.media-todo .media-file { color: var(--text-muted); font-size: 0.85em; }
 </style>
 </head>
 <body>
@@ -287,7 +268,9 @@ The right column lists every track with a checkbox, an eye toggle and its own st
       while every guitar stays exactly as it is.</li>
   <li><b>Each track keeps its own intensity.</b> The slider adjusts the ticked tracks, and the
       value stays with them: tick the lead guitar and set it mild, then tick the cymbals and set
-      them aggressive - both settings persist and Apply uses all of them together.</li>
+      them aggressive - both settings persist and Apply uses all of them together. The
+      <a href="#preview">walkthrough clip</a> further down shows a whole set of tracks being
+      given individual values one after another.</li>
   <li><b>The statistics line</b> under each track shows that track's target and how many of its
       notes the current settings would remove, so you can see immediately which track carries the
       reduction.</li>
@@ -349,14 +332,15 @@ voice-load lane joins in: the full load is drawn in grey and the predicted resul
 colour, which turns the lane into a before/after picture of your settings.
 </p>
 
-<div class="media-todo">
-<div class="media-kind">Video</div>
-<p><b>Needs FFXIV mode on</b> (the voice-load lane only exists there).</p>
-<p><b>What to show:</b> two things in one clip. First that the editor stays usable while the
-dialog is open - scroll and zoom through the song, the dialog just sits there. Then move the
-intensity slider and let the lane redraw: the full load in grey, the predicted result on top in
-colour. A file with a visible red peak in the lane shows it best.</p>
-<p class="media-file">Suggested file: <code>screenshots/auto-fit_lane-preview.webm</code></p>
+<div class="screenshot-single">
+<video controls preload="metadata" style="width:100%; max-width:1200px; height:auto; display:block; margin:0 auto; background:#000;" aria-label="The editor stays usable while the dialog is open, the lane redraws, and per-track settings are remembered">
+  <source src="screenshots/auto-fit_lane-preview.webm" type="video/webm">
+  Sorry, your browser doesn't support embedded video. <a href="screenshots/auto-fit_lane-preview.webm">Download the clip</a>.
+</video>
+<p class="caption">The longer walkthrough: browsing the song with the dialog open, the lane
+redrawing its grey total against the coloured prediction, and each track keeping the density it
+was given - tick one track, set its value, move on to the next, and every setting is still there
+when you apply</p>
 </div>
 
 <hr>
