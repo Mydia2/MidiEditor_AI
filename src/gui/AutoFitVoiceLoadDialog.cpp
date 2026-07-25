@@ -398,6 +398,23 @@ AutoFitOptions AutoFitVoiceLoadDialog::currentOptions(bool dryRun) const {
 }
 
 void AutoFitVoiceLoadDialog::refreshPreview() {
+    // Modeless safety: a track add/remove/move renumbers the live tracks and
+    // would misattribute every row (labels, checkboxes, stored percents,
+    // stats) - and Apply would thin the wrong track. The world this dialog
+    // was built for is gone, so close instead of guessing. Pointer identity
+    // only, nothing stale is dereferenced.
+    if (!_file || !_file->tracks()
+        || _file->tracks()->size() != _tracks.size()) {
+        close();
+        return;
+    }
+    for (int i = 0; i < _tracks.size(); ++i) {
+        if (_file->tracks()->at(i) != _tracks[i]) {
+            close();
+            return;
+        }
+    }
+
     _lastDry = AutoFitVoiceLoadService::apply(_file, currentOptions(true));
     if (!_lastDry.ok) {
         _summaryLabel->setText(tr("Analysis failed: %1").arg(_lastDry.error));

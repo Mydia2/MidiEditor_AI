@@ -53,6 +53,14 @@
  *      (the second half of a dense run stays untouched when only the first
  *      half is selected); a scope of stale pointers matches nothing and
  *      the run is a clean no-op.
+ *  16. heldNotesRange_reportsEnteringPeak — a scoped range lying entirely
+ *      inside sustained notes (no note edge inside the window) still
+ *      reports the carried-in concurrency as peakBefore plus the overflow
+ *      range, instead of "peak 0"; nothing is removable (all notes start
+ *      outside the scope).
+ *  17. singleTickScope_isValid — startTick == endTick is a valid one-
+ *      instant INCLUSIVE scope (tool-schema contract): it thins the chord
+ *      starting at that tick and never touches material elsewhere.
  *
  * Strategy
  * --------
@@ -376,6 +384,8 @@ private slots:
     void perTrackPercent_overridesGlobal();
     void percussionStreams_thinPerPitch();
     void selectionScope_limitsMaterial();
+    void heldNotesRange_reportsEnteringPeak();
+    void singleTickScope_isValid();
 };
 
 // -------------------------------------------------------------------------
@@ -971,6 +981,63 @@ void TestAutoFitVoiceLoadService::selectionScope_limitsMaterial() {
     QCOMPARE(rStale.totalNotesInScope, 0);
     QCOMPARE(rStale.removedCount, 0);
     QVERIFY(rStale.trackSummaries.isEmpty());
+}
+
+// -------------------------------------------------------------------------
+void TestAutoFitVoiceLoadService::heldNotesRange_reportsEnteringPeak() {
+    ScopedFile f;
+    // 20 long notes (ticks 900..3000) on channels 0-4, distinct pitches:
+    // they hold straight through the scoped window [1000, 2000] but have NO
+    // edge inside it. The peak must still report the 20 carried-in voices
+    // (plus one overflow range over the 16 ceiling); nothing is removable,
+    // because every note STARTS outside the scope (protected by design).
+    for (int i = 0; i < 20; ++i) {
+        f.addNote(i % 5, 900, 2100, 40 + i, 100);
+    }
+
+    AutoFitOptions o = baseOptions();
+    o.startTick = 1000;
+    o.endTick = 2000;
+    AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
+
+    QVERIFY(r.ok);
+    QCOMPARE(r.totalNotesInScope, 0);
+    QCOMPARE(r.removedCount, 0);
+    QCOMPARE(r.peakBefore, 20);        // carried-in voices, not 0
+    QCOMPARE(r.overflowRangeCount, 1); // 20 > 16 throughout the window
+    QCOMPARE(r.remainingPeak, 20);     // nothing was removed
+}
+
+// -------------------------------------------------------------------------
+void TestAutoFitVoiceLoadService::singleTickScope_isValid() {
+    ScopedFile f;
+    // 17-voice chord at tick 5000 (inner pitch 48 the quietest) plus an
+    // identical decoy chord at tick 1000 on another channel. The ticks are
+    // INCLUSIVE per the tool-schema contract, so startTick == endTick is a
+    // valid one-instant scope: the chord at 5000 is thinned exactly like in
+    // test 2 and the decoy overflow outside the scope stays untouched.
+    for (int i = 0; i < 17; ++i) {
+        const int pitch = 40 + i;
+        f.addNote(0, 5000, 500, pitch, (pitch == 48) ? 1 : 100);
+    }
+    for (int i = 0; i < 17; ++i) {
+        const int pitch = 40 + i;
+        f.addNote(1, 1000, 500, pitch, (pitch == 48) ? 1 : 100);
+    }
+
+    AutoFitOptions o = baseOptions();
+    o.startTick = 5000;
+    o.endTick = 5000;
+    AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
+
+    QVERIFY(r.ok);
+    QCOMPARE(r.error, QString());
+    QCOMPARE(r.totalNotesInScope, 17); // only the chord AT the tick
+    QCOMPARE(r.removedCount, 1);
+    QCOMPARE(r.ceilingRemoved, 1);
+    QCOMPARE(r.removed[0].tick, 5000);
+    QCOMPARE(r.removed[0].pitch, 48);
+    QCOMPARE(r.removed[0].channel, 0); // never the decoy chord
 }
 
 QTEST_MAIN(TestAutoFitVoiceLoadService)

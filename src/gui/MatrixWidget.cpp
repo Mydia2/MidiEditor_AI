@@ -1971,6 +1971,12 @@ void MatrixWidget::zoomHorAnchored(double newScaleX) {
             newStart = 0;
         }
         scrollXChanged(newStart);
+        // Resync the scrollbars: calcSizes() above reported the PRE-anchor
+        // position and scrollXChanged() moves the view without emitting -
+        // without this the bar holds the stale value and the next scrollbar
+        // interaction jumps the viewport (same pattern as the wheel handler).
+        emit scrollChanged(startTimeX, file->maxTime() - newViewMs, startLineY,
+                           NUM_LINES - (endLineY - startLineY));
     }
 }
 

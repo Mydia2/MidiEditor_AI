@@ -1351,8 +1351,15 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
     }
     if (!opts.dryRun && r.removedCount > 0) {
         // The selection may reference just-removed events; stale pointers get
-        // re-inserted into the channel map by later selection edits.
-        Selection::instance()->clearSelection();
+        // re-inserted into the channel map by later selection edits. Clear
+        // THIS file's selection (forFile, same rule as get_selection): during
+        // an agent/MCP run the user may have switched tabs, and instance()
+        // would wipe the wrong document while the stale pointers survive in
+        // the target's retained selection.
+        Selection *sel = Selection::forFile(file);
+        if (sel) {
+            sel->clearSelection();
+        }
     }
 
     result["success"] = true;

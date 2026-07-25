@@ -47,8 +47,13 @@ signals:
     /// Emitted with the current would-be victims (live preview + button).
     void previewSelectionRequested(const QList<MidiEvent *> &events);
 
-private slots:
+public slots:
+    /// Re-runs the dry run and re-emits the preview. Public so the opener
+    /// can trigger it once AFTER wiring previewSelectionRequested - the
+    /// constructor's own initial run fires before any connection exists.
     void refreshPreview();
+
+private slots:
     void onPreviewClicked();
     void onApplyClicked();
 

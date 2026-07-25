@@ -65,7 +65,9 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
     opts.rateKeepOneOf = qBound(2, opts.rateKeepOneOf, 6);
     const int scopeStart = (opts.startTick >= 0) ? opts.startTick : 0;
     const int scopeEnd = (opts.endTick >= 0) ? opts.endTick : file->endTick();
-    if (scopeEnd <= scopeStart) {
+    // Both ticks are INCLUSIVE (tool schema contract), so an equal pair is a
+    // valid one-instant scope covering the notes that start at that tick.
+    if (scopeEnd < scopeStart) {
         result.error = QStringLiteral("Empty tick range.");
         return result;
     }
@@ -123,8 +125,21 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
         });
         int cur = 0, peak = 0;
         bool inOver = false;
+        bool primed = false;
         if (rangeCount) *rangeCount = 0;
         for (const Edge &e : edges) {
+            if (!primed && e.tick >= scopeStart) {
+                // Sample the concurrency carried INTO the scope by notes
+                // still holding: a range lying entirely inside sustained
+                // notes has no edge of its own and would otherwise report
+                // peak 0 while those voices sound throughout it.
+                primed = true;
+                peak = std::max(peak, cur);
+                if (cur > opts.targetCeiling) {
+                    if (rangeCount) ++(*rangeCount);
+                    inOver = true;
+                }
+            }
             cur += e.delta;
             if (e.tick < scopeStart || e.tick > scopeEnd) continue;
             peak = std::max(peak, cur);

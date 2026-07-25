@@ -207,8 +207,16 @@ void TempoDialog::accept() {
                     break;
                 default: break;
                 }
-                const int tick = _startTick
+                int tick = _startTick
                     + static_cast<int>(static_cast<double>(span) * gx + 0.5);
+                // The end tick belongs to k == steps alone: rounding can land
+                // an intermediate step on _endTick first, and the keep-first
+                // dedupe below would then drop the FINAL step - the one
+                // carrying endBeats - leaving everything after the range at a
+                // near-target tempo (e.g. 289 instead of 300 BPM).
+                if (k < steps && tick >= _endTick) {
+                    tick = _endTick - 1;
+                }
                 if (tick == lastTick) {
                     continue; // range shorter than the BPM step count
                 }

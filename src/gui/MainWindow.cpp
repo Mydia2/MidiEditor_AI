@@ -2021,6 +2021,14 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     // connections from stacking up every time the user returns to a tab.
     const bool firstActivation = newFile && !_connectedFiles.contains(newFile);
 
+    // The modeless Auto-Fit dialog is bound to one document - close it BEFORE
+    // Selection::setFile rebinds the active selection, so its finished
+    // handler cleans up the OLD document's preview selection instead of
+    // wiping the new document's restored one.
+    if (_autoFitDialog) {
+        _autoFitDialog->close();
+    }
+
     Selection::setFile(newFile);
     // Phase 28.1c: channel visibility is per-document; make this document's
     // state active before the panels (channelWidget etc.) read it below. A new
@@ -2036,13 +2044,6 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     Tool::setFile(newFile);
     _midiPilotWidget->onFileChanged(newFile);
     if (_mcpServer) _mcpServer->setFile(newFile);
-
-    // The modeless Auto-Fit dialog is bound to one document - close it when
-    // the active document changes (its selection/lane preview would target
-    // the wrong file otherwise).
-    if (_autoFitDialog) {
-        _autoFitDialog->close();
-    }
 
     // The authentic-SID player is a singleton - rebind its source to the
     // active document (a .sid document keeps the original .sid as its path).
@@ -6786,20 +6787,30 @@ void MainWindow::openAutoFitDialog(int startTick, int endTick,
                 }
                 updateAll();
             });
-    connect(dialog, &QDialog::finished, this, [this, dialog](int rc) {
+    connect(dialog, &QDialog::finished, this, [this, dialog, dialogFile](int rc) {
         if (_voiceLaneWidget) {
             _voiceLaneWidget->clearPreview();
         }
         // The live preview keeps the victim set selected; after an apply
         // those pointers are dangling, after a cancel the highlight is just
-        // noise - drop the selection either way.
-        Selection::instance()->clearSelection();
+        // noise - drop the selection either way. forFile, not instance():
+        // when the close comes from a tab switch the active selection may
+        // already belong to the NEW document.
+        Selection *dialogSel = Selection::forFile(dialogFile);
+        if (dialogSel) {
+            dialogSel->clearSelection();
+        }
         eventWidget()->reportSelectionChangedByTool();
         if (rc == QDialog::Accepted) {
             statusBar()->showMessage(dialog->resultSummary(), 5000);
         }
         updateAll();
     });
+    // The constructor's initial dry run emitted previewSelectionRequested
+    // before these connections existed; refresh again now that the wiring is
+    // in place so the live preview (editor highlight + lane ghost) shows
+    // right on open.
+    dialog->refreshPreview();
     dialog->show();
 }
 
