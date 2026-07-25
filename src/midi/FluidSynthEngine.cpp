@@ -1831,4 +1831,69 @@ void FluidSynthEngine::playPreviewArpeggio(int program, bool isDrum) {
     }
 }
 
+// ============================================================================
+// v2.1.0 #2: drum-kit editor preview (per-mapping A/B and group runs).
+// ============================================================================
+int FluidSynthEngine::sfontIdWithPreset(int bank, int preset) const {
+    if (!_initialized || !_synth) return -1;
+    // fluid_synth_get_sfont(0) is the most recently loaded = highest
+    // priority font, matching loadedSoundFonts()'s ordering.
+    const int count = fluid_synth_sfcount(_synth);
+    for (int i = 0; i < count; ++i) {
+        fluid_sfont_t *sfont = fluid_synth_get_sfont(_synth, i);
+        if (!sfont) continue;
+        if (fluid_sfont_get_preset(sfont, bank, preset)) {
+            return fluid_sfont_get_id(sfont);
+        }
+    }
+    return -1;
+}
+
+void FluidSynthEngine::playPreviewNotes(const QList<PreviewNote> &notes) {
+    if (!_initialized || !_synth) return;
+
+    // Same dedicated audition channel as the melodic equalizer preview; the
+    // preset is (re-)selected before every single note, so consecutive notes
+    // can come from different fonts and banks (the whole point of an A/B).
+    const int channel = 15;
+
+    // A fresh preview supersedes the pending note-ONs of the previous one -
+    // hammering a preview button must not stack sequences. Pending OFFs stay
+    // valid: an off for a note that never sounded is harmless, an off for a
+    // sounding note is required.
+    const quint32 gen = ++_previewNoteGen;
+
+    QPointer<FluidSynthEngine> self(this);
+    for (const PreviewNote &n : notes) {
+        QTimer::singleShot(n.atMs, this, [self, gen, n, channel]() {
+            if (!self || !self->_synth) return;
+            if (gen != self->_previewNoteGen) return; // superseded
+            if (n.sfontId >= 0) {
+                fluid_synth_program_select(self->_synth, channel,
+                                           n.sfontId, n.bank, n.program);
+            } else {
+                fluid_synth_bank_select(self->_synth, channel, n.bank);
+                fluid_synth_program_change(self->_synth, channel, n.program);
+            }
+            self->_bardCurrentProgram[channel] = n.program;
+            // Equalizer coupling, mirroring playPreviewArpeggio: the FFXIV
+            // half of a preview must sound like playback WITH the user's
+            // trims, and a muted slot must be truly silent. The GM half
+            // (bank 128) is a reference sound outside the FFXIV mixer, so
+            // only the master gain applies there.
+            const float g = (n.bank == 128)
+                ? FfxivEqualizerService::instance()->masterGain()
+                : FfxivEqualizerService::instance()->gainFor(n.program, false);
+            fluid_synth_set_gen(self->_synth, channel, GEN_ATTENUATION,
+                                ffxivEqualizerCb(g));
+            if (g <= 0.0f) return; // muted - silent preview
+            fluid_synth_noteon(self->_synth, channel, n.key, n.velocity);
+        });
+        QTimer::singleShot(n.atMs + n.holdMs, this, [self, n, channel]() {
+            if (!self || !self->_synth) return;
+            fluid_synth_noteoff(self->_synth, channel, n.key);
+        });
+    }
+}
+
 #endif // FLUIDSYNTH_SUPPORT

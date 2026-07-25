@@ -229,6 +229,23 @@ mapping the same GM drum twice, which would ask one drum to sound on two instrum
 </p>
 
 <p>
+You do not have to map blind: the speaker button on each row plays the <b>GM drum first and the
+mapped FFXIV pitch right after</b>, back to back, so your ears can judge whether the target fits
+the source. <b>Preview group</b> plays all of a tab's mapped pitches as a run in drum order -
+the quickest way to hear whether a tom line still runs like a tom line. The status line under
+the buttons always says what is playing, or the reason nothing can (playback running, the
+instrument muted in the SoundFont Equalizer, the built-in synthesizer not selected as output).
+</p>
+
+<p>
+The FFXIV half of the comparison comes from the FFXIV SoundFont. For the GM half, a General
+MIDI SoundFont has to be loaded alongside it - the FFXIV font itself contains no GM drum kit.
+Enable one (for example GeneralUser GS, available via <b>Settings &rarr; Midi I/O &rarr;
+Download Default...</b>) and keep it BELOW the FFXIV font in the priority list; the editor tells
+you when the GM half is unavailable and previews just the FFXIV side then.
+</p>
+
+<p>
 Your kits are stored with your settings, appear in the pitch-mapping selector right after the
 shipped ones, and can be deleted from the editor. The shipped kits cannot be overwritten or
 deleted, so a botched experiment never costs you the originals.

@@ -2,6 +2,13 @@
 #include "Appearance.h"
 #include "FfxivDrumKitStore.h"
 
+#ifdef FLUIDSYNTH_SUPPORT
+#  include "FfxivSoundFontHelper.h"
+#  include "../midi/FfxivEqualizerService.h"
+#  include "../midi/FluidSynthEngine.h"
+#  include "../midi/MidiPlayer.h"
+#endif
+
 #include <QCloseEvent>
 #include <QDialogButtonBox>
 #include <QGroupBox>
@@ -11,11 +18,15 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace {
 
@@ -141,7 +152,25 @@ FfxivDrumKitEditorDialog::FfxivDrumKitEditorDialog(QWidget *parent)
     rowButtons->addWidget(_addRowButton);
     rowButtons->addWidget(_removeRowButton);
     rowButtons->addStretch();
+#ifdef FLUIDSYNTH_SUPPORT
+    _groupPreviewButton = new QPushButton(tr("Preview group"), this);
+    _groupPreviewButton->setToolTip(
+        tr("Plays this instrument's mapped FFXIV pitches in drum order - "
+           "hear whether the mapping makes musical sense as a run."));
+    rowButtons->addWidget(_groupPreviewButton);
+    connect(_groupPreviewButton, &QPushButton::clicked,
+            this, [this]() { previewGroup(); });
+#endif
     rightColumn->addLayout(rowButtons);
+#ifdef FLUIDSYNTH_SUPPORT
+    // Preview status line: what a click will play, or the visible reason it
+    // cannot (a greyed control whose reason hides in a hover tooltip reads
+    // as a bug - the buttons stay clickable and this label explains).
+    _previewHintLabel = new QLabel(this);
+    _previewHintLabel->setWordWrap(true);
+    _previewHintLabel->setStyleSheet("QLabel { color: gray; font-size: 10px; }");
+    rightColumn->addWidget(_previewHintLabel);
+#endif
     columns->addLayout(rightColumn, 5);
 
     _statusLabel = new QLabel(this);
@@ -154,14 +183,34 @@ FfxivDrumKitEditorDialog::FfxivDrumKitEditorDialog(QWidget *parent)
     mainLayout->addWidget(buttons);
 
     // One table per group, built once from the shipped skeleton: the group set
-    // is fixed, only the rows inside change per kit.
+    // is fixed, only the rows inside change per kit. With FluidSynth support a
+    // third column carries the per-mapping A/B audition button; collectKit()
+    // and setEditable() only ever touch columns 0 and 1, so the extra column
+    // cannot affect saving, and the audition stays available on the
+    // read-only shipped kits (the primary comparison case).
+#ifdef FLUIDSYNTH_SUPPORT
+    const int tableColumns = 3;
+    const QStringList tableHeaders = {tr("GM drum (source)"),
+                                      tr("FFXIV pitch (target)"), tr("A/B")};
+#else
+    const int tableColumns = 2;
+    const QStringList tableHeaders = {tr("GM drum (source)"),
+                                      tr("FFXIV pitch (target)")};
+#endif
     const QList<FfxivDrumMapPreset> builtins = FfxivDrumMapPreset::presets();
     if (!builtins.isEmpty()) {
         for (const FfxivDrumMapGroup &g : builtins.first().groups) {
-            QTableWidget *table = new QTableWidget(0, 2, this);
-            table->setHorizontalHeaderLabels(
-                {tr("GM drum (source)"), tr("FFXIV pitch (target)")});
+            QTableWidget *table = new QTableWidget(0, tableColumns, this);
+            table->setHorizontalHeaderLabels(tableHeaders);
             table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+            if (tableColumns > 2) {
+                // Fixed width for the button column: ResizeToContents measures
+                // items through the delegate and these cells hold only a cell
+                // widget, so it would collapse to the header text.
+                table->horizontalHeader()->setSectionResizeMode(
+                    2, QHeaderView::Fixed);
+                table->setColumnWidth(2, 52);
+            }
             table->verticalHeader()->setVisible(false);
             table->setSelectionBehavior(QAbstractItemView::SelectRows);
             _groupTabs->addTab(table, tr("%1 (program %2)")
@@ -188,6 +237,29 @@ FfxivDrumKitEditorDialog::FfxivDrumKitEditorDialog(QWidget *parent)
     connect(closeButton, &QPushButton::clicked, this, &QDialog::close);
 
     reloadKitList();
+
+#ifdef FLUIDSYNTH_SUPPORT
+    // Show the preview situation BEFORE the first click - especially whether
+    // the GM half of the A/B is available, which depends on a GM SoundFont
+    // being loaded next to the FFXIV one.
+    const QString blocker = previewHardBlocker();
+    if (!blocker.isEmpty()) {
+        setPreviewHint(blocker, true);
+    } else if (FluidSynthEngine::instance()->sfontIdWithPreset(128, 0) < 0) {
+        setPreviewHint(tr("Preview ready (FFXIV side only): no General MIDI "
+                          "drum kit is loaded, so the GM half of the A/B "
+                          "stays silent. Enable a GM SoundFont (e.g. "
+                          "GeneralUser GS via Settings > Midi I/O > Download "
+                          "Default...) alongside the FFXIV font to hear "
+                          "both."),
+                       true);
+    } else {
+        setPreviewHint(tr("Speaker button: plays the GM drum, then the FFXIV "
+                          "target. \"Preview group\" plays a tab's mapped "
+                          "pitches as a run."),
+                       false);
+    }
+#endif
 }
 
 void FfxivDrumKitEditorDialog::reloadKitList(const QString &select) {
@@ -297,6 +369,31 @@ void FfxivDrumKitEditorDialog::addRow(int groupIndex, int sourceNote,
                 markDirty();
             });
     table->setCellWidget(row, 1, target);
+
+#ifdef FLUIDSYNTH_SUPPORT
+    // Per-mapping A/B audition: the GM drum first, its FFXIV target right
+    // after - the back-to-back sequencing is what makes the comparison
+    // possible at all (two separate buttons would put a mouse-move between
+    // the sounds). Reads the CURRENT spin values via QPointer at click time,
+    // so it follows edits and cannot dangle after row removal.
+    QToolButton *abButton = new QToolButton(table);
+    abButton->setAutoRaise(true);
+    abButton->setIcon(Appearance::adjustIconForDarkMode(
+        ":/run_environment/graphics/channelwidget/loud.png"));
+    abButton->setToolTip(tr("Play the GM drum, then the FFXIV target"));
+    const int program = (groupIndex < _groupPrograms.size())
+                            ? _groupPrograms[groupIndex] : 0;
+    QPointer<QSpinBox> sourceRef(source);
+    QPointer<QSpinBox> targetRef(target);
+    connect(abButton, &QToolButton::clicked, this,
+            [this, sourceRef, targetRef, program, table, abButton]() {
+                if (!sourceRef || !targetRef) return;
+                const QModelIndex idx = table->indexAt(abButton->pos());
+                if (idx.isValid()) table->selectRow(idx.row());
+                previewMapping(sourceRef->value(), targetRef->value(), program);
+            });
+    table->setCellWidget(row, 2, abButton);
+#endif
 }
 
 void FfxivDrumKitEditorDialog::setEditable(bool editable) {
@@ -463,6 +560,177 @@ void FfxivDrumKitEditorDialog::setStatus(const QString &text, bool isError) {
     _statusLabel->setStyleSheet(isError ? "QLabel { color: #f85149; }"
                                         : "QLabel { color: gray; }");
 }
+
+#ifdef FLUIDSYNTH_SUPPORT
+// ---------------------------------------------------------------------------
+// Audio preview (v2.1.0 #2). Everything below talks to FluidSynth directly
+// through the engine's preview API - deliberately NOT through the MIDI byte
+// path, which in FFXIV SoundFont Mode forces every channel to bank 0 while
+// the GM half of an A/B pair lives in bank 128 (GeneralUser GS or another
+// GM font loaded alongside the FFXIV one).
+// ---------------------------------------------------------------------------
+
+QString FfxivDrumKitEditorDialog::previewHardBlocker() const {
+    if (!FluidSynthEngine::instance()->isInitialized()) {
+        return tr("The built-in synthesizer is not running - select "
+                  "\"FluidSynth (Built-in Synthesizer)\" as the MIDI output "
+                  "to hear previews.");
+    }
+    if (MidiPlayer::isPlaying()) {
+        return tr("Stop playback to hear previews.");
+    }
+    return QString();
+}
+
+int FfxivDrumKitEditorDialog::ffxivSfontId() const {
+    // Pin the target side to the FFXIV font explicitly: GeneralUser GS also
+    // carries bank-0 programs 116-119 (Taiko/Melodic Tom/...), so relying on
+    // stack priority would let a reordered font list hijack the audition.
+    const QList<QPair<int, QString>> fonts =
+        FluidSynthEngine::instance()->loadedSoundFonts();
+    for (const QPair<int, QString> &f : fonts) {
+        if (FfxivSoundFontHelper::isFfxivSoundFont(f.second)) return f.first;
+    }
+    return -1;
+}
+
+void FfxivDrumKitEditorDialog::setPreviewHint(const QString &text,
+                                              bool isWarning) {
+    if (!_previewHintLabel) return;
+    _previewHintLabel->setText(text);
+    _previewHintLabel->setStyleSheet(
+        isWarning ? "QLabel { color: #f0883e; font-size: 10px; }"
+                  : "QLabel { color: gray; font-size: 10px; }");
+}
+
+void FfxivDrumKitEditorDialog::previewMapping(int sourceNote, int targetNote,
+                                              int program) {
+    const QString blocker = previewHardBlocker();
+    if (!blocker.isEmpty()) {
+        setPreviewHint(blocker, true);
+        return;
+    }
+    FfxivEqualizerService *eq = FfxivEqualizerService::instance();
+    if (eq->masterGain() <= 0.0f || eq->gainFor(program, false) <= 0.0f) {
+        // The engine would swallow the NoteOn (a muted preset must be truly
+        // silent); without this hint that reads as a broken button.
+        setPreviewHint(tr("This instrument is muted in the FFXIV SoundFont "
+                          "Equalizer - unmute it to hear the preview."),
+                       true);
+        return;
+    }
+
+    FluidSynthEngine *engine = FluidSynthEngine::instance();
+    const int gmId = engine->sfontIdWithPreset(128, 0);
+    const int fxId = ffxivSfontId();
+    const QString groupName =
+        _groupNames.value(_groupPrograms.indexOf(program), tr("FFXIV"));
+
+    QList<FluidSynthEngine::PreviewNote> seq;
+    int targetAt = 0;
+    if (gmId >= 0) {
+        FluidSynthEngine::PreviewNote gm;
+        gm.sfontId = gmId;
+        gm.bank = 128;   // the GM percussion kit
+        gm.program = 0;  // Standard Kit
+        gm.key = sourceNote;
+        gm.atMs = 0;
+        gm.holdMs = 320;
+        seq.append(gm);
+        targetAt = 430;  // back to back, with a beat of air between A and B
+    }
+    FluidSynthEngine::PreviewNote fx;
+    fx.sfontId = fxId;
+    fx.bank = 0;
+    fx.program = program;
+    fx.key = targetNote;
+    fx.atMs = targetAt;
+    fx.holdMs = 320;
+    seq.append(fx);
+    engine->playPreviewNotes(seq);
+
+    if (gmId < 0) {
+        setPreviewHint(tr("FFXIV target only - no General MIDI drum kit is "
+                          "loaded, so the GM half of the comparison stays "
+                          "silent. Enable a GM SoundFont (e.g. GeneralUser "
+                          "GS via Settings > Midi I/O > Download Default...) "
+                          "alongside the FFXIV font to hear both."),
+                       true);
+    } else if (fxId < 0) {
+        setPreviewHint(tr("Playing GM %1 (%2), then %3 at %4 - note: no FFXIV "
+                          "SoundFont is loaded, the target may not use the "
+                          "in-game sound.")
+                           .arg(sourceNote)
+                           .arg(QString::fromLatin1(gmDrumName(sourceNote)))
+                           .arg(groupName)
+                           .arg(pitchName(targetNote)),
+                       true);
+    } else {
+        setPreviewHint(tr("Playing GM %1 (%2), then %3 at %4.")
+                           .arg(sourceNote)
+                           .arg(QString::fromLatin1(gmDrumName(sourceNote)))
+                           .arg(groupName)
+                           .arg(pitchName(targetNote)),
+                       false);
+    }
+}
+
+void FfxivDrumKitEditorDialog::previewGroup() {
+    const QString blocker = previewHardBlocker();
+    if (!blocker.isEmpty()) {
+        setPreviewHint(blocker, true);
+        return;
+    }
+    const int gi = _groupTabs->currentIndex();
+    if (gi < 0 || gi >= _groupTables.size()) return;
+    const int program = _groupPrograms[gi];
+
+    FfxivEqualizerService *eq = FfxivEqualizerService::instance();
+    if (eq->masterGain() <= 0.0f || eq->gainFor(program, false) <= 0.0f) {
+        setPreviewHint(tr("This instrument is muted in the FFXIV SoundFont "
+                          "Equalizer - unmute it to hear the preview."),
+                       true);
+        return;
+    }
+
+    // The judgment a mapping needs is not one pitch in isolation but the
+    // RELATIONSHIP between the targets (does the tom run still run?), so
+    // play them as a run, ordered by their source drums.
+    QTableWidget *table = _groupTables[gi];
+    QList<QPair<int, int>> pairs; // (source, target)
+    for (int row = 0; row < table->rowCount(); ++row) {
+        QSpinBox *source = qobject_cast<QSpinBox *>(table->cellWidget(row, 0));
+        QSpinBox *target = qobject_cast<QSpinBox *>(table->cellWidget(row, 1));
+        if (!source || !target) continue;
+        pairs.append(qMakePair(source->value(), target->value()));
+    }
+    if (pairs.isEmpty()) {
+        setPreviewHint(tr("This instrument has no mappings to play."), true);
+        return;
+    }
+    std::sort(pairs.begin(), pairs.end());
+
+    const int fxId = ffxivSfontId();
+    QList<FluidSynthEngine::PreviewNote> seq;
+    int at = 0;
+    for (const QPair<int, int> &p : pairs) {
+        FluidSynthEngine::PreviewNote n;
+        n.sfontId = fxId;
+        n.bank = 0;
+        n.program = program;
+        n.key = p.second;
+        n.atMs = at;
+        n.holdMs = 220;
+        seq.append(n);
+        at += 250;
+    }
+    FluidSynthEngine::instance()->playPreviewNotes(seq);
+    setPreviewHint(tr("Playing %1 mapped %2 pitch(es) in drum order.")
+                       .arg(pairs.size())
+                       .arg(_groupNames.value(gi)),
+                   false);
+}
+#endif // FLUIDSYNTH_SUPPORT
 
 bool FfxivDrumKitEditorDialog::eventFilter(QObject *watched, QEvent *event) {
     if (event->type() == QEvent::FocusIn) {

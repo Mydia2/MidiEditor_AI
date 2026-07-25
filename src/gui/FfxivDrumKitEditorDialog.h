@@ -49,6 +49,20 @@ private slots:
     void onRemoveRow();
 
 private:
+#ifdef FLUIDSYNTH_SUPPORT
+    // === Audio preview (v2.1.0 #2, FluidSynth builds only) ===
+    /// Plays the GM source drum, then the mapped FFXIV pitch back to back.
+    void previewMapping(int sourceNote, int targetNote, int program);
+    /// Plays the current tab's mapped FFXIV pitches in drum order.
+    void previewGroup();
+    /// Empty when previews can play; otherwise the visible reason.
+    QString previewHardBlocker() const;
+    /// The loaded FFXIV SoundFont's id, or -1 (then stack resolution).
+    int ffxivSfontId() const;
+    void setPreviewHint(const QString &text, bool isWarning);
+#endif
+
+private:
     void reloadKitList(const QString &select = QString());
     void showKit(const FfxivDrumMapPreset &kit);
     /// Builds a preset from the current tables under the edited name.
@@ -78,8 +92,10 @@ private:
     QPushButton *_saveButton;
     QPushButton *_addRowButton;
     QPushButton *_removeRowButton;
+    QPushButton *_groupPreviewButton = nullptr; ///< FluidSynth builds only
     QLabel *_headerLabel;
     QLabel *_statusLabel;
+    QLabel *_previewHintLabel = nullptr;        ///< FluidSynth builds only
 
     QString _editedName;   ///< the kit currently shown ("" = none)
     bool _editable = false; ///< false for shipped kits

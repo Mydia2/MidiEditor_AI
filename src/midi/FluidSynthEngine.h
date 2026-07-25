@@ -322,6 +322,48 @@ public:
      */
     void playPreviewArpeggio(int program, bool isDrum = false);
 
+    /**
+     * \brief One note of a preview sequence for playPreviewNotes().
+     *
+     * \a sfontId pins the note to ONE loaded SoundFont (from
+     * loadedSoundFonts() / sfontIdWithPreset()) so the audition cannot be
+     * hijacked by the stack order - e.g. GeneralUser GS also carries bank-0
+     * programs 116-119 (Taiko/Melodic Tom/...), which must never shadow the
+     * FFXIV percussion in a kit preview. -1 falls back to normal stack
+     * resolution.
+     */
+    struct PreviewNote {
+        int sfontId = -1;
+        int bank = 0;      ///< 0 = melodic presets, 128 = GM percussion kit
+        int program = 0;
+        int key = 60;
+        int atMs = 0;      ///< start offset relative to the call
+        int holdMs = 250;
+        int velocity = 110;
+    };
+
+    /**
+     * \brief Plays an arbitrary preview sequence on the audition channel
+     * (15), independent of the live player. Used by the drum-kit editor
+     * (v2.1.0 #2) for per-mapping GM-vs-FFXIV A/B and group runs.
+     *
+     * Presets are selected directly on the synth (program_select), which
+     * deliberately bypasses sendMidiData(): in FFXIV SoundFont Mode that
+     * path forces every channel to bank 0, and the GM half of an A/B pair
+     * lives in bank 128. A new call supersedes the pending note-ONs of the
+     * previous one; note-offs always fire (no stuck notes). Muted equalizer
+     * slots stay silent, mirroring playPreviewArpeggio.
+     */
+    void playPreviewNotes(const QList<PreviewNote> &notes);
+
+    /**
+     * \brief Returns the id of the highest-priority loaded SoundFont that
+     * contains the given (bank, preset), or -1 when none does. Lets the
+     * drum-kit editor detect whether a GM percussion kit (bank 128,
+     * preset 0) is available for the source-side preview.
+     */
+    int sfontIdWithPreset(int bank, int preset) const;
+
 signals:
     void soundFontLoaded(int sfontId, const QString &path);
     void soundFontUnloaded(int sfontId);
@@ -454,6 +496,7 @@ private:
     qint64 _bardNoteOnMs[16][128];        // ms timestamp of last NoteOn per (ch,key)
     bool _bardNoteHeld[16][128];          // true while a NoteOn for (ch,key) is sounding
     quint32 _bardNoteGen[16][128];        // generation counter to invalidate pending offs
+    quint32 _previewNoteGen = 0;          // supersedes pending playPreviewNotes() ONs
     // Guards the _bardNote* arrays: sendMidiData() runs on the player thread but
     // the min-note-length deferred note-off (QTimer::singleShot) fires on the GUI
     // thread, so both touch these slots concurrently (BUG-CORE-004). Locked only
