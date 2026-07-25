@@ -12,7 +12,6 @@ Releases: https://github.com/happytunesai/web/releases
 * **Drum-kit editor with audio A/B** - build your own FFXIV pitch-mapping kits by duplicating any kit and editing its mappings; every row's speaker button plays the GM drum and its FFXIV target back to back, and "Preview group" plays a whole instrument's mapping as a run
 * **Tempo transition curves** - Edit Tempo's Smooth Transition gains Linear / Ease-in / Ease-out / S-curve, so an accelerando can lean in naturally instead of ramping mechanically
 * **Timeline & zoom fixes** - tempo edits extend the timeline immediately (TIMELINE-LEN-001), horizontal zoom anchors on the cursor (ZOOM-ANCHOR-001), and Smooth Transition ramps no longer freeze the editor with thousands of duplicate events (TEMPO-SMOOTH-001)
-* **Correctness pass before release** - 18 issues found and fixed while the release was still on the bench, from a tempo ramp that missed its target BPM to a dialog that could thin the wrong track; three new test targets bring the suite to 60
 
 <details>
 <summary>Full Changelog - Precision Tools</summary>
