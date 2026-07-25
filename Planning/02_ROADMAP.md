@@ -12677,3 +12677,100 @@ same cycle. **Effort:** ~2-3 days for 1-3, ~1 day for 4, plus review.
 binaries, macOS release packaging - issue #13 only removes the path blocker,
 and Tier-1 macOS policy (build-from-source only) stays until someone owns a
 Mac for testing.
+
+---
+
+# v2.2 PLAN (scoped 2026-07-25, everything still open to change)
+
+Four items picked from the 2.2 candidates. Deliberately mixed: two small wins,
+one measurement task, one technical-debt block. Order is by risk, smallest
+first, so the release can be cut after ANY of them if the cycle gets short.
+
+## #1 "Ask MidiPilot..." in the note context menu (small)
+
+Open since Phase 2 (roadmap line ~169) and now trivial: the matrix selection
+context menu exists (MatrixWidget::contextMenuEvent, where v2.1.0 hung
+Auto-Fit), and the action itself already exists in the Edit menu
+(MainWindow.cpp, "Ask MidiPilot"). So this is one addAction plus a connect -
+and it satisfies the standing rule that every tool is reachable by
+right-click at its spatial target.
+
+Worth doing properly: the entry should pre-seed the prompt with the SELECTION
+CONTEXT (bar range, track, note count), not just open an empty chat - that is
+the difference between a menu item and a useful one. Effort: half a day incl.
+the manual line.
+
+## #2 `convert_tempo_preserve_duration` AI tool (small)
+
+Phase 33.5, deferred since 1.6.0. The service (TempoConversionService) is
+headless and shipped, the tool schema is already written out at roadmap
+~9646. Pure wiring in ToolDefinitions: schema entry, dispatch, exec that
+parses source/target BPM plus the scope (whole file / events only / channel /
+selection) and calls the service inside one protocol action.
+
+Two things to get right, learned from auto_fit_voice_load: the tool must be
+NON-FFXIV (tempo conversion is generic - put it in the core tool list, which
+also exposes it over MCP), and it must clear `Selection::forFile(file)` after
+a live run rather than the active document's selection. Update the tool-count
+contract in test_tool_definitions (15 core -> 16). Effort: half a day.
+
+## #3 Undo memory: analyse first, then cap (measurement task)
+
+**Analysis done 2026-07-25, findings:**
+
+* The undo stack is `QList<ProtocolStep *> *_undoSteps` (Protocol.h:159) with
+  NO cap anywhere in the class - it grows for the lifetime of the document.
+* Cost per step is NOT uniform, which is why a naive "cap at N steps" is a
+  guess. Two very different shapes:
+  - *Fine-grained edits* (move one note) store a handful of small
+    ProtocolItems.
+  - *Bulk ops* (Auto-Fit, Edit Tempo, drum split, channel fixer, paste) take
+    a per-channel snapshot: `MidiChannel::copy()` -> `new MidiChannel(*this)`
+    (MidiChannel.cpp:48-59), which allocates an INDEPENDENT
+    `QMultiMap<int, MidiEvent*>` holding one node per event. The MidiEvents
+    themselves are shared, so a snapshot costs map nodes (tens of bytes each),
+    not note data - a 20k-event channel is roughly a megabyte per snapshot,
+    and one bulk op can snapshot several channels.
+  - Additionally, events REMOVED by a bulk op must stay alive for undo, so
+    their ~336 B/note (test_event_perf) is held by the stack, not freed.
+* Multiplied by tabs: every MidiFile owns its own Protocol, so the total is
+  (history depth) x (documents open).
+* There is no memory readout anywhere in src/ (grepped) - so today neither the
+  user nor we can see the number.
+
+**Plan, in this order:** (a) instrument first - a debug/status readout of
+per-document undo depth and estimated bytes (sum of snapshot map sizes +
+retained removed events), reachable from the Protocol panel or a Help/About
+diagnostics line; (b) measure a real session (Dragonforce-sized file, an hour
+of editing, several tabs) to learn whether the practical ceiling is 50 MB or
+2 GB; (c) only THEN decide the cap policy - and prefer a byte budget over a
+step count, because of the shape difference above. Also on the list: the
+never-measured GL-context cost per tab (roadmap line 12036), which is the
+other unbounded term and the prerequisite for lazy view construction.
+
+Effort: 1 day for (a)+(b); the cap itself is small once the numbers exist.
+Explicitly NOT doing: a cap based on a guessed number.
+
+## #4 Phase 45 AppPaths - issue #13 + portable INI (technical debt)
+
+See Phase 45 above for the full design. For 2.2 the split matters: steps 1-3
+(AppPaths helper, route the 15 exe-relative sites, gate the in-place
+AutoUpdater to Windows) CLOSE issue #13 and leave Windows behaviour
+byte-identical; step 4 (portable settings via a marker file) is the payoff
+that finally makes a USB-stick copy carry its settings. Doing 1-3 alone is a
+legitimate 2.2 outcome; step 4 can slip to 2.3 without leaving anything
+half-finished.
+
+Bonus already noted: one settings accessor replaces the per-service
+`setSettingsScopeForTests` seams that the v2.1.0 round-2 review forced into
+FfxivEqualizerService and FfxivDrumKitStore.
+
+## Also parked for 2.2+ (not committed)
+
+Phase 44 (manual bot) stays a strong candidate - it pairs well with #1, since
+"Ask MidiPilot" on a selection is exactly where a user asks "what does this
+tool do". Beyond that, from the 2026-07-25 roadmap sweep: MusicXML tuplet
+detection + `.mxl` export, conversation summarization ("Compact"), the
+`analyze_mix_balance` read-only tool, the Trim Start tool port, the rainbow
+octave strip (~18 lines), and a "reasoning model, this can take minutes"
+status hint.
