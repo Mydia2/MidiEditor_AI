@@ -12,7 +12,7 @@ Releases: https://github.com/happytunesai/web/releases
 * **Drum-kit editor with audio A/B** - build your own FFXIV pitch-mapping kits by duplicating any kit and editing its mappings; every row's speaker button plays the GM drum and its FFXIV target back to back, and "Preview group" plays a whole instrument's mapping as a run
 * **Tempo transition curves** - Edit Tempo's Smooth Transition gains Linear / Ease-in / Ease-out / S-curve, so an accelerando can lean in naturally instead of ramping mechanically
 * **Timeline & zoom fixes** - tempo edits extend the timeline immediately (TIMELINE-LEN-001), horizontal zoom anchors on the cursor (ZOOM-ANCHOR-001), and Smooth Transition ramps no longer freeze the editor with thousands of duplicate events (TEMPO-SMOOTH-001)
-* **Hardened by two multi-agent review passes** - 18 adversarially verified findings fixed before release, and three new test targets bring the suite to 60
+* **Correctness pass before release** - 18 issues found and fixed while the release was still on the bench, from a tempo ramp that missed its target BPM to a dialog that could thin the wrong track; three new test targets bring the suite to 60
 
 <details>
 <summary>Full Changelog - Precision Tools</summary>
@@ -30,9 +30,6 @@ Releases: https://github.com/happytunesai/web/releases
 * **Fixed horizontal zoom ignoring the cursor (ZOOM-ANCHOR-001)** - zooming in or out was anchored to the left edge of the view, so the position under the cursor/marker drifted away ("the zoom lands somewhere arbitrary"). Zoom now anchors on the cursor when it is visible (it keeps its screen position, so zooming dives into the marker) and on the viewport centre otherwise.
 * **Fixed Smooth Transition tempo ramps freezing the editor (TEMPO-SMOOTH-001)** - the Edit Tempo tool wrote a tempo event every 5 ticks (a 25-BPM ramp over a few measures produced thousands of events, almost all duplicates), each one individually undo-protocolled, and every later tick-to-time conversion copied the whole tempo map per call - scrolling and editing crawled afterwards. Smooth Transition now writes exactly one event per BPM step (evenly spread, endpoints exact), applies as a single undo step, and the tick/time conversions walk the tempo map without copying it - which also un-lags files that already come with dense imported tempo ramps. (merged 2026-07-19)
 * **Fixed the unit tests wiping the real app configuration (dev/from-source builds)** - running `ctest` cleared the app's actual settings scope, erasing API configuration, equalizer presets and user-made drum kits. The affected tests now run against their own scope. Shipped binaries were never affected.
-
-### Technical Notes
-* **Two multi-agent pre-release reviews** - every new subsystem of this release (Auto-Fit engine and dialog, tempo curves, kit store/editor, audio preview engine) was swept by dimension-focused reviewers and each finding adversarially verified before fixing: 8 confirmed findings in round one, 10 in round two, 0 false positives shipped. Three new test targets (tempo-curve math, Auto-Fit dialog logic, drum-kit store) bring the suite from 57 to 60 - the two layers where review findings clustered had no automated coverage before.
 
 </details>
 
