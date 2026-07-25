@@ -12619,3 +12619,61 @@ prompt, and the AI has no way to read it.
 scorer ~200, two tool defs + exec ~150, prompt line, test target).
 **Non-goals:** vector search, online lookups, a chatbot UI of its own - the
 existing chat IS the UI.
+
+---
+
+## Phase 45: AppPaths - one storage layer (issue #13 + Portable Mode) - 2.2 candidate
+
+Two long-standing items are the SAME problem seen from two sides, so they get
+one design, one review, one phase:
+
+* **Issue #13 (macOS blocker, labelled help wanted):** 10 write sites live
+  next to the executable, which is impossible inside a signed `.app` bundle.
+  No distributed macOS build can exist until they have a platform-aware home.
+* **Portable Mode (Tier-2 upstream port, roadmap Phase 38):** settings live in
+  the WINDOWS REGISTRY (`QSettings("MidiEditor","NONE")`), not next to the
+  exe - so the app is only *half* portable today. A USB-stick copy carries its
+  soundfonts and logs but loses every setting.
+
+**Inventory re-verified 2026-07-25 (v2.1.0), issue #13's list still accurate:**
+15 `applicationDirPath()` uses across 12 files (logs in main.cpp / AiClient /
+AgentRunner, `soundfonts/` in DownloadSoundFontDialog / C64Mode /
+C64SoundFontHelper / FfxivSoundFontHelper, `system_prompts.json` in
+SystemPromptDialog, the in-place AutoUpdater, plus open-log buttons).
+v2.1.0 added NO new exe-relative site. It DID add one settings user -
+`FfxivDrumKitStore` (user drum kits) - bringing the registry-scope users to
+10 files: LoggingConfig, AgentRunner, PromptProfileStore, ToolDefinitions,
+SidImporter, C64Mode, FfxivDrumKitStore, MidiPilotWidget, PrCreateDialog,
+FfxivEqualizerService.
+
+**Design:**
+
+1. **`src/AppPaths.{h,cpp}`** - `dataDir()`, `logsDir()`, `soundFontsDir()`,
+   `configFile()`. Windows: exe-relative exactly as today, byte-identical
+   behaviour (portability is a FEATURE here, not an accident). macOS/Linux:
+   `QStandardPaths::AppDataLocation` / `AppLocalDataLocation`. One place, one
+   test target.
+2. **Route the write sites + their read counterparts** through it. Mechanical,
+   reviewable per file.
+3. **Gate the in-place AutoUpdater to `Q_OS_WIN`**; elsewhere notify-only with
+   a link to the releases page (a signed bundle cannot rewrite itself).
+4. **Portable settings (the second half):** a `settings()` accessor that
+   returns `QSettings(iniPathNextToExe, IniFormat)` when a portable marker is
+   present (`portable.txt` next to the exe, or `--portable`), else today's
+   native scope. Migration = copy-on-first-use. This also fixes the class of
+   defect round 2 of the v2.1.0 review found (tests clearing the real registry
+   scope): with one accessor there is exactly ONE place to redirect, instead
+   of the per-service `setSettingsScopeForTests` seams we now have in
+   FfxivEqualizerService and FfxivDrumKitStore.
+5. **Tests:** a target pinning that Windows paths are unchanged (regression
+   guard for the portable promise), that the portable marker flips the config
+   target, and that no `applicationDirPath()` write site remains outside
+   AppPaths (a simple source grep test, like the tool-count contract).
+
+**Sequencing:** step 1-3 close issue #13 (macOS unblocked, Windows untouched)
+and are worth doing alone; step 4 is the portable payoff and can follow in the
+same cycle. **Effort:** ~2-3 days for 1-3, ~1 day for 4, plus review.
+**Still not in scope (per the issue):** signing, notarization, universal
+binaries, macOS release packaging - issue #13 only removes the path blocker,
+and Tier-1 macOS policy (build-from-source only) stays until someone owns a
+Mac for testing.
