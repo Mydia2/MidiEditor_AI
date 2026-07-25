@@ -1,6 +1,7 @@
 #include "AutoFitVoiceLoadDialog.h"
 #include "Appearance.h"
 
+#include "../MidiEvent/MidiEvent.h"
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
 #include "../protocol/Protocol.h"
@@ -44,8 +45,14 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
       _previewButton(nullptr),
       _applyButton(nullptr) {
 
+    // Which tracks actually carry selected notes - with a selection scope
+    // only THOSE tracks start checked, so the dialog mirrors what the user
+    // picked in the editor (the pointers are live at open time).
+    QSet<int> selTracks;
     for (MidiEvent *ev : selectionScope) {
-        if (ev) _selectionScope.insert(reinterpret_cast<quintptr>(ev));
+        if (!ev) continue;
+        _selectionScope.insert(reinterpret_cast<quintptr>(ev));
+        if (ev->track()) selTracks.insert(ev->track()->number());
     }
 
     setWindowTitle(tr("Auto-Fit Voice Load"));
@@ -219,7 +226,11 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
             QHBoxLayout *row = new QHBoxLayout();
             QCheckBox *cb = new QCheckBox(
                 tr("Track %1: %2").arg(t->number()).arg(name), trackListWidget);
-            cb->setChecked(true);
+            // No signals are wired yet, so this cannot fire a premature
+            // refreshPreview; with a selection scope only the tracks whose
+            // notes are selected start checked.
+            cb->setChecked(_selectionScope.isEmpty()
+                           || selTracks.contains(t->number()));
             row->addWidget(cb, 1);
             // Eye = the Tracks panel's visibility toggle, reachable while the
             // modal dialog is open. Hiding tracks switches the voice lane
