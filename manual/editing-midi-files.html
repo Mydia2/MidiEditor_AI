@@ -11,6 +11,12 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
+<style>
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+</style>
 </head>
 <body>
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
@@ -376,14 +382,8 @@
                         <br>
                         You can also select a time period by letting the mouse pressed after clicking and
                         moving the mouse to the end of the time period. This allows you to gradually increase
-                        or decrease the tempo (Smooth Transition).
-                        <br>
-                        For a smooth transition, the Curve option controls how the tempo moves from the
-                        starting value to the new one: Linear changes evenly across the whole range,
-                        Ease-in barely changes at first and then speeds up (a natural accelerando),
-                        Ease-out changes quickly at first and then settles into the target, and S-curve
-                        is gentle at both ends. The transition writes one tempo event per BPM step and
-                        is undone as a single step.
+                        or decrease the tempo (Smooth Transition) - see
+                        <a href="#tempo-curves">Smooth Transitions &amp; Curves</a> below.
 		</td>
 	</tr>
 	<tr>
@@ -394,6 +394,70 @@
 		</td>
 	</tr>
 </table>
+
+<h3 id="tempo-curves">Smooth Transitions &amp; Curves</h3>
+
+<p>
+A smooth transition ramps the tempo across the selected time period instead of jumping to the
+new value. Drag the Edit Tempo tool over a range, enter the starting and ending BPM, tick
+<b>Smooth transition</b>, and pick a <b>Curve</b> - the shape decides <i>where along the range
+the tempo change happens</i>, which is what makes a ramp feel musical rather than mechanical.
+</p>
+
+<table class="info-table">
+<tr><th>Curve</th><th>Behaviour</th><th>Musical use</th></tr>
+<tr>
+  <td><b>Linear</b> (default)</td>
+  <td>The tempo changes evenly across the whole range.</td>
+  <td>Neutral ramps, technical adjustments, click-track-style transitions.</td>
+</tr>
+<tr>
+  <td><b>Ease-in</b></td>
+  <td>Barely changes at first, then accelerates toward the end.</td>
+  <td>The natural accelerando: a band speeding up leans in gradually before it really takes
+      off. Also the natural shape for a ritardando into a fermata when ramping downward.</td>
+</tr>
+<tr>
+  <td><b>Ease-out</b></td>
+  <td>Changes quickly at first, then settles gently into the target.</td>
+  <td>Arriving at a new tempo without overshooting the feel - e.g. dropping into a
+      half-time section that should lock in early.</td>
+</tr>
+<tr>
+  <td><b>S-curve</b></td>
+  <td>Gentle at both ends, steepest in the middle.</td>
+  <td>Long transitions that should neither lurch at the start nor slam into the target -
+      the smoothest option for big BPM distances.</td>
+</tr>
+</table>
+
+<p>
+Under the hood the transition writes <b>one tempo event per whole BPM step</b>, not one event
+every few ticks - a 25-BPM ramp is 25 events, not thousands, so scrolling and tick-to-time
+conversions stay fast afterwards. The last event always lands exactly on the end of the range
+carrying the target BPM, whichever curve is chosen, and everything after the range plays at
+that tempo. The whole transition is <b>a single undo step</b>: Ctrl+Z restores the previous
+tempo map, and applying again with a different curve replaces the ramp cleanly, so comparing
+two curves is undo, re-apply, listen.
+</p>
+
+<div class="media-todo" style="border: 2px dashed var(--border); border-radius: 8px; background: var(--bg-secondary); padding: 1rem 1.25rem; margin: 1.5rem 0;">
+<p style="margin: 0.35rem 0; font-size: 0.92em;"><b>[Screenshot placeholder]</b> The Edit Tempo
+dialog after dragging over a range: start and end BPM filled in, Smooth transition ticked, and
+the Curve dropdown open so all four options are readable.</p>
+<p style="margin: 0.35rem 0; font-size: 0.85em; color: var(--text-muted);">Suggested file:
+<code>screenshots/edit-tempo_curves.png</code></p>
+</div>
+
+<div class="media-todo" style="border: 2px dashed var(--border); border-radius: 8px; background: var(--bg-secondary); padding: 1rem 1.25rem; margin: 1.5rem 0;">
+<p style="margin: 0.35rem 0; font-size: 0.92em;"><b>[Video placeholder, silent]</b> Drag the
+tool over a range, set 100 &rarr; 160 BPM with Ease-in, apply, and scroll the tempo strip in
+the control editor so the resulting event staircase is visible - then undo, re-apply with
+S-curve, and show the different staircase. The visual difference between the curves IS the
+content here.</p>
+<p style="margin: 0.35rem 0; font-size: 0.85em; color: var(--text-muted);">Suggested file:
+<code>screenshots/edit-tempo_curves.webm</code></p>
+</div>
 
 <h3 id="measures">Add or remove measures</h3>
 <table border="0" cellspacing="0" cellpadding="2">

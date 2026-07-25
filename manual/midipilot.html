@@ -373,7 +373,7 @@ When the <b>FFXIV</b> checkbox is enabled, MidiPilot appends additional constrai
 </p>
 
 <ul>
-<li><b>Agent + FFXIV</b> - Full FFXIV context (~3500 chars) with detailed guidance + 4 FFXIV-specific tools (<code>validate_ffxiv</code>, <code>convert_drums_ffxiv</code>, <code>setup_channel_pattern</code>, <code>analyze_voice_load</code>)</li>
+<li><b>Agent + FFXIV</b> - Full FFXIV context (~3500 chars) with detailed guidance + 5 FFXIV-specific tools (<code>validate_ffxiv</code>, <code>convert_drums_ffxiv</code>, <code>setup_channel_pattern</code>, <code>analyze_voice_load</code>, <code>auto_fit_voice_load</code>)</li>
 <li><b>Simple + FFXIV</b> - Compact FFXIV context (~1300 chars) optimized for token budget. Includes a warning that large compositions may exceed limits</li>
 </ul>
 
@@ -639,7 +639,7 @@ Auto-save options are in <b>Settings &rarr; System &amp; Performance</b>:
 <h2 id="tools">AI Tools Reference</h2>
 
 <p>
-In Agent mode, the AI has access to <b>19 tools</b> (15 core + 4 FFXIV-specific) for inspecting and modifying MIDI files. These are the same core tools exposed over the <a href="mcp-server.html">MCP server</a>:
+In Agent mode, the AI has access to <b>20 tools</b> (15 core + 5 FFXIV-specific) for inspecting and modifying MIDI files. These are the same core tools exposed over the <a href="mcp-server.html">MCP server</a>:
 </p>
 
 <table>
@@ -663,6 +663,7 @@ In Agent mode, the AI has access to <b>19 tools</b> (15 core + 4 FFXIV-specific)
 <tr><td><code>convert_drums_ffxiv</code></td><td>Convert GM drum kit to FFXIV-compatible tone-mapped notes</td></tr>
 <tr><td><code>validate_ffxiv</code></td><td>Check FFXIV Bard Performance rule compliance</td></tr>
 <tr><td><code>analyze_voice_load</code></td><td>Read-only audit of the FFXIV 16-voice ceiling and 14&nbsp;notes/sec/channel rate cap. Returns <code>globalPeak</code>, <code>overflowRanges</code> and <code>rateHotspots</code> - see <a href="ffxiv-voice-limiter.html#ai-tool">FFXIV Voice Limiter</a></td></tr>
+<tr><td><code>auto_fit_voice_load</code></td><td>The matching action tool: thins overloaded moments and over-dense passages (whole file or a tick range). Defaults to a dry run and requires the user's confirmation before the real pass - see <a href="auto-fit-voice-load.html#ai-tool">Auto-Fit Voice Load</a></td></tr>
 </table>
 
 <hr>

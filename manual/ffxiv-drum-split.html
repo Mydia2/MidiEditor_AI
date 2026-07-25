@@ -57,6 +57,30 @@
 .kit-details summary:hover { color: var(--accent); }
 .kit-details .instrument-table { margin-top: 0.25rem; }
 .kit-details .unmapped-note { color: var(--text-muted); font-size: 0.9em; margin: 0.5rem 0 0.8rem; }
+/* Placeholders for screenshots and videos that are not shot yet. Replace the
+   whole block with the matching .screenshot-single markup once the asset
+   exists - the intended file name is part of every placeholder. */
+.media-todo {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+}
+.media-todo .media-kind {
+    display: inline-block;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    margin-bottom: 0.6rem;
+}
+.media-todo p { margin: 0.35rem 0; font-size: 0.92em; }
+.media-todo .media-file { color: var(--text-muted); font-size: 0.85em; }
 </style>
 </head>
 <body>
@@ -220,6 +244,15 @@ you can see what you are doing without counting note numbers. Add and remove row
 you do not map stays untouched in "Other Percussion".
 </p>
 
+<div class="media-todo">
+<div class="media-kind">Screenshot</div>
+<p><b>What to show:</b> the kit editor with a duplicated (editable) kit selected - the kit list
+on the left with the shipped kits marked "(shipped)", the Bass Drum tab open with its mapping
+rows, the A/B speaker column visible, and the status line under the buttons. Ideally right after
+a save, so the status line reads "Saved ... with N mapping(s)".</p>
+<p class="media-file">Suggested file: <code>screenshots/ffxiv-drum-split_kit-editor.png</code></p>
+</div>
+
 <p>
 Two things are fixed on purpose. The instrument groups and their program numbers cannot be
 changed - they are how playback and export recognise the percussion instrument, so a renamed group
@@ -245,11 +278,33 @@ Download Default...</b>) and keep it BELOW the FFXIV font in the priority list; 
 you when the GM half is unavailable and previews just the FFXIV side then.
 </p>
 
+<div class="media-todo">
+<div class="media-kind">Video (with sound!)</div>
+<p><b>Setup:</b> FFXIV SoundFont Mode on, GeneralUser GS enabled below the FF14 font, FluidSynth
+as MIDI output - i.e. the configuration where both halves of the A/B are audible.</p>
+<p><b>What to show:</b> the audio preview in action - click the A/B speaker on two or three rows
+(GM drum, then the FFXIV pitch right after), change a target pitch and click again so the
+difference is audible, then one "Preview group" run on the Bass Drum tab. This clip needs its
+AUDIO TRACK kept - unlike the other manual clips it is pointless muted, so it should be embedded
+with controls and sound instead of autoplay.</p>
+<p class="media-file">Suggested file: <code>screenshots/ffxiv-drum-split_kit-preview-audio.webm</code></p>
+</div>
+
 <p>
 Your kits are stored with your settings, appear in the pitch-mapping selector right after the
 shipped ones, and can be deleted from the editor. The shipped kits cannot be overwritten or
 deleted, so a botched experiment never costs you the originals.
 </p>
+
+<div class="media-todo">
+<div class="media-kind">Video</div>
+<p><b>What to show:</b> the full copy-then-edit workflow, silent clip like the other demos -
+open Edit kits..., pick a shipped kit, Duplicate, name the copy, change one or two mappings,
+Save kit, close the editor, and show the new kit selected in the pitch-mapping dropdown with
+the group note counts updating. Ends where the split dialog is ready to run with the custom
+kit.</p>
+<p class="media-file">Suggested file: <code>screenshots/ffxiv-drum-split_kit-editor.webm</code></p>
+</div>
 
 <h3 id="kit-tables">Kit Note Tables</h3>
 
