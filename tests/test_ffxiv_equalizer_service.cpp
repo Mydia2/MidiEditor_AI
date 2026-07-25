@@ -24,11 +24,17 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
         QCoreApplication::setOrganizationName("MidiEditorTest");
         QCoreApplication::setApplicationName("EqualizerTest");
-        // Reset to known state for each run (test mode uses a temp dir).
-        // The service uses an explicit QSettings("MidiEditor","NONE") scope
-        // to stay consistent with the rest of the app, so clear that too.
+        // Redirect the service's QSettings scope BEFORE anything touches it,
+        // then reset that TEST scope. The previous code cleared the real
+        // "MidiEditor"/"NONE" scope directly - on Windows that is the
+        // REGISTRY, which QStandardPaths test mode does not cover, so every
+        // test run silently wiped the user's actual app configuration (a
+        // latent defect since 1.6.1, found by the v2.1.0 pre-release review).
+        FfxivEqualizerService::setSettingsScopeForTests(
+            QStringLiteral("MidiEditorTest"), QStringLiteral("EqualizerTest"));
         QSettings().clear();
-        QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE")).clear();
+        QSettings(QStringLiteral("MidiEditorTest"),
+                  QStringLiteral("EqualizerTest")).clear();
         FfxivEqualizerService::instance()->resetToBuiltinDefault();
     }
 

@@ -128,11 +128,18 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
         bool primed = false;
         if (rangeCount) *rangeCount = 0;
         for (const Edge &e : edges) {
-            if (!primed && e.tick >= scopeStart) {
-                // Sample the concurrency carried INTO the scope by notes
-                // still holding: a range lying entirely inside sustained
-                // notes has no edge of its own and would otherwise report
-                // peak 0 while those voices sound throughout it.
+            // Sample the concurrency carried INTO the scope by notes still
+            // holding: a range lying entirely inside sustained notes has no
+            // edge of its own and would otherwise report peak 0 while those
+            // voices sound throughout it. OFF edges sitting EXACTLY on
+            // scopeStart must be processed first, not sampled over: by the
+            // sweep's own OFF-before-ON tie-break those notes no longer
+            // sound at that tick, and sampling before their decrement would
+            // invent a phantom overflow out of notes that end where the
+            // scope begins.
+            if (!primed
+                && (e.tick > scopeStart
+                    || (e.tick == scopeStart && e.delta > 0))) {
                 primed = true;
                 peak = std::max(peak, cur);
                 if (cur > opts.targetCeiling) {

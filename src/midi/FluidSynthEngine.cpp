@@ -1836,8 +1836,10 @@ void FluidSynthEngine::playPreviewArpeggio(int program, bool isDrum) {
 // ============================================================================
 int FluidSynthEngine::sfontIdWithPreset(int bank, int preset) const {
     if (!_initialized || !_synth) return -1;
-    // fluid_synth_get_sfont(0) is the most recently loaded = highest
-    // priority font, matching loadedSoundFonts()'s ordering.
+    // fluid_synth_get_sfont(0) is the most recently LOADED font, which is
+    // the highest-priority one (setSoundFontStack loads the UI list in
+    // reverse). NOTE: loadedSoundFonts() returns the OPPOSITE order
+    // (oldest-loaded first) - do not assume the two match.
     const int count = fluid_synth_sfcount(_synth);
     for (int i = 0; i < count; ++i) {
         fluid_sfont_t *sfont = fluid_synth_get_sfont(_synth, i);
@@ -1857,11 +1859,14 @@ void FluidSynthEngine::playPreviewNotes(const QList<PreviewNote> &notes) {
     // can come from different fonts and banks (the whole point of an A/B).
     const int channel = 15;
 
-    // A fresh preview supersedes the pending note-ONs of the previous one -
-    // hammering a preview button must not stack sequences. Pending OFFs stay
-    // valid: an off for a note that never sounded is harmless, an off for a
-    // sounding note is required.
+    // A fresh preview supersedes the previous one - hammering a preview
+    // button must restart, not stack. The old sequence's pending OFF timers
+    // are generation-gated below because a re-click reuses the SAME keys
+    // (same row = same pitches): an old OFF firing 20 ms after the new ON
+    // would clip the new note to a blip. The old sequence's already-sounding
+    // notes are silenced right here instead.
     const quint32 gen = ++_previewNoteGen;
+    fluid_synth_all_notes_off(_synth, channel);
 
     QPointer<FluidSynthEngine> self(this);
     for (const PreviewNote &n : notes) {
@@ -1889,8 +1894,12 @@ void FluidSynthEngine::playPreviewNotes(const QList<PreviewNote> &notes) {
             if (g <= 0.0f) return; // muted - silent preview
             fluid_synth_noteon(self->_synth, channel, n.key, n.velocity);
         });
-        QTimer::singleShot(n.atMs + n.holdMs, this, [self, n, channel]() {
+        QTimer::singleShot(n.atMs + n.holdMs, this, [self, gen, n, channel]() {
             if (!self || !self->_synth) return;
+            // Superseded sequences must not release the keys a NEWER
+            // sequence is sounding; their own notes were already silenced
+            // by the all-notes-off above.
+            if (gen != self->_previewNoteGen) return;
             fluid_synth_noteoff(self->_synth, channel, n.key);
         });
     }

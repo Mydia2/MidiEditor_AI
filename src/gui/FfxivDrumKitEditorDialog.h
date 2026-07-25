@@ -76,6 +76,9 @@ private:
     void setStatus(const QString &text, bool isError);
 
     void closeEvent(QCloseEvent *event) override;
+    /// Esc-path twin of closeEvent's dirty guard: QDialog::reject() closes
+    /// without delivering a close event, so the guard must live here too.
+    void reject() override;
     /// Selects the row of the spin box gaining focus. Every cell is covered
     /// by a spin box and the vertical header is hidden, so a mouse click
     /// never reaches the table itself - without this, "Remove selected"

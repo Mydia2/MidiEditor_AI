@@ -19,9 +19,21 @@
 // unspecified location on Windows and silently desyncs from the rest of the
 // codebase. Centralise the scope here so every read and write agrees.
 namespace {
+// The two statics are the test seam: on Windows this scope is the registry,
+// which QStandardPaths test mode does not cover - unit tests redirect here
+// so their clear()/preset CRUD cannot touch the user's real configuration.
+QString g_eqSettingsOrg = QStringLiteral("MidiEditor");
+QString g_eqSettingsApp = QStringLiteral("NONE");
+
 inline QSettings ffxivEqSettings() {
-    return QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    return QSettings(g_eqSettingsOrg, g_eqSettingsApp);
 }
+}
+
+void FfxivEqualizerService::setSettingsScopeForTests(const QString &organization,
+                                                     const QString &application) {
+    g_eqSettingsOrg = organization;
+    g_eqSettingsApp = application;
 }
 
 // ---------------------------------------------------------------------------

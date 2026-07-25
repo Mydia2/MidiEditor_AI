@@ -435,9 +435,9 @@ the tempo change happens</i>, which is what makes a ramp feel musical rather tha
 </table>
 
 <p>
-Under the hood the transition writes <b>one tempo event per whole BPM step</b>, not one event
-every few ticks - a 25-BPM ramp is 25 events, not thousands, so scrolling and tick-to-time
-conversions stay fast afterwards. The last event always lands exactly on the end of the range
+Under the hood the transition writes <b>one tempo event per whole BPM step</b> plus the
+starting tempo, not one event every few ticks - a 25-BPM ramp is 26 events, not thousands, so
+scrolling and tick-to-time conversions stay fast afterwards. The last event always lands exactly on the end of the range
 carrying the target BPM, whichever curve is chosen, and everything after the range plays at
 that tempo. The whole transition is <b>a single undo step</b>: Ctrl+Z restores the previous
 tempo map, and applying again with a different curve replaces the ramp cleanly, so comparing

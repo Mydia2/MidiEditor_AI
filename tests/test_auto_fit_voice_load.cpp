@@ -61,6 +61,11 @@
  *  17. singleTickScope_isValid — startTick == endTick is a valid one-
  *      instant INCLUSIVE scope (tool-schema contract): it thins the chord
  *      starting at that tick and never touches material elsewhere.
+ *  18. notesEndingAtScopeStart_dontPrimePeak — the scope-entry priming of
+ *      test 16 must not count notes whose OFF sits exactly on scopeStart:
+ *      by the sweep's OFF-before-ON tie-break they no longer sound there,
+ *      and sampling before their decrement inverted a fitting range into
+ *      a phantom "17/16 with 1 overflow" report (round-2 review find).
  *
  * Strategy
  * --------
@@ -386,6 +391,7 @@ private slots:
     void selectionScope_limitsMaterial();
     void heldNotesRange_reportsEnteringPeak();
     void singleTickScope_isValid();
+    void notesEndingAtScopeStart_dontPrimePeak();
 };
 
 // -------------------------------------------------------------------------
@@ -1038,6 +1044,30 @@ void TestAutoFitVoiceLoadService::singleTickScope_isValid() {
     QCOMPARE(r.removed[0].tick, 5000);
     QCOMPARE(r.removed[0].pitch, 48);
     QCOMPARE(r.removed[0].channel, 0); // never the decoy chord
+}
+
+// -------------------------------------------------------------------------
+void TestAutoFitVoiceLoadService::notesEndingAtScopeStart_dontPrimePeak() {
+    ScopedFile f;
+    // 17 legato notes all ending EXACTLY at tick 1000, where the scope
+    // begins (a range selection starting on a measure line). By the sweep's
+    // OFF-before-ON convention none of them sounds inside [1000, 2000], so
+    // the report must not claim an overflow the thinning can never remove
+    // (the notes start outside the scope and are not thinnable).
+    for (int i = 0; i < 17; ++i) {
+        f.addNote(i % 5, 200, 800, 40 + i, 100);
+    }
+
+    AutoFitOptions o = baseOptions(); // ceiling 16
+    o.startTick = 1000;
+    o.endTick = 2000;
+    AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
+
+    QVERIFY(r.ok);
+    QCOMPARE(r.removedCount, 0);
+    QCOMPARE(r.overflowRangeCount, 0);   // no phantom overflow
+    QVERIFY(r.peakBefore <= 16);         // never "17/16" for a fitting range
+    QCOMPARE(r.totalNotesInScope, 0);
 }
 
 QTEST_MAIN(TestAutoFitVoiceLoadService)

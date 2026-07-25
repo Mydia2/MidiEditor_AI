@@ -85,6 +85,20 @@ public:
     /// a known state, mirroring test_ffxiv_equalizer_service).
     void clearUserKits();
 
+    /// Test seam: redirect the QSettings scope. Without this the unit tests
+    /// would operate on the REAL "MidiEditor"/"NONE" scope - on Windows that
+    /// is the registry, which QStandardPaths::setTestModeEnabled does NOT
+    /// redirect, so a test run would silently wipe the user's actual
+    /// configuration and hand-made kits.
+    static void setSettingsScopeForTests(const QString &organization,
+                                         const QString &application);
+
+    /// Case-insensitive lookup of an existing USER kit name (QSettings key
+    /// lookups are case-insensitive on the Windows registry backend, so two
+    /// case-variant names would silently share one dataset). Returns the
+    /// stored spelling, or an empty string.
+    QString existingUserKitName(const QString &name) const;
+
 private:
     FfxivDrumKitStore() = default;
     Q_DISABLE_COPY(FfxivDrumKitStore)

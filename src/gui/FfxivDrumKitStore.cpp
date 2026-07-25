@@ -10,15 +10,26 @@ namespace {
 
 // Same settings scope as the rest of the app (see FfxivEqualizerService's
 // note): the app never calls setOrganizationName, so the default QSettings
-// constructor would land writes somewhere else entirely.
+// constructor would land writes somewhere else entirely. The two statics are
+// the test seam - unit tests redirect to their own scope because on Windows
+// this is the registry and NOT covered by QStandardPaths test mode.
+QString g_settingsOrg = QStringLiteral("MidiEditor");
+QString g_settingsApp = QStringLiteral("NONE");
+
 inline QSettings drumKitSettings() {
-    return QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    return QSettings(g_settingsOrg, g_settingsApp);
 }
 
 const QString kIndexKey = QStringLiteral("FFXIV/drumKitIndex");
 const QString kKitsGroup = QStringLiteral("FFXIV/drumKits");
 
 } // namespace
+
+void FfxivDrumKitStore::setSettingsScopeForTests(const QString &organization,
+                                                 const QString &application) {
+    g_settingsOrg = organization;
+    g_settingsApp = application;
+}
 
 FfxivDrumKitStore *FfxivDrumKitStore::instance() {
     static FfxivDrumKitStore store;
@@ -39,10 +50,23 @@ QList<QPair<QString, int>> FfxivDrumKitStore::requiredGroups() {
 }
 
 bool FfxivDrumKitStore::isBuiltinName(const QString &name) {
+    // Case-insensitive: QSettings key lookups are case-insensitive on the
+    // Windows registry backend (and in INI files), so "mog amp" would end up
+    // sharing storage with a differently-cased sibling.
     for (const FfxivDrumMapPreset &p : FfxivDrumMapPreset::presets()) {
-        if (p.name == name) return true;
+        if (QString::compare(p.name, name, Qt::CaseInsensitive) == 0)
+            return true;
     }
     return false;
+}
+
+QString FfxivDrumKitStore::existingUserKitName(const QString &name) const {
+    const QString trimmed = name.trimmed();
+    for (const QString &existing : userKitNames()) {
+        if (QString::compare(existing, trimmed, Qt::CaseInsensitive) == 0)
+            return existing;
+    }
+    return QString();
 }
 
 QStringList FfxivDrumKitStore::userKitNames() const {
@@ -174,6 +198,22 @@ bool FfxivDrumKitStore::saveKit(const FfxivDrumMapPreset &kit, QString *error) {
         return false;
     }
     const QString name = kit.name.trimmed();
+
+    // A case-VARIANT of an existing kit would silently share (and here:
+    // overwrite) that kit's storage on the case-insensitive backends, and the
+    // index would end up with two names pointing at one dataset. Same-case
+    // saves stay the documented insert-or-overwrite.
+    const QString variant = existingUserKitName(name);
+    if (!variant.isEmpty() && variant != name) {
+        if (error) {
+            *error = QCoreApplication::translate("FfxivDrumKitStore",
+                "A kit named \"%1\" already exists - kit names only differing "
+                "in upper/lower case would share the same storage. Use that "
+                "exact name to overwrite it, or pick a different one.")
+                .arg(variant);
+        }
+        return false;
+    }
 
     QSettings settings = drumKitSettings();
     // Explicit beginGroup so Qt registers the kit as a real child group; a

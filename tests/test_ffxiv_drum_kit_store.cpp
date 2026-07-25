@@ -34,6 +34,9 @@
  *      (a slash would become a QSettings group separator and lose the kit).
  *   9. corruptEntriesAreIgnoredOnLoad - garbage and out-of-range pairs
  *      written straight into QSettings do not surface as mappings.
+ *  10. caseVariantNamesAreRejected - "rock kit" cannot destroy "Rock Kit"
+ *      (registry key lookups are case-insensitive), existingUserKitName
+ *      returns the stored spelling, built-ins are protected in any case.
  *
  * The store is Qt-only (QSettings + the plain DrumKitPreset data types), so
  * the test compiles just those two .cpp files. QSettings is redirected into
@@ -78,8 +81,16 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
         QCoreApplication::setOrganizationName("MidiEditorTest");
         QCoreApplication::setApplicationName("DrumKitStoreTest");
-        QSettings().clear();
-        QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE")).clear();
+        // Redirect the store's QSettings scope BEFORE anything touches it.
+        // The real scope ("MidiEditor"/"NONE") is the Windows REGISTRY,
+        // which QStandardPaths test mode does not cover - clearing it here
+        // would wipe the developer's actual app configuration and their
+        // hand-made drum kits (found by the round-2 pre-release review).
+        FfxivDrumKitStore::setSettingsScopeForTests(
+            QStringLiteral("MidiEditorTest"),
+            QStringLiteral("DrumKitStoreTest"));
+        QSettings(QStringLiteral("MidiEditorTest"),
+                  QStringLiteral("DrumKitStoreTest")).clear();
     }
 
     void cleanup() {
@@ -273,14 +284,40 @@ private slots:
     }
 
     // -----------------------------------------------------------------
+    void caseVariantNamesAreRejected() {
+        // QSettings key lookups are case-insensitive on the Windows registry
+        // backend: "rock kit" and "Rock Kit" share ONE dataset, so allowing
+        // the variant would silently destroy the existing kit and leave two
+        // index entries pointing at the same storage (round-2 review find).
+        auto *store = FfxivDrumKitStore::instance();
+        QVERIFY(store->saveKit(makeKit(QStringLiteral("Rock Kit"))));
+
+        FfxivDrumMapPreset variant = makeKit(QStringLiteral("rock kit"));
+        QString error;
+        QVERIFY(!store->saveKit(variant, &error));
+        QVERIFY(error.contains(QStringLiteral("Rock Kit")));
+        QCOMPARE(store->userKitNames().size(), 1);
+        // The original kit's data is untouched.
+        QCOMPARE(store->kitByName(QStringLiteral("Rock Kit"))
+                     .groups[0].mappings.size(), 1);
+
+        // The stored spelling is discoverable for the dialog's overwrite
+        // prompt, and built-ins are protected case-insensitively too.
+        QCOMPARE(store->existingUserKitName(QStringLiteral("ROCK KIT")),
+                 QStringLiteral("Rock Kit"));
+        QVERIFY(FfxivDrumKitStore::isBuiltinName(QStringLiteral("mog amp")));
+    }
+
+    // -----------------------------------------------------------------
     void corruptEntriesAreIgnoredOnLoad() {
         auto *store = FfxivDrumKitStore::instance();
         QVERIFY(store->saveKit(makeKit(QStringLiteral("Hand Edited"))));
 
         // Simulate a hand-edited INI: junk, half pairs, non-numeric values and
         // out-of-range numbers must all be dropped rather than reaching the
-        // transpose path.
-        QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        // transpose path. (Redirected test scope - see initTestCase.)
+        QSettings settings(QStringLiteral("MidiEditorTest"),
+                           QStringLiteral("DrumKitStoreTest"));
         settings.setValue(
             QStringLiteral("FFXIV/drumKits/Hand Edited/Bass Drum"),
             QStringList({QStringLiteral("35:60"),   // keep

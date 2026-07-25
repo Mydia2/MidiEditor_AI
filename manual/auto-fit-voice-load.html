@@ -428,11 +428,14 @@ The tool is available in both cases; the difference is context and wording.
 <h2 id="ai-tool">Letting the AI do it</h2>
 
 <p>
-MidiPilot can run the same thinning through the <code>auto_fit_voice_load</code> tool, with the
-same options the dialog offers. It defaults to a dry run: the agent reports what would be removed
-and asks for your confirmation before the real pass, which is again a single undo step. Combined
-with the read-only <code>analyze_voice_load</code> tool the agent can find the heavy spots first
-and then propose a reduction - see <a href="midipilot.html">MidiPilot</a> and the
+MidiPilot can run the same thinning engine through the <code>auto_fit_voice_load</code> tool,
+with the dialog's global options: a tick range, the voice ceiling, the chord limit and the
+density settings. The dialog-only refinements - picking tracks and giving each its own
+intensity - stay in the dialog; the tool always works across all tracks with one density
+target. It defaults to a dry run: the agent reports what would be removed and asks for your
+confirmation before the real pass, which is again a single undo step. Combined with the
+read-only <code>analyze_voice_load</code> tool the agent can find the heavy spots first and
+then propose a reduction - see <a href="midipilot.html">MidiPilot</a> and the
 <a href="ffxiv-voice-limiter.html#ai-tool">Voice Limiter's AI tools</a>.
 </p>
 

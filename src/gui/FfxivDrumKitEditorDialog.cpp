@@ -485,7 +485,25 @@ void FfxivDrumKitEditorDialog::onDuplicate() {
         tr("%1 (copy)").arg(sourceName), &ok).trimmed();
     if (!ok || name.isEmpty()) return;
 
-    source.name = name;
+    // saveKit is insert-or-overwrite by contract, and the suggested default
+    // name is the same on every duplicate of a kit - accepting it twice
+    // would silently replace the user's edited first copy with a pristine
+    // one. Overwriting must be a conscious choice, like Delete is.
+    const QString existing =
+        FfxivDrumKitStore::instance()->existingUserKitName(name);
+    if (!existing.isEmpty()) {
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            this, tr("Duplicate kit"),
+            tr("A kit named \"%1\" already exists. Replace it with a copy of "
+               "\"%2\"?").arg(existing).arg(sourceName),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) return;
+        // Reuse the stored spelling so a case-variant cannot fork the index.
+        source.name = existing;
+    } else {
+        source.name = name;
+    }
+
     QString error;
     if (!FfxivDrumKitStore::instance()->saveKit(source, &error)) {
         setStatus(error, true);
@@ -493,9 +511,14 @@ void FfxivDrumKitEditorDialog::onDuplicate() {
     }
     _dirty = false;
     _kitsChanged = true;
-    _lastSavedKitName = name;
-    reloadKitList(name);
-    setStatus(tr("Created \"%1\" - edit its mappings and press Save kit.").arg(name),
+    _lastSavedKitName = source.name;
+    reloadKitList(source.name);
+    setStatus(existing.isEmpty()
+                  ? tr("Created \"%1\" - edit its mappings and press Save kit.")
+                        .arg(source.name)
+                  : tr("Replaced \"%1\" with a copy of \"%2\".")
+                        .arg(source.name)
+                        .arg(sourceName),
               false);
 }
 
@@ -586,10 +609,15 @@ int FfxivDrumKitEditorDialog::ffxivSfontId() const {
     // Pin the target side to the FFXIV font explicitly: GeneralUser GS also
     // carries bank-0 programs 116-119 (Taiko/Melodic Tom/...), so relying on
     // stack priority would let a reordered font list hijack the audition.
+    // loadedSoundFonts() is oldest-loaded-first and the stack loads the UI
+    // list in REVERSE, so the highest-priority font is the LAST element -
+    // iterate backwards so that with two FFXIV-named fonts enabled the
+    // audition uses the same one playback resolves.
     const QList<QPair<int, QString>> fonts =
         FluidSynthEngine::instance()->loadedSoundFonts();
-    for (const QPair<int, QString> &f : fonts) {
-        if (FfxivSoundFontHelper::isFfxivSoundFont(f.second)) return f.first;
+    for (int i = fonts.size() - 1; i >= 0; --i) {
+        if (FfxivSoundFontHelper::isFfxivSoundFont(fonts[i].second))
+            return fonts[i].first;
     }
     return -1;
 }
@@ -753,4 +781,15 @@ void FfxivDrumKitEditorDialog::closeEvent(QCloseEvent *event) {
         return;
     }
     QDialog::closeEvent(event);
+}
+
+void FfxivDrumKitEditorDialog::reject() {
+    // Esc lands here, NOT in closeEvent: QDialog::reject() closes through a
+    // private path that deliberately swallows the close event (Qt 6's
+    // CloseEventEater), so without this override Esc silently discarded
+    // unsaved edits while the Close button and the window X prompted.
+    if (_dirty && !confirmDiscardChanges()) {
+        return;
+    }
+    QDialog::reject();
 }
