@@ -164,6 +164,7 @@ dialog names it.
 
 <div class="media-todo">
 <div class="media-kind">Screenshot</div>
+<p><b>Either mode</b> - the entry is there in both.</p>
 <p><b>What to show:</b> the editor with a handful of notes selected and the right-click context
 menu open, so the <i>Auto-Fit Voice Load (selection)...</i> entry is readable in place.</p>
 <p class="media-file">Suggested file: <code>screenshots/auto-fit_context-menu.png</code></p>
@@ -181,6 +182,8 @@ and updates the numbers, and only the <b>Apply</b> button writes to the file.
 
 <div class="media-todo">
 <div class="media-kind">Screenshot</div>
+<p><b>FFXIV mode on</b> - the wording in the info line and the density checkbox follows the mode,
+and the FFXIV variant is the one most readers will see.</p>
 <p><b>What to show:</b> the whole dialog on a loaded song, ideally with a few tracks ticked and a
 non-zero removal count in the summary box, so all parts are visible at once: density slider, skip
 slider, Advanced group, summary, and the track list with its statistics.</p>
@@ -267,6 +270,7 @@ and fills do not lose their shape.
 
 <div class="media-todo">
 <div class="media-kind">Video</div>
+<p><b>Either mode</b> - this is the editor highlight, not the lane.</p>
 <p><b>What to show:</b> dragging the intensity slider on a dense track while the live preview
 highlights the affected notes in the editor - the point is that the highlight and the numbers
 follow the slider immediately. A cymbal or 16th-note track works best.</p>
@@ -298,6 +302,7 @@ The right column lists every track with a checkbox, an eye toggle and its own st
 
 <div class="media-todo">
 <div class="media-kind">Screenshot</div>
+<p><b>Either mode</b> - the track list is identical in both.</p>
 <p><b>What to show:</b> the track list column in a state that makes per-track settings obvious -
 e.g. only the cymbal track ticked with a high target and an orange statistics line, the other
 tracks reading "not applied". A close-up of just that column is more readable than the full
@@ -326,6 +331,7 @@ piece of music.
 
 <div class="media-todo">
 <div class="media-kind">Video</div>
+<p><b>Either mode</b> - with FFXIV mode on the lane reacts as a bonus.</p>
 <p><b>What to show:</b> the full selection workflow - rubber-band a dense passage on one track,
 right-click, open the tool, note that only that track is ticked, move the slider, apply, and show
 that the neighbouring passages are untouched. This is the clip that best explains why the tool
@@ -354,9 +360,11 @@ colour, which turns the lane into a before/after picture of your settings.
 
 <div class="media-todo">
 <div class="media-kind">Video</div>
-<p><b>What to show:</b> the modeless behaviour - with the dialog open, scroll and zoom the
-editor, then move the slider and let the voice-load lane update its grey "before" curve against
-the coloured prediction. Works best on a file with a visible red peak in the lane.</p>
+<p><b>Needs FFXIV mode on</b> (the voice-load lane only exists there).</p>
+<p><b>What to show:</b> two things in one clip. First that the editor stays usable while the
+dialog is open - scroll and zoom through the song, the dialog just sits there. Then move the
+intensity slider and let the lane redraw: the full load in grey, the predicted result on top in
+colour. A file with a visible red peak in the lane shows it best.</p>
 <p class="media-file">Suggested file: <code>screenshots/auto-fit_lane-preview.webm</code></p>
 </div>
 
@@ -471,20 +479,26 @@ The placeholders above collected in one list, for a single capture session:
 </p>
 
 <table class="info-table">
-<tr><th>#</th><th>Kind</th><th>File</th><th>Content</th></tr>
+<tr><th>#</th><th>Kind</th><th>File</th><th>Content</th><th>Mode</th></tr>
 <tr><td>1</td><td>Screenshot</td><td><code>auto-fit_context-menu.png</code></td>
-    <td>Note selection with the right-click menu open</td></tr>
+    <td>Note selection with the right-click menu open</td><td>either</td></tr>
 <tr><td>2</td><td>Screenshot</td><td><code>auto-fit_dialog.png</code></td>
-    <td>The full dialog with a non-zero dry-run summary</td></tr>
+    <td>The full dialog with a non-zero dry-run summary</td><td>FFXIV on</td></tr>
 <tr><td>3</td><td>Video</td><td><code>auto-fit_slider-live.webm</code></td>
-    <td>Slider drag with live highlight following it</td></tr>
+    <td>Slider drag with live highlight following it</td><td>either</td></tr>
 <tr><td>4</td><td>Screenshot</td><td><code>auto-fit_track-list.png</code></td>
-    <td>Track column close-up with per-track statistics</td></tr>
+    <td>Track column close-up with per-track statistics</td><td>either</td></tr>
 <tr><td>5</td><td>Video</td><td><code>auto-fit_selection-workflow.webm</code></td>
-    <td>Select, thin, apply - neighbours untouched</td></tr>
+    <td>Select, thin, apply - neighbours untouched</td><td>either</td></tr>
 <tr><td>6</td><td>Video</td><td><code>auto-fit_lane-preview.webm</code></td>
-    <td>Modeless scrolling plus the lane's before/after curve</td></tr>
+    <td>Editor stays usable, plus the lane's before/after curve</td><td>FFXIV on</td></tr>
 </table>
+
+<p>
+Only the two lane-related items need FFXIV mode, because the voice-load lane exists only there.
+Everything else looks the same either way apart from the dialog's wording, which is why the full
+dialog shot is pinned to FFXIV mode.
+</p>
 
 <hr>
 
