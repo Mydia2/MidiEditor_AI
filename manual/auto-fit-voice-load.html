@@ -320,8 +320,16 @@ piece of music.
 <p>
 With <b>Live preview</b> enabled - it is on by default - the notes that would be removed are
 highlighted as the editor selection while you tune, so you can see the actual notes rather than
-just a count. The <b>Preview as selection</b> button does the same on demand when you keep live
-preview off.
+just a count.
+</p>
+
+<p>
+That highlight replaces whatever was selected in the editor, and it does so again on every change.
+Two situations where you may prefer to turn <b>Live preview</b> off: when you want to keep your
+own selection visible while tuning, and on very large files where recomputing the highlight after
+every step of a slider drag feels sluggish. With it off, the <b>Preview as selection</b> button
+shows the affected notes once, on demand - that is what the button is for. While live preview is
+on it has nothing left to do, because the highlight is already up to date.
 </p>
 
 <p>
@@ -366,7 +374,9 @@ when you apply</p>
 </tr>
 <tr>
   <td><b>Live preview</b></td>
-  <td>Highlights the affected notes in the editor while you tune.</td>
+  <td>Highlights the affected notes in the editor while you tune. Turn it off to keep your own
+      selection visible, then use <b>Preview as selection</b> to look at the affected notes when
+      you want to - see <a href="#preview">Live preview and the open editor</a>.</td>
 </tr>
 </table>
 
