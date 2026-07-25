@@ -12534,11 +12534,24 @@ scope for track-scoped ops).
 
 ---
 
-## v2.1.0 - FFXIV Workflow Expansion (planned 2026-07-19)
+## v2.1.0 "Precision Tools" - SHIPPED (planned 2026-07-19, released 2026-07-26)
 
 v2.0 built the FFXIV drum feature set; v2.1 extends it plus the two collected
-fixes (FluidSynth driver hardening, TEMPO-SMOOTH-001). Full working plan with
-code-verified wiring points: local Planning/12_V2.1.0_PLAN.md.
+fixes (FluidSynth driver hardening, TEMPO-SMOOTH-001). All three features
+shipped, plus the selection-scoped Auto-Fit and the drum-kit audio A/B, which
+were NOT in this plan - both came from user testing mid-cycle.
+
+**Design reversal worth remembering** (the plan below said the opposite): the
+Auto-Fit engine does NOT reuse the analyzer's tail-extended model. The first
+build thinned against the same "ringing voices" numbers the gauge and lane
+show, and it destroyed a real song - a 200-BPM test file whose display peak
+was 77 had a physical peak of 15, so the melody paid for guitar sample tails
+while the actual problem (dense cymbals) went untouched. The shipped service
+counts RAW concurrency (notes physically sounding together) for the voice
+ceiling and uses a percent-of-track density target with an auto-tuned cutoff
+for the rate pass, calibrated against real songs. Tails remain a DISPLAY
+model only. See CHANGELOG 2.1.0 and the header of
+src/converter/AutoFitVoiceLoadService.h.
 
 ### #1 Auto-Fit Voice Load (headliner)
 
@@ -12557,9 +12570,13 @@ Preview-as-selection, Apply/Cancel), always one undo step. Two problem classes:
   accents survive.
 
 Engine: new headless `AutoFitVoiceLoadService` (TempoConversionService
-pattern), reusing the analyzer's cached result. Surfaces: Tools menu + AI tool
-`auto_fit_voice_load` (dry-run parameter) + context-menu entry on the
-voice-lane overflow ranges. Dedicated test target.
+pattern) with its OWN raw-concurrency sweep - see the design reversal above.
+Surfaces as shipped: Tools menu + AI tool `auto_fit_voice_load` (dry-run
+parameter) + context-menu entry on the voice-lane overflow ranges + a
+selection-scoped entry in the matrix note context menu. The modeless dialog
+carries per-track intensities and a live preview. Not FFXIV-gated in the end -
+thinning dense material is useful in any MIDI file. Two dedicated test targets
+(service + dialog logic).
 
 ### #2 Drum-Kit Preset Editor
 
