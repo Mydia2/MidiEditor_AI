@@ -28,6 +28,7 @@
 class QCheckBox;
 class QComboBox;
 class QLabel;
+class QPushButton;
 class QVBoxLayout;
 
 // Preview dialog for the FFXIV drum split (v2.0). Two modes, chosen via the
@@ -81,6 +82,9 @@ public:
 
 private slots:
     void rebuildGroupRows();
+    /// Opens the kit editor (v2.1.0 #2) and reloads the mapping combo when
+    /// the user saved or deleted a kit.
+    void openKitEditor();
 
 private:
     int countForNotes(const QList<int> &notes) const;
@@ -90,6 +94,7 @@ private:
     int _totalNotes;
 
     QComboBox *_mappingCombo;      // 0 = cosmetic, 1.. = FfxivDrumMapPreset
+    QPushButton *_editKitsButton = nullptr;
     QList<FfxivDrumMapPreset> _mapPresets;
     DrumKitPreset _cosmeticPreset;
 

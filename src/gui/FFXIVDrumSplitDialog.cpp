@@ -17,9 +17,12 @@
  */
 
 #include "FFXIVDrumSplitDialog.h"
+#include "FfxivDrumKitEditorDialog.h"
+#include "FfxivDrumKitStore.h"
 
 #include <QVBoxLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QCheckBox>
 #include <QComboBox>
@@ -32,7 +35,8 @@ FFXIVDrumSplitDialog::FFXIVDrumSplitDialog(const QHash<int, int> &noteHistogram,
       _histogram(noteHistogram),
       _totalNotes(0),
       _mappingCombo(nullptr),
-      _mapPresets(FfxivDrumMapPreset::presets()),
+      // Shipped kits plus the user's own copies (v2.1.0 #2).
+      _mapPresets(FfxivDrumKitStore::instance()->allKits()),
       _cosmeticPreset(DrumKitPreset::ffxivPreset()),
       _groupsLayout(nullptr),
       _otherCheck(nullptr),
@@ -55,11 +59,17 @@ FFXIVDrumSplitDialog::FFXIVDrumSplitDialog(const QHash<int, int> &noteHistogram,
     // --- Pitch mapping selection ---
     QGroupBox *mappingBox = new QGroupBox(tr("Pitch mapping"), this);
     QVBoxLayout *mappingLayout = new QVBoxLayout(mappingBox);
+    QHBoxLayout *mappingRow = new QHBoxLayout();
     _mappingCombo = new QComboBox(this);
     _mappingCombo->addItem(tr("Keep GM drum notes (tracks stay on channel 10)"));
     for (const FfxivDrumMapPreset &p : _mapPresets)
         _mappingCombo->addItem(p.name);
-    mappingLayout->addWidget(_mappingCombo);
+    mappingRow->addWidget(_mappingCombo, 1);
+    _editKitsButton = new QPushButton(tr("Edit kits..."), this);
+    _editKitsButton->setToolTip(
+        tr("Duplicate a kit and change its note mappings"));
+    mappingRow->addWidget(_editKitsButton);
+    mappingLayout->addLayout(mappingRow);
     _modeHint = new QLabel(this);
     _modeHint->setWordWrap(true);
     _modeHint->setStyleSheet("QLabel { color: gray; font-size: 10px; }");
@@ -102,6 +112,7 @@ FFXIVDrumSplitDialog::FFXIVDrumSplitDialog(const QHash<int, int> &noteHistogram,
     mainLayout->addWidget(buttonBox);
 
     connect(_mappingCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(rebuildGroupRows()));
+    connect(_editKitsButton, SIGNAL(clicked()), this, SLOT(openKitEditor()));
     rebuildGroupRows();
 
     setLayout(mainLayout);
@@ -199,6 +210,35 @@ void FFXIVDrumSplitDialog::updateOtherLabel() {
 
 bool FFXIVDrumSplitDialog::transposeMode() const {
     return _mappingCombo && _mappingCombo->currentIndex() > 0;
+}
+
+void FFXIVDrumSplitDialog::openKitEditor() {
+    // Remember the selection by NAME: the editor can add or delete kits, so
+    // the combo index is not stable across the reload below.
+    const QString previous =
+        (_mappingCombo->currentIndex() > 0) ? _mappingCombo->currentText() : QString();
+
+    FfxivDrumKitEditorDialog editor(this);
+    editor.exec();
+    if (!editor.kitsChanged()) return;
+
+    _mapPresets = FfxivDrumKitStore::instance()->allKits();
+    const QString wanted = editor.lastSavedKitName().isEmpty()
+                               ? previous
+                               : editor.lastSavedKitName();
+    _mappingCombo->blockSignals(true);
+    _mappingCombo->clear();
+    _mappingCombo->addItem(tr("Keep GM drum notes (tracks stay on channel 10)"));
+    int select = 0;
+    for (int i = 0; i < _mapPresets.size(); ++i) {
+        _mappingCombo->addItem(_mapPresets[i].name);
+        if (!wanted.isEmpty() && _mapPresets[i].name == wanted) select = i + 1;
+    }
+    _mappingCombo->setCurrentIndex(select);
+    _mappingCombo->blockSignals(false);
+    // The group rows carry per-group note counts for the ACTIVE mapping, so
+    // they have to follow the (possibly changed) selection.
+    rebuildGroupRows();
 }
 
 FfxivDrumMapPreset FFXIVDrumSplitDialog::selectedMapPreset() const {

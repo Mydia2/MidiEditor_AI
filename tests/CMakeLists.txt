@@ -525,6 +525,32 @@ target_link_libraries(test_ffxiv_equalizer_service PRIVATE
 add_test(NAME FfxivEqualizerService COMMAND test_ffxiv_equalizer_service)
 
 # -----------------------------------------------------------------------------
+# test_ffxiv_drum_kit_store
+# -----------------------------------------------------------------------------
+# Persistence + validation for the user drum kits behind the v2.1.0 kit editor.
+# QSettings-only (plus the plain DrumKitPreset data types), no GUI: compiles
+# the store and the preset factory, nothing else.
+add_executable(test_ffxiv_drum_kit_store
+    test_ffxiv_drum_kit_store.cpp
+    ../src/gui/FfxivDrumKitStore.cpp
+    ../src/gui/DrumKitPreset.cpp
+)
+target_include_directories(test_ffxiv_drum_kit_store PRIVATE
+    ../src/gui
+)
+target_link_libraries(test_ffxiv_drum_kit_store PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME FfxivDrumKitStore COMMAND test_ffxiv_drum_kit_store)
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(FfxivDrumKitStore PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# -----------------------------------------------------------------------------
 # test_selection
 # -----------------------------------------------------------------------------
 # Validates the global Selection singleton in src/tool/Selection.
