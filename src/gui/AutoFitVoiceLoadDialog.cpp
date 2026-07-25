@@ -208,6 +208,13 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     QDialogButtonBox *buttons = new QDialogButtonBox(this);
     _previewButton = buttons->addButton(tr("Preview as selection"),
                                         QDialogButtonBox::ActionRole);
+    // Only useful while live preview is OFF: with it on, refreshPreview()
+    // already emits the same selection after every change, so the button
+    // would look active while doing nothing (see refreshPreview()).
+    _previewButton->setToolTip(
+        tr("Highlights the notes that would be removed. Only needed while "
+           "\"Live preview\" is off - with it on the highlight already "
+           "follows every change."));
     _applyButton = buttons->addButton(tr("Apply"), QDialogButtonBox::AcceptRole);
     QPushButton *cancel = buttons->addButton(QDialogButtonBox::Cancel);
     Q_UNUSED(cancel);
@@ -490,7 +497,10 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
             stat->setStyleSheet("QLabel { color: #f0883e; font-size: 10px; margin-left: 20px; }");
         }
     }
-    _previewButton->setEnabled(_lastDry.removedCount > 0);
+    // Greyed out while live preview keeps the highlight current: pressing it
+    // then re-emits an identical selection, i.e. nothing visibly happens.
+    _previewButton->setEnabled(_lastDry.removedCount > 0
+                               && !_livePreviewCheck->isChecked());
     _applyButton->setEnabled(_lastDry.removedCount > 0);
 
     // Live preview: mirror the current victim set into the editor selection

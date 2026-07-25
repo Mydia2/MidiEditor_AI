@@ -59,7 +59,10 @@
  *      contract: with the checkbox on, refreshPreview() emits
  *      previewSelectionRequested with exactly the dry run's victims; with it
  *      off nothing is emitted, while the explicit "Preview as selection"
- *      button still works.
+ *      button still works. The button is enabled ONLY while live preview is
+ *      off - with the stream running it would re-emit an identical selection,
+ *      i.e. look active while doing nothing (which is how it read in
+ *      testing). Apply must stay unaffected by that gating.
  *
  * Strategy
  * --------
@@ -779,12 +782,19 @@ void TestAutoFitDialog::previewSignal_emittedWithVictims_suppressedWhenOff() {
     dlg._intensitySlider->setValue(60);
     QCOMPARE(spy.count(), 0);
 
-    // The explicit button is not gated by the checkbox - it is the manual
-    // way to push the current victims into the editor selection.
+    // With the stream off the button is the manual way to push the current
+    // victims into the editor selection, so it must be available.
     QVERIFY(dlg._previewButton->isEnabled());
     dlg._previewButton->click();
     QCOMPARE(spy.count(), 1);
     QVERIFY(!spy.at(0).at(0).value<QList<MidiEvent *>>().isEmpty());
+
+    // ... and it is greyed out again as soon as live preview takes over:
+    // pressing it then would re-emit an identical selection, i.e. present an
+    // active control that visibly does nothing.
+    dlg._livePreviewCheck->setChecked(true);
+    QVERIFY(!dlg._previewButton->isEnabled());
+    QVERIFY(dlg._applyButton->isEnabled()); // Apply is NOT affected
 }
 
 QTEST_MAIN(TestAutoFitDialog)
