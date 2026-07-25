@@ -16,6 +16,9 @@
 .info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
 .info-table th { background: var(--bg-secondary); font-weight: 600; }
 .info-table tr:nth-child(even) td { background: var(--table-alt); }
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
 </style>
 </head>
 <body>
@@ -441,22 +444,19 @@ tempo map, and applying again with a different curve replaces the ramp cleanly, 
 two curves is undo, re-apply, listen.
 </p>
 
-<div class="media-todo" style="border: 2px dashed var(--border); border-radius: 8px; background: var(--bg-secondary); padding: 1rem 1.25rem; margin: 1.5rem 0;">
-<p style="margin: 0.35rem 0; font-size: 0.92em;"><b>[Screenshot placeholder]</b> The Edit Tempo
-dialog after dragging over a range: start and end BPM filled in, Smooth transition ticked, and
-the Curve dropdown open so all four options are readable.</p>
-<p style="margin: 0.35rem 0; font-size: 0.85em; color: var(--text-muted);">Suggested file:
-<code>screenshots/edit-tempo_curves.png</code></p>
+<div class="screenshot-single">
+<img src="screenshots/edit-tempo_curves.png" alt="The Edit Tempo dialog over a selected range with the Curve dropdown open" width="1000">
+<div class="caption">A smooth transition over the selected range (200 &rarr; 210 BPM) with the
+Curve dropdown open - Linear, Ease-in, Ease-out and S-curve</div>
 </div>
 
-<div class="media-todo" style="border: 2px dashed var(--border); border-radius: 8px; background: var(--bg-secondary); padding: 1rem 1.25rem; margin: 1.5rem 0;">
-<p style="margin: 0.35rem 0; font-size: 0.92em;"><b>[Video placeholder, silent]</b> Drag the
-tool over a range, set 100 &rarr; 160 BPM with Ease-in, apply, and scroll the tempo strip in
-the control editor so the resulting event staircase is visible - then undo, re-apply with
-S-curve, and show the different staircase. The visual difference between the curves IS the
-content here.</p>
-<p style="margin: 0.35rem 0; font-size: 0.85em; color: var(--text-muted);">Suggested file:
-<code>screenshots/edit-tempo_curves.webm</code></p>
+<div class="screenshot-single">
+<video controls autoplay loop muted playsinline preload="metadata" style="width:100%; max-width:1200px; height:auto; display:block; margin:0 auto; background:#000;" aria-label="Applying a smooth tempo transition with a curve">
+  <source src="screenshots/edit-tempo_curves.webm" type="video/webm">
+  Sorry, your browser doesn't support embedded video. <a href="screenshots/edit-tempo_curves.webm">Download the clip</a>.
+</video>
+<p class="caption">Applying a curved transition: one Edit Tempo step in the protocol, and the
+song runs seamlessly into the new tempo</p>
 </div>
 
 <h3 id="measures">Add or remove measures</h3>
