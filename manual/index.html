@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "2.0.1",
+    "softwareVersion": "2.1.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -243,7 +243,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v2.0.1 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v2.1.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -255,7 +255,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v2.0.1
+            &#x2B07; Download v2.1.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -631,15 +631,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v2.0.1 - July 2026</h3>
-        <p class="whats-new-subtitle">FFXIV Power Tools &amp; QoL</p>
+        <h3>v2.1.0 - July 2026</h3>
+        <p class="whats-new-subtitle">Precision Tools</p>
         <ul>
-            <li><strong>Hotfix: SID emulation follows the active tab</strong> - with several .sid files open, the C64 emulation played the wrong tune; each tab now plays its own</li>
-            <li><strong>FFXIV Drum Split</strong> - one click turns the GM drum kit into correctly named FFXIV percussion tracks, with a preview dialog and full undo (<a href="ffxiv-drum-split.html">read more</a>)</li>
-            <li><strong>Pitch-mapping kits</strong> - the house kit plus community kits transpose every drum onto its bard pitch, and an overlap cleanup removes the stacked hits FFXIV cannot play - instantly playable in game</li>
-            <li><strong>Channel fixer instrument re-sync</strong> - Preserve mode can now repair stale instruments from the track names, touching only mismatched channels (<a href="ffxiv-channel-fixer.html">read more</a>)</li>
-            <li><strong>Rich right-click menus</strong> - Clone, Merge, Move, Quantize, Transpose and more, directly on the Tracks and Channels panels (<a href="editor-and-components.html">read more</a>)</li>
-            <li><strong>Stability pass</strong> - a full-codebase review fixed Guitar Pro import hangs, note-glue truncation, plain-GM export remaps, AI cancel wedges and a set of undo and memory issues</li>
+            <li><strong>Auto-Fit Voice Load</strong> - thin overloaded moments and over-dense passages: the whole song, one range, or exactly the notes you selected - per-track intensity, live preview, dry run first, one undo step, on any MIDI file (<a href="auto-fit-voice-load.html">read more</a>)</li>
+            <li><strong>Drum-kit editor with audio A/B</strong> - build your own FFXIV pitch-mapping kits by duplicating any kit; every row's speaker plays the GM drum and its FFXIV target back to back (<a href="ffxiv-drum-split.html#own-kits">read more</a>)</li>
+            <li><strong>Tempo transition curves</strong> - Smooth Transition with Linear, Ease-in, Ease-out or S-curve, so an accelerando leans in naturally (<a href="editing-midi-files.html#tempo-curves">read more</a>)</li>
+            <li><strong>Timeline &amp; zoom fixes</strong> - tempo edits extend the timeline immediately, horizontal zoom anchors on the cursor, and smooth tempo ramps no longer freeze the editor</li>
+            <li><strong>Hardened before release</strong> - two multi-agent review passes fixed 18 adversarially verified findings, and three new test targets bring the suite to 60</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -698,7 +697,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v2.0.1
+            &#x2B07; Download MidiEditor AI v2.1.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

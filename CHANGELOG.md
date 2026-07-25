@@ -5,12 +5,17 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
-## [2.1.0] - Unreleased - Bugfixes & Optimizations
+## [2.1.0] - 2026-07-26 - Precision Tools
 
-> The next release, being prepared on main. On release day: set the real date
-> (drop "Unreleased"), then run scripts/build_changelog.py - the website
-> generator skips every entry whose date field starts with "Unreleased".
-> Experimental merges that are part of NO release live in PLAYGROUND.md.
+### Summary
+* **Auto-Fit Voice Load - thinning with a plan** - one confirmed click thins overloaded moments and over-dense passages: the whole song, a right-clicked overflow range in the voice-load lane, or exactly the notes you selected in the editor. Per-track intensity that persists, live preview in editor and lane, always a dry run first, one undo step - and it works on any MIDI file, not only in FFXIV mode
+* **Drum-kit editor with audio A/B** - build your own FFXIV pitch-mapping kits by duplicating any kit and editing its mappings; every row's speaker button plays the GM drum and its FFXIV target back to back, and "Preview group" plays a whole instrument's mapping as a run
+* **Tempo transition curves** - Edit Tempo's Smooth Transition gains Linear / Ease-in / Ease-out / S-curve, so an accelerando can lean in naturally instead of ramping mechanically
+* **Timeline & zoom fixes** - tempo edits extend the timeline immediately (TIMELINE-LEN-001), horizontal zoom anchors on the cursor (ZOOM-ANCHOR-001), and Smooth Transition ramps no longer freeze the editor with thousands of duplicate events (TEMPO-SMOOTH-001)
+* **Hardened by two multi-agent review passes** - 18 adversarially verified findings fixed before release, and three new test targets bring the suite to 60
+
+<details>
+<summary>Full Changelog - Precision Tools</summary>
 
 ### New Features
 * **Auto-Fit Voice Load** - the action counterpart to the FFXIV Voice Limiter's analysis: one confirmed click thins a song, a right-clicked overflow range in the voice-load lane, or exactly the notes selected in the editor (right-click the selection) so the material fits the in-game mixer. The voice ceiling counts notes that really sound at the same time (not the display's tail-extended numbers, which overestimate); removal order is duplicates, then chords over the configurable chord limit (outer voices always survive), then the quietest voices - percussion voice counts are never touched. Density desaturation works per track (one FFXIV performer, per drum pitch on percussion tracks): an intensity slider sets the percentage of each track to thin and the tool takes the densest passages first, halving or thirding dense runs while the upper voice survives. The modeless dialog carries a track list with individual per-track settings, live statistics, visibility eyes and a live preview in the editor and voice lane. Always shows a dry-run summary first, applies as a single undo step, and is deterministic. Works on any MIDI file, not only in FFXIV mode (the dialog's wording and the voice-lane live preview follow the active mode). Also available to the AI as `auto_fit_voice_load` (dry-run first, user confirmation required). Backed by a headless service with its own test target, calibrated against real stress-test songs.
@@ -24,6 +29,12 @@ Releases: https://github.com/happytunesai/web/releases
 * **Fixed the timeline not growing after tempo changes (TIMELINE-LEN-001)** - slowing a song down (e.g. throttling a section to 60 BPM) made it longer in real time, but the editor kept the old total length: the end of the song was unreachable by scrolling until the file was saved and reloaded. The total length is now recomputed immediately after every Edit Tempo apply and after undo/redo of tempo changes.
 * **Fixed horizontal zoom ignoring the cursor (ZOOM-ANCHOR-001)** - zooming in or out was anchored to the left edge of the view, so the position under the cursor/marker drifted away ("the zoom lands somewhere arbitrary"). Zoom now anchors on the cursor when it is visible (it keeps its screen position, so zooming dives into the marker) and on the viewport centre otherwise.
 * **Fixed Smooth Transition tempo ramps freezing the editor (TEMPO-SMOOTH-001)** - the Edit Tempo tool wrote a tempo event every 5 ticks (a 25-BPM ramp over a few measures produced thousands of events, almost all duplicates), each one individually undo-protocolled, and every later tick-to-time conversion copied the whole tempo map per call - scrolling and editing crawled afterwards. Smooth Transition now writes exactly one event per BPM step (evenly spread, endpoints exact), applies as a single undo step, and the tick/time conversions walk the tempo map without copying it - which also un-lags files that already come with dense imported tempo ramps. (merged 2026-07-19)
+* **Fixed the unit tests wiping the real app configuration on Windows (dev/from-source builds)** - the FFXIV Equalizer test cleared the actual `QSettings("MidiEditor","NONE")` scope, which on Windows is the registry and not covered by Qt's test mode - one ctest run silently erased API configuration, equalizer presets and (since the drum-kit editor) user-made kits. A latent defect since 1.6.1; both affected services now expose a test-scope seam and the tests never touch the real configuration. Shipped binaries were never affected.
+
+### Technical Notes
+* **Two multi-agent pre-release reviews** - every new subsystem of this release (Auto-Fit engine and dialog, tempo curves, kit store/editor, audio preview engine) was swept by dimension-focused reviewers and each finding adversarially verified before fixing: 8 confirmed findings in round one, 10 in round two, 0 false positives shipped. Three new test targets (tempo-curve math, Auto-Fit dialog logic, drum-kit store) bring the suite from 57 to 60 - the two layers where review findings clustered had no automated coverage before.
+
+</details>
 
 ---
 

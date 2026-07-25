@@ -71,6 +71,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3-C6) |
 | 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer - Rebuild or Preserve mode, optional instrument re-sync, velocity normalization, rich result summary |
 | 🥁 **FFXIV Drum Split** | Split the GM drum kit (channel 10) into separate FFXIV percussion tracks - optional pitch-mapping kits (house kit + community kits) transpose each drum onto its bard pitch, overlap cleanup removes stacked hits FFXIV cannot play |
+| 🎧 **Drum-Kit Editor with Audio A/B** | Build your own pitch-mapping kits by duplicating any kit and editing its mappings ("38 Acoustic Snare" → "72 C5") - per-row speaker plays the GM drum and its FFXIV target back to back, "Preview group" plays a whole instrument's mapping as a run |
+| ✂️ **Auto-Fit Voice Load** | Thin overloaded moments and over-dense passages - whole song, a lane range, or exactly the selected notes. Per-track intensity that persists, live preview in editor + voice lane, dry run first, one undo step; works on any MIDI file |
 | 🖱️ **Track & Channel Context Menus** | Right-click a track row for Clone, Merge Into, Move Up/Down, Quantize, Transpose, Explode Chords, Split Channels, and event ops (select all / move to channel / remove / tempo conversion); channel rows get the matching event ops |
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
 | 💥 **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks - one note per track, ideal for FFXIV ensemble prep |
@@ -84,6 +86,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts - built-in LAME 3.100 encoder. Honours channel mute/solo, per-track mute, and auto-routes named FFXIV percussion tracks to the correct bard preset |
 | 🎻 **FFXIV Voice Limiter** | Read-only audit against the in-game 16-voice ceiling - per-tick voice peak, overflow ranges, per-channel rate hotspots; optional voice-load lane under the velocity strip |
 | ⏱️ **Convert Tempo (Preserve Duration)** | Time-preserving tempo conversion - rescales every event tick by `target/source` and rewrites the tempo meta in one undoable step. Whole-file / events-only / per-channel / selected-events scopes |
+| 📈 **Tempo Transition Curves** | Edit Tempo's Smooth Transition with Linear / Ease-in / Ease-out / S-curve - one tempo event per BPM step, exact endpoint, single undo step |
 | 📥 **Paste Special** | Cross-instance Ctrl+V opens a dialog: *Create new tracks per source* (default), *Preserve source mapping (1:1)*, or *Paste to current edit track* (legacy). Track creation + paste in one undo step |
 | 📋 **Copy to Track / Copy to Channel** | Duplicate the current selection 1:1 onto another track or channel; originals stay in place, the copies become the active selection |
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
@@ -192,6 +195,8 @@ The **FFXIV Drum Split** tool converts the GM drum kit (channel 10) into the sep
 
 **Features:**
 - **Pitch mapping kits** - the house kit plus community kits transpose each GM drum onto its FFXIV bard pitch; tracks stay on the drum channel because the instrument follows the track name
+- **Your own kits** - "Edit kits..." opens the kit editor: duplicate any kit, change its mappings (drums and pitches spelled out by name), and it appears in the selector next to the shipped ones
+- **Audio A/B preview** - every mapping row's speaker plays the GM drum and its FFXIV target back to back, and "Preview group" plays a whole instrument's mapping as a run (GM half needs a General MIDI SoundFont loaded alongside the FFXIV one)
 - **Overlap cleanup** - stacked same-pitch reinforcement hits play sequentially in FFXIV and change the beat, so redundant overlaps are removed by default (or moved to a review track)
 - **Other Percussion** - everything the mapping does not cover is collected, never silently dropped
 - **Full undo** - the entire split is a single undo action (Ctrl+Z)
