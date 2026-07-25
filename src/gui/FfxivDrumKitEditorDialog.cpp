@@ -267,6 +267,7 @@ void FfxivDrumKitEditorDialog::addRow(int groupIndex, int sourceNote,
     QSpinBox *source = new QSpinBox(table);
     source->setRange(FfxivDrumKitStore::kMinSource, FfxivDrumKitStore::kMaxSource);
     source->setValue(sourceNote);
+    source->installEventFilter(this);
     // A dynamic suffix names the drum without needing a second column or a
     // custom item delegate.
     auto updateSourceSuffix = [source](int value) {
@@ -285,6 +286,7 @@ void FfxivDrumKitEditorDialog::addRow(int groupIndex, int sourceNote,
     QSpinBox *target = new QSpinBox(table);
     target->setRange(FfxivDrumKitStore::kMinTarget, FfxivDrumKitStore::kMaxTarget);
     target->setValue(targetNote);
+    target->installEventFilter(this);
     auto updateTargetSuffix = [target](int value) {
         target->setSuffix(QStringLiteral("  ") + pitchName(value));
     };
@@ -460,6 +462,21 @@ void FfxivDrumKitEditorDialog::setStatus(const QString &text, bool isError) {
     _statusLabel->setText(text);
     _statusLabel->setStyleSheet(isError ? "QLabel { color: #f85149; }"
                                         : "QLabel { color: gray; }");
+}
+
+bool FfxivDrumKitEditorDialog::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::FocusIn) {
+        for (QTableWidget *table : _groupTables) {
+            for (int row = 0; row < table->rowCount(); ++row) {
+                if (table->cellWidget(row, 0) == watched
+                    || table->cellWidget(row, 1) == watched) {
+                    table->selectRow(row);
+                    return QDialog::eventFilter(watched, event);
+                }
+            }
+        }
+    }
+    return QDialog::eventFilter(watched, event);
 }
 
 void FfxivDrumKitEditorDialog::closeEvent(QCloseEvent *event) {

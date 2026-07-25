@@ -62,6 +62,11 @@ private:
     void setStatus(const QString &text, bool isError);
 
     void closeEvent(QCloseEvent *event) override;
+    /// Selects the row of the spin box gaining focus. Every cell is covered
+    /// by a spin box and the vertical header is hidden, so a mouse click
+    /// never reaches the table itself - without this, "Remove selected"
+    /// only ever works right after "Add mapping".
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     QListWidget *_kitList;
     QTabWidget *_groupTabs;
