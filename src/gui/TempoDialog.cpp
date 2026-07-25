@@ -1,5 +1,6 @@
 #include "TempoDialog.h"
 #include "Appearance.h"
+#include "TempoCurve.h"
 
 #include <QGridLayout>
 #include <QLabel>
@@ -176,55 +177,21 @@ void TempoDialog::accept() {
     }
 
     if (_smoothTransition->isChecked()) {
-        int startBeats = _startBeats->value();
-        int endBeats = _endBeats->value();
-
         // One event per integer-BPM step, not one every 5 ticks: BPM is
         // integral, so denser spacing only produces thousands of duplicate
         // events (a 25-BPM ramp over 8 measures used to emit ~3000 events,
-        // making every later tick<->ms conversion crawl).
-        const int span = _endTick - _startTick;
-        const int steps = qAbs(endBeats - startBeats);
-        if (span <= 0 || steps == 0) {
+        // making every later tick<->ms conversion crawl). The step/tick math
+        // (including the curve shapes) lives in TempoCurve so it can be
+        // unit-tested without a widget - see test_tempo_curve.
+        const TempoCurveShape shape = static_cast<TempoCurveShape>(
+            _curveCombo ? _curveCombo->currentIndex() : 0);
+        const QList<TempoCurveStep> steps = TempoCurve::build(
+            _startBeats->value(), _endBeats->value(), _startTick, _endTick,
+            shape);
+        for (const TempoCurveStep &s : steps) {
             tempoChannel->insertEvent(
-                new TempoChangeEvent(17, 60000000 / endBeats, generalTrack),
-                _startTick, false);
-        } else {
-            // The curve maps BPM progress to time: step k (BPM fraction
-            // x = k/steps) lands at startTick + span * g(x), where g is the
-            // inverse of the tempo curve f (bpm(t) = start + delta * f(t)).
-            const int curve = _curveCombo ? _curveCombo->currentIndex() : 0;
-            int lastTick = -1;
-            for (int k = 0; k <= steps; ++k) {
-                const int beats = startBeats + ((endBeats - startBeats) * k) / steps;
-                const double x = static_cast<double>(k) / steps;
-                double gx = x;                                    // Linear
-                switch (curve) {
-                case 1: gx = std::sqrt(x); break;                 // Ease-in: f(t)=t^2
-                case 2: gx = 1.0 - std::sqrt(1.0 - x); break;     // Ease-out: f(t)=1-(1-t)^2
-                case 3:                                           // S-curve: f = smoothstep
-                    gx = 0.5 - std::sin(std::asin(1.0 - 2.0 * x) / 3.0);
-                    break;
-                default: break;
-                }
-                int tick = _startTick
-                    + static_cast<int>(static_cast<double>(span) * gx + 0.5);
-                // The end tick belongs to k == steps alone: rounding can land
-                // an intermediate step on _endTick first, and the keep-first
-                // dedupe below would then drop the FINAL step - the one
-                // carrying endBeats - leaving everything after the range at a
-                // near-target tempo (e.g. 289 instead of 300 BPM).
-                if (k < steps && tick >= _endTick) {
-                    tick = _endTick - 1;
-                }
-                if (tick == lastTick) {
-                    continue; // range shorter than the BPM step count
-                }
-                lastTick = tick;
-                tempoChannel->insertEvent(
-                    new TempoChangeEvent(17, 60000000 / beats, generalTrack),
-                    tick, false);
-            }
+                new TempoChangeEvent(17, 60000000 / s.bpm, generalTrack),
+                s.tick, false);
         }
     } else {
         int beats = _endBeats->value();

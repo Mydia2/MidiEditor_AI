@@ -60,6 +60,13 @@ private slots:
 private:
     AutoFitOptions currentOptions(bool dryRun) const;
 
+    // Test-only hook, no production behaviour: tests/test_auto_fit_dialog.cpp
+    // pins the option mapping (the ALL/SUBSET/NONE track filter, the
+    // selection-scope pre-check, the per-track percents, the structure
+    // guard) directly on currentOptions() and the widgets it reads.
+    // Friendship keeps all of that private instead of widening the API.
+    friend class TestAutoFitDialog;
+
     MidiFile *_file;
     int _startTick;
     int _endTick;

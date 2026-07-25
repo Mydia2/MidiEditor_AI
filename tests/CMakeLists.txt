@@ -760,6 +760,27 @@ if(WIN32)
 endif()
 
 # -----------------------------------------------------------------------------
+# test_tempo_curve
+# -----------------------------------------------------------------------------
+# Pure unit test for TempoCurve::build() - the step/tick math behind the Edit
+# Tempo dialog's Smooth Transition (curve shapes, endpoint contract, event
+# count). Header-only, no widget and no MidiFile: Qt6::Core/Test suffice.
+add_executable(test_tempo_curve
+    test_tempo_curve.cpp
+)
+target_link_libraries(test_tempo_curve PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME TempoCurve COMMAND test_tempo_curve)
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(TempoCurve PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# -----------------------------------------------------------------------------
 # test_prompt_profiles
 # -----------------------------------------------------------------------------
 # Pure unit test for PromptProfileStore: glob match, resolution layering,
@@ -1101,6 +1122,69 @@ target_link_libraries(test_auto_fit_voice_load PRIVATE
     Qt6::Test
 )
 add_test(NAME AutoFitVoiceLoadService COMMAND test_auto_fit_voice_load)
+
+# -----------------------------------------------------------------------------
+# test_auto_fit_dialog
+# -----------------------------------------------------------------------------
+# GUI-logic coverage of AutoFitVoiceLoadDialog (v2.1.0 / Phase 35): the
+# ALL/SUBSET/NONE track-filter mapping, the selection-scope pre-check, the
+# per-track intensity percents, the modeless structure guard (track
+# add/remove/reorder closes the dialog), the advanced-option mapping and the
+# live-preview signal. Three of the eight bugs found in the pre-push review
+# lived in exactly that logic layer.
+#
+# Harness: same ODR-shim strategy as test_auto_fit_voice_load, but the dialog
+# needs a WORKING MidiFile, so the shim carries a real mutable track list
+# (tracks()) on top of the linear 1:1 tick<->ms model. The real dialog +
+# service + FfxivVoiceAnalyzer (the dialog asks the singleton whether the
+# FFXIV limiter is on) + MidiChannel + the four event types + the protocol/*
+# TUs are linked; MidiFile, MidiTrack, the MidiEvent base, GraphicObject,
+# EventWidget and Appearance are shimmed in the test TU.
+add_executable(test_auto_fit_dialog
+    test_auto_fit_dialog.cpp
+    ../src/gui/AutoFitVoiceLoadDialog.cpp
+    ../src/converter/AutoFitVoiceLoadService.cpp
+    ../src/ai/FfxivVoiceAnalyzer.cpp
+    ../src/ai/FfxivVoiceLoadCore.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolEntry.cpp
+)
+target_include_directories(test_auto_fit_dialog PRIVATE
+    ../src/ai
+    ../src/converter
+    ../src/gui
+    ../src/midi
+    ../src/MidiEvent
+    ../src/protocol
+)
+target_link_libraries(test_auto_fit_dialog PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME AutoFitDialog COMMAND test_auto_fit_dialog)
+# Real widgets get shown (the structure guard asserts the dialog CLOSES), so
+# the target needs a QPA platform that works without a desktop session and
+# without flashing windows at the developer -> offscreen. Qt DLLs go on PATH
+# like every other Windows test target.
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(AutoFitDialog PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;PATH=${_qt_bin_dir};$ENV{PATH}")
+else()
+    set_tests_properties(AutoFitDialog PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
 
 # -----------------------------------------------------------------------------
 # test_paste_special_dialog
