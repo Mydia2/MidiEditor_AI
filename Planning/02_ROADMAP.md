@@ -12579,3 +12579,43 @@ still exactly one tempo event per BPM step - the curve only shifts where the
 steps land. Matches how musical accelerandos are edited by hand.
 
 Order: #3 -> #1 -> #2.
+
+---
+
+## Phase 44: Integrated Help - "Manual Bot" via AI tools (IDEA, 2.2 candidate)
+
+**The gap (user idea, 2026-07-25):** MidiPilot can edit music but cannot explain
+the editor. "How do I split drums?" gets a guess, not the manual's answer. The
+manual exists (25+ HTML pages) but is far too big to inject into the system
+prompt, and the AI has no way to read it.
+
+**Design sketch (retrieval, not embeddings):**
+
+1. **Data source = the manual, never a second truth.** A build-time script
+   (`scripts/build_help_db.py`, sibling of build_changelog.py) parses
+   `manual/*.html`, strips markup, chunks by section (`h2`/`h3` anchors) and
+   emits a compact `help_db.json`: `{page, anchor, title, keywords, text}`.
+   Optionally one hand-written overlay file for AI-only hints the manual does
+   not spell out (menu paths, "which dialog is this", common workflows).
+   Regenerated in the release checklist so it CANNOT drift from the docs.
+2. **Two tools, classic search->read->answer shape** (ToolDefinitions, so
+   MidiPilot agent AND MCP clients get them for free, not FFXIV-gated):
+   - `search_help(query)` -> top-N sections (title + snippet + page#anchor).
+     Plain token/keyword scoring in C++ (tiny inverted index over the JSON);
+     no embeddings, no runtime model, fully offline.
+   - `get_help_section(page, anchor)` -> the full plain text of one section.
+3. **System-prompt hook:** one line - "for questions about the editor itself,
+   call search_help first". The answer cites the manual section so the user
+   can click through (the chat renders links).
+4. **MCP bonus:** external clients (Claude Desktop / VS Code) can answer
+   "how does this app work" without the website; optionally also exposed as
+   MCP resources later, tools first.
+5. **Tests:** a target that loads the generated DB, asserts every
+   (page, anchor) resolves against manual/, and pins retrieval for known
+   queries ("drum split" -> ffxiv-drum-split.html, "thin notes" ->
+   auto-fit-voice-load.html).
+
+**Effort:** ~1-2 focused days (Python generator ~150 lines, C++ loader +
+scorer ~200, two tool defs + exec ~150, prompt line, test target).
+**Non-goals:** vector search, online lookups, a chatbot UI of its own - the
+existing chat IS the UI.
