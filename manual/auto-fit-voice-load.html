@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto-Fit Voice Load | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0B1020">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+<style>
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+.step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.step-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+}
+.step-card h4 { margin-top: 0; border-bottom: none; }
+.step-card p { margin-bottom: 0; font-size: 0.92em; color: var(--text-muted); }
+.highlight-box {
+    background: var(--bg-card);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.highlight-box p { margin: 0; }
+/* Placeholders for screenshots and videos that are not shot yet. Replace the
+   whole block with the matching .screenshot-single markup once the asset
+   exists - the intended file name is part of every placeholder. */
+.media-todo {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+}
+.media-todo .media-kind {
+    display: inline-block;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    margin-bottom: 0.6rem;
+}
+.media-todo p { margin: 0.35rem 0; font-size: 0.92em; }
+.media-todo .media-file { color: var(--text-muted); font-size: 0.85em; }
+</style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-drum-split.html">FFXIV Drum Split</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<h1>&#x2702;&#xFE0F; Auto-Fit Voice Load</h1>
+
+<p>
+<b>Auto-Fit Voice Load</b> thins out a song where too many notes sound at the same time or where
+a passage runs denser than an instrument can articulate. It is a note-removal tool with a plan:
+instead of deleting whatever sits in the way, it works through duplicates, over-wide chords,
+simultaneous-voice overflows and over-dense runs in that order, and it always shows you what it
+would remove before it touches anything.
+</p>
+
+<p>
+The tool is context-driven: you point it at the whole song, at a range, or at exactly the notes
+you have selected, and it only ever works inside that scope. It pairs naturally with the
+<a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a> - the limiter shows you <i>where</i> a
+file is too heavy, this tool <i>fixes</i> it - but it does not need FFXIV mode. Thinning a
+cluttered arrangement is useful in any MIDI file.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F4A1; <b>Find it in:</b> menu <b>Tools &rarr; Auto-Fit Voice Load...</b> for the whole
+song &middot; <b>right-click selected notes</b> in the editor for exactly those notes &middot;
+<b>right-click the voice-load lane</b> (FFXIV mode) for one overflow range</p>
+</div>
+
+<hr>
+
+<h2 id="entry-points">Three ways to open it</h2>
+
+<p>
+All three open the same dialog; they differ only in what the tool is allowed to look at and
+change. The scope is fixed the moment the dialog opens, and the info line at the top of the
+dialog names it.
+</p>
+
+<table class="info-table">
+<tr><th>Entry point</th><th>Scope</th><th>Use it when</th></tr>
+<tr>
+  <td><b>Tools &rarr; Auto-Fit Voice Load...</b></td>
+  <td>The whole song</td>
+  <td>You want an overall reduction and will pick the tracks in the dialog.</td>
+</tr>
+<tr>
+  <td><b>Right-click a note selection</b> &rarr; Auto-Fit Voice Load (selection)...</td>
+  <td>Exactly the selected notes</td>
+  <td>You want to thin one passage, one voice or one hand-picked group of notes and leave
+      everything else alone.</td>
+</tr>
+<tr>
+  <td><b>Right-click the voice-load lane</b> &rarr; Auto-fit this overflow range</td>
+  <td>The clicked overflow range or hotspot</td>
+  <td>The limiter lane shows a red peak and you want to treat just that spot.</td>
+</tr>
+</table>
+
+<div class="media-todo">
+<div class="media-kind">Screenshot</div>
+<p><b>What to show:</b> the editor with a handful of notes selected and the right-click context
+menu open, so the <i>Auto-Fit Voice Load (selection)...</i> entry is readable in place.</p>
+<p class="media-file">Suggested file: <code>screenshots/auto-fit_context-menu.png</code></p>
+</div>
+
+<hr>
+
+<h2 id="dialog">The dialog</h2>
+
+<p>
+The dialog has two columns: the controls and the summary on the left, the track list with live
+statistics on the right. Nothing is applied while you experiment - every change re-runs a dry run
+and updates the numbers, and only the <b>Apply</b> button writes to the file.
+</p>
+
+<div class="media-todo">
+<div class="media-kind">Screenshot</div>
+<p><b>What to show:</b> the whole dialog on a loaded song, ideally with a few tracks ticked and a
+non-zero removal count in the summary box, so all parts are visible at once: density slider, skip
+slider, Advanced group, summary, and the track list with its statistics.</p>
+<p class="media-file">Suggested file: <code>screenshots/auto-fit_dialog.png</code></p>
+</div>
+
+<h3 id="summary">The summary box</h3>
+
+<p>
+The dark box above the buttons is the dry run. It reports the peak number of simultaneously
+sounding notes against the configured ceiling, how many overflow spots exist, how many notes
+would be removed and why (duplicates, chord limit, voice ceiling, note rate), what percentage of
+the material that is, and what the peak becomes afterwards. Those numbers are the whole point of
+the tool: you tune the sliders until the reduction reads reasonable, and only then apply.
+</p>
+
+<hr>
+
+<h2 id="what-it-removes">What it removes, and in which order</h2>
+
+<div class="step-grid">
+<div class="step-card">
+<h4>1&#xFE0F;&#x20E3; Duplicates</h4>
+<p>Stacked copies of the same pitch on the same channel. The longer copy survives.</p>
+</div>
+<div class="step-card">
+<h4>2&#xFE0F;&#x20E3; Chord limit</h4>
+<p>Inside an overflow, chords wider than the configured limit are reduced. The lowest and highest
+voice of a chord always survive, so its outline stays intact.</p>
+</div>
+<div class="step-card">
+<h4>3&#xFE0F;&#x20E3; Voice ceiling</h4>
+<p>If a moment still has more simultaneous notes than the ceiling allows, the shortest and
+quietest notes go first, inner voices before outer ones. Percussion is never thinned for voice
+count.</p>
+</div>
+<div class="step-card">
+<h4>4&#xFE0F;&#x20E3; Density</h4>
+<p>Passages that run denser than the target are thinned by skipping notes inside the run - the
+automated version of halving or thirding a run by hand.</p>
+</div>
+</div>
+
+<p>
+An important detail about counting: a note keeps ringing after it ends, and a display gauge that
+counts those ringing tails paints a much heavier picture than what actually competes for voices.
+Auto-Fit counts <b>notes that really sound at the same time</b>, so a song whose gauge looks
+dramatic can still be perfectly fine and is left alone.
+</p>
+
+<hr>
+
+<h2 id="density">Density: the main slider</h2>
+
+<p>
+Density is what most files actually suffer from - a cymbal wall, a fast staccato run, a tremolo
+figure. What counts as "too dense" is relative: a slow ride pattern and a fast shred run are both
+too much for one player at wildly different note rates, so an absolute notes-per-second threshold
+would need re-tuning for every song and tempo.
+</p>
+
+<p>
+The <b>intensity slider</b> therefore sets a <i>share of the material</i> to thin, from mild to
+aggressive. The tool measures the density of every passage itself, ranks them, and thins the
+densest ones first until the requested share is reached. That means the slider always has an
+effect, at any tempo, on any instrument - and the label under it tells you what the current
+setting comes out at in real numbers.
+</p>
+
+<p>
+The second slider, <b>In dense runs skip</b>, decides how hard a dense run is treated once it is
+picked: from skipping every second note (halving the run) up to keeping only one note of six.
+Of each group the higher note survives, which in a two-voice passage keeps the upper voice
+carrying the melody. If your file has meaningful velocity differences and you would rather keep
+the accents, tick <b>Prefer louder notes</b> in the Advanced group.
+</p>
+
+<p>
+Percussion is treated per drum sound rather than per track, because every drum pitch is its own
+instrument. A dense crash pattern is thinned as a crash pattern, while a lone accent on another
+drum inside the same bars survives untouched. Short figures are never thinned at all, so accents
+and fills do not lose their shape.
+</p>
+
+<div class="media-todo">
+<div class="media-kind">Video</div>
+<p><b>What to show:</b> dragging the intensity slider on a dense track while the live preview
+highlights the affected notes in the editor - the point is that the highlight and the numbers
+follow the slider immediately. A cymbal or 16th-note track works best.</p>
+<p class="media-file">Suggested file: <code>screenshots/auto-fit_slider-live.webm</code></p>
+</div>
+
+<hr>
+
+<h2 id="tracks">Working track by track</h2>
+
+<p>
+The right column lists every track with a checkbox, an eye toggle and its own statistics line.
+</p>
+
+<ul>
+  <li><b>Checkboxes</b> pick which tracks may lose notes. <b>All</b>, <b>Visible</b> and
+      <b>None</b> set them in one click. Notes on unticked tracks still count towards voices and
+      density - they simply never get removed. That is how you thin an overloaded cymbal track
+      while every guitar stays exactly as it is.</li>
+  <li><b>Each track keeps its own intensity.</b> The slider adjusts the ticked tracks, and the
+      value stays with them: tick the lead guitar and set it mild, then tick the cymbals and set
+      them aggressive - both settings persist and Apply uses all of them together.</li>
+  <li><b>The statistics line</b> under each track shows that track's target and how many of its
+      notes the current settings would remove, so you can see immediately which track carries the
+      reduction.</li>
+  <li><b>The eye toggle</b> shows and hides the track in the editor, exactly like the Tracks
+      panel - handy because hiding tracks also changes what the voice-load lane displays.</li>
+</ul>
+
+<div class="media-todo">
+<div class="media-kind">Screenshot</div>
+<p><b>What to show:</b> the track list column in a state that makes per-track settings obvious -
+e.g. only the cymbal track ticked with a high target and an orange statistics line, the other
+tracks reading "not applied". A close-up of just that column is more readable than the full
+dialog here.</p>
+<p class="media-file">Suggested file: <code>screenshots/auto-fit_track-list.png</code></p>
+</div>
+
+<hr>
+
+<h2 id="selection">Thinning only what you selected</h2>
+
+<p>
+This is the most precise way to use the tool. Select notes in the editor - a time range, one
+voice, a couple of individual clashes - then right-click the selection and choose <b>Auto-Fit
+Voice Load (selection)...</b>. The dialog opens with that selection as its entire world: the
+statistics count only those notes, the density target applies only to them, and only they can be
+removed. Everything outside the selection stays exactly as it is, even where it is denser than
+what you are thinning.
+</p>
+
+<p>
+The track list pre-ticks only the tracks your selection actually touches, so the dialog mirrors
+what you picked. From there the sliders behave as usual - you are simply working on a smaller
+piece of music.
+</p>
+
+<div class="media-todo">
+<div class="media-kind">Video</div>
+<p><b>What to show:</b> the full selection workflow - rubber-band a dense passage on one track,
+right-click, open the tool, note that only that track is ticked, move the slider, apply, and show
+that the neighbouring passages are untouched. This is the clip that best explains why the tool
+exists.</p>
+<p class="media-file">Suggested file: <code>screenshots/auto-fit_selection-workflow.webm</code></p>
+</div>
+
+<hr>
+
+<h2 id="preview">Live preview and the open editor</h2>
+
+<p>
+With <b>Live preview</b> enabled - it is on by default - the notes that would be removed are
+highlighted as the editor selection while you tune, so you can see the actual notes rather than
+just a count. The <b>Preview as selection</b> button does the same on demand when you keep live
+preview off.
+</p>
+
+<p>
+The dialog does not block the editor. Scroll, zoom and browse the timeline while it is open,
+compare two views side by side, or toggle track visibility - the preview recomputes itself after
+every edit, so what is highlighted always matches the current settings. In FFXIV mode the
+voice-load lane joins in: the full load is drawn in grey and the predicted result on top of it in
+colour, which turns the lane into a before/after picture of your settings.
+</p>
+
+<div class="media-todo">
+<div class="media-kind">Video</div>
+<p><b>What to show:</b> the modeless behaviour - with the dialog open, scroll and zoom the
+editor, then move the slider and let the voice-load lane update its grey "before" curve against
+the coloured prediction. Works best on a file with a visible red peak in the lane.</p>
+<p class="media-file">Suggested file: <code>screenshots/auto-fit_lane-preview.webm</code></p>
+</div>
+
+<hr>
+
+<h2 id="advanced">Advanced options</h2>
+
+<table class="info-table">
+<tr><th>Option</th><th>What it does</th></tr>
+<tr>
+  <td><b>Voice ceiling</b></td>
+  <td>How many notes may sound at the same time. In FFXIV mode the default matches the in-game
+      limit; raise it if you only care about the density pass.</td>
+</tr>
+<tr>
+  <td><b>Limit chords to N voices per channel</b></td>
+  <td>Caps chord width inside overflow spots, keeping the outer voices. Untick it to leave chord
+      shapes completely alone.</td>
+</tr>
+<tr>
+  <td><b>Prefer louder notes (accents)</b></td>
+  <td>Keeps the loudest note of a group instead of the higher one. Meant for raw files whose
+      velocities still carry accents; in files with normalised velocity it makes no difference.</td>
+</tr>
+<tr>
+  <td><b>Live preview</b></td>
+  <td>Highlights the affected notes in the editor while you tune.</td>
+</tr>
+</table>
+
+<hr>
+
+<h2 id="apply">Applying, undo, and repeatability</h2>
+
+<ul>
+  <li><b>Apply</b> is the only thing that changes the file, and the whole reduction is a
+      <b>single undo step</b> - one <b>Ctrl+Z</b> brings every note back.</li>
+  <li>The result is <b>deterministic</b>: the same file with the same settings always produces
+      the same removals, so you can undo, adjust one slider and re-apply to compare.</li>
+  <li>Applying twice keeps thinning - the second pass measures the already thinned material. If
+      you want a different result, undo first instead of stacking passes.</li>
+  <li>If you change the track structure while the dialog is open (adding, removing or reordering
+      tracks), the dialog closes itself - its track list belongs to the arrangement it was opened
+      on. Just open it again.</li>
+</ul>
+
+<hr>
+
+<h2 id="ffxiv">With and without FFXIV mode</h2>
+
+<p>
+The tool is available in both cases; the difference is context and wording.
+</p>
+
+<table class="info-table">
+<tr><th></th><th>FFXIV Voice Limiter active</th><th>Any other MIDI work</th></tr>
+<tr>
+  <td><b>Dialog wording</b></td>
+  <td>Speaks in FFXIV terms - mixer limits, one performer per track.</td>
+  <td>Neutral wording about simultaneous notes and dense passages.</td>
+</tr>
+<tr>
+  <td><b>Voice-load lane</b></td>
+  <td>Visible, and mirrors the preview as a grey/coloured before-after curve.</td>
+  <td>Not shown; the dialog's own numbers carry the information.</td>
+</tr>
+<tr>
+  <td><b>Lane entry point</b></td>
+  <td>Right-click an overflow range or hotspot to scope the tool to it.</td>
+  <td>Use the Tools menu or a note selection.</td>
+</tr>
+</table>
+
+<hr>
+
+<h2 id="ai-tool">Letting the AI do it</h2>
+
+<p>
+MidiPilot can run the same thinning through the <code>auto_fit_voice_load</code> tool, with the
+same options the dialog offers. It defaults to a dry run: the agent reports what would be removed
+and asks for your confirmation before the real pass, which is again a single undo step. Combined
+with the read-only <code>analyze_voice_load</code> tool the agent can find the heavy spots first
+and then propose a reduction - see <a href="midipilot.html">MidiPilot</a> and the
+<a href="ffxiv-voice-limiter.html#ai-tool">Voice Limiter's AI tools</a>.
+</p>
+
+<hr>
+
+<h2 id="tips">Tips</h2>
+
+<ul>
+  <li><b>Start with a selection.</b> A small, well-chosen selection tells you more about the tool
+      than a whole-song pass, and it is trivial to undo.</li>
+  <li><b>One problem at a time.</b> If cymbals are the issue, tick only that track. Spreading a
+      reduction across everything is rarely what a song needs.</li>
+  <li><b>Watch the summary, not the slider.</b> The percentage in the summary box is the honest
+      number - the slider is a target, and short figures are deliberately protected.</li>
+  <li><b>Use side-by-side views.</b> Open the same file in two panes and keep one at the original
+      state while you thin the other; the modeless dialog lets you compare while tuning.</li>
+  <li><b>Run it after the structural tools.</b> Splitting drums or fixing channels changes what
+      shares a track, so thin the arrangement once it has its final shape - see
+      <a href="ffxiv-drum-split.html">FFXIV Drum Split</a> and
+      <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a>.</li>
+</ul>
+
+<hr>
+
+<h2 id="media">Media checklist</h2>
+
+<p>
+The placeholders above collected in one list, for a single capture session:
+</p>
+
+<table class="info-table">
+<tr><th>#</th><th>Kind</th><th>File</th><th>Content</th></tr>
+<tr><td>1</td><td>Screenshot</td><td><code>auto-fit_context-menu.png</code></td>
+    <td>Note selection with the right-click menu open</td></tr>
+<tr><td>2</td><td>Screenshot</td><td><code>auto-fit_dialog.png</code></td>
+    <td>The full dialog with a non-zero dry-run summary</td></tr>
+<tr><td>3</td><td>Video</td><td><code>auto-fit_slider-live.webm</code></td>
+    <td>Slider drag with live highlight following it</td></tr>
+<tr><td>4</td><td>Screenshot</td><td><code>auto-fit_track-list.png</code></td>
+    <td>Track column close-up with per-track statistics</td></tr>
+<tr><td>5</td><td>Video</td><td><code>auto-fit_selection-workflow.webm</code></td>
+    <td>Select, thin, apply - neighbours untouched</td></tr>
+<tr><td>6</td><td>Video</td><td><code>auto-fit_lane-preview.webm</code></td>
+    <td>Modeless scrolling plus the lane's before/after curve</td></tr>
+</table>
+
+<hr>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a> - the gauge and lane that show
+      where a file is too heavy</li>
+  <li><a href="ffxiv-drum-split.html">FFXIV Drum Split</a> - split a GM drum kit into playable
+      percussion tracks</li>
+  <li><a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> - set up channels and tracks for an
+      in-game performance</li>
+  <li><a href="editing-midi-files.html">Editing MIDI Files</a> - selections, tools and the editor
+      basics this tool builds on</li>
+  <li><a href="midipilot.html">MidiPilot</a> - running the same reduction through the AI</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+
+<button class="scroll-top" id="scrollTopBtn" title="Back to top">&#x2191;</button>
+<script>
+(function() {
+    var btn = document.getElementById('scrollTopBtn');
+    window.addEventListener('scroll', function() {
+        btn.classList.toggle('visible', window.scrollY > 300);
+    });
+    btn.addEventListener('click', function() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+})();
+</script>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

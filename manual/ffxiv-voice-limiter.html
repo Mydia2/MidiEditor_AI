@@ -69,6 +69,7 @@
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
                 <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
                 <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
@@ -342,92 +343,36 @@ CH9 is counted exactly like every other channel; no special-casing.
 
 <hr>
 
-<h2 id="auto-fit">Auto-Fit Voice Load</h2>
+<h2 id="auto-fit">Fixing what the analysis finds</h2>
 
 <p>
-The analysis shows where a file exceeds the limits - Auto-Fit is the action that makes it fit.
-Find it in <b>Tools &rarr; Auto-Fit Voice Load...</b> for the whole song, or right-click an
-overflow range or rate-hotspot marker in the voice-load lane to fit just that range. The tool
-works on any MIDI file - thinning overloaded moments and too-dense passages is useful far beyond
-FFXIV - and while the FFXIV voice limiter is active the dialog describes its work in FFXIV terms
-and the voice-load lane mirrors the live preview.
+The limiter is read-only: it shows you <i>where</i> a file is too heavy. The tool that acts on
+that is <b><a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a></b> - it thins overloaded
+moments and over-dense passages, always with a dry run and your confirmation first, in a single
+undo step. It has <a href="auto-fit-voice-load.html">its own page</a>, because it works on any
+MIDI file and not only in FFXIV mode.
 </p>
 
 <p>
-For the finest control, select notes in the editor and right-click the selection: <b>Auto-Fit
-Voice Load (selection)...</b> opens the same dialog scoped to <i>exactly those notes</i>. Only
-the selected notes are measured and only they can be removed - everything outside the selection
-stays untouched. This is how you thin one crowded passage, a single voice inside a track, or any
-hand-picked region without affecting the rest of the song.
+Two things tie it to the limiter. First, the <b>voice-load lane is one of its entry points</b>:
+right-click an overflow range or a rate-hotspot marker to open the tool scoped to exactly that
+range. Second, while its dialog is open, the lane becomes a <b>before/after picture</b> - the
+full load in grey with the predicted result drawn on top in colour, updating as the settings
+change.
 </p>
 
 <p>
-Nothing happens without your confirmation: the dialog always shows a dry run first - how many
-notes would be removed and why, what percentage of the song that is, and what the peak becomes -
-and only the <b>Apply</b> button changes the file. The <b>thinning-intensity slider</b>
-recomputes while you drag it, and with live preview enabled the affected notes light up as the
-editor selection in real time - combined with a side-by-side view this makes before/after
-comparison immediate. The whole operation is a single undo step.
+One counting difference is worth knowing when you compare the two. The gauge and the lane count
+<i>ringing</i> voices - notes plus their sample tails - which is the honest model for a display.
+For editing that is far too strict, because removing a note whose tail merely overlaps changes
+nothing you can hear. Auto-Fit therefore counts notes that really sound at the same time, so a
+file whose gauge peak looks dramatic may well be left alone as fine.
 </p>
 
 <p>
-An important distinction: the gauge and lane count <i>ringing</i> voices (notes plus their
-sample tails), which is the right model for display but far too strict for editing - removing a
-note whose tail overlaps changes nothing musically. Auto-Fit therefore counts <b>notes that
-really sound at the same time</b> for its voice ceiling, so a song whose display peak looks
-dramatic can still be perfectly fine and is left alone.
-</p>
-
-<p>What it removes:</p>
-<ul>
-  <li><b>Duplicates</b> - stacked copies of the same pitch on the same channel; the longer or
-      louder copy survives.</li>
-  <li><b>Chord limit</b> - inside overflows, chords wider than the configured limit (default 3
-      voices per channel) are reduced; the lowest and highest voice always survive and the
-      loudest middle voices are kept.</li>
-  <li><b>Voice ceiling</b> - if a moment still exceeds the configured ceiling (default 16
-      really-sounding voices), the quietest and shortest notes go first; the outer voices of
-      every chord are protected, and percussion is never thinned for voice count.</li>
-  <li><b>Density desaturation</b> (optional) - dense cymbal patterns and 32nd/64th staccato runs
-      overload a single FFXIV performer. Musical density is relative to tempo and instrument (a
-      slow ride-cymbal wall and a fast shred run are both "too much" at very different absolute
-      rates), so the intensity slider sets a <i>percentage of the track</i> to thin - the tool
-      finds each track's densest passages by itself and thins those first until the target is
-      reached. The slider therefore always has an effect, at every tempo. A second slider sets
-      how hard a dense run is thinned - from skipping every 2nd note (halving) up to keeping
-      only 1 of 6. The higher voice of each group survives - in two-voice passages the
-      upper voice usually carries the melody, and after Fix X|V Channels all velocities are
-      normalized anyway. For raw files with meaningful accents, the "Prefer louder notes"
-      option keeps the loudest note of each group instead. This is the automated version of the
-      classic manual edit.</li>
-</ul>
-<p>
-The dry-run summary shows the percentage of notes affected and a per-track breakdown, so you can
-tune the threshold until the numbers feel right for the song. The result is deterministic: the
-same file with the same options always produces the same removal set.
-</p>
-
-<p>
-The <b>track list</b> on the right side of the dialog chooses which tracks may lose notes: tick
-any combination of tracks (with All / Visible / None shortcuts), and each row shows its own live
-statistics - the track's thinning threshold and how many notes the current settings would remove
-from it. The intensity slider adjusts the <i>ticked</i> tracks, and every track remembers its
-own value: tick only the lead guitar and set it aggressive, then tick only the cymbals and set
-them mild - each track keeps its individual setting, and Apply uses all of them together. Each
-row also carries the same eye toggle as the Tracks panel, so you can show and hide tracks
-without leaving the dialog - hiding tracks switches the voice lane into its track-share display.
-The dialog does not block the editor: scroll, zoom and browse the timeline freely while it is
-open; the preview recomputes automatically after any edit. Notes on
-unticked tracks still count toward voices and density - they just never get removed. This is
-how you thin only an overloaded Cymbal track while every guitar stays untouched, or spread a
-reduction over exactly the tracks you pick.
-</p>
-
-<p>
-The voice-load lane doubles as a track-share display: while any track is hidden in the Tracks
-panel, the full curve turns grey and the visible tracks' share is drawn in color on top - toggle
-tracks on and off to see exactly how much each one contributes to the load. While the Auto-Fit
-dialog is open, the same grey/colored scheme shows before vs after instead.
+The lane doubles as a track-share display on its own, too: while any track is hidden in the
+Tracks panel, the full curve turns grey and the visible tracks' share is drawn in colour on top -
+toggle tracks on and off to see exactly how much each one contributes to the load.
 </p>
 
 <hr>
@@ -452,9 +397,9 @@ asked.
 </p>
 <p>
 The matching action tool <code>auto_fit_voice_load</code> lets the agent apply the same thinning
-as the dialog. It defaults to a dry run: the agent first reports what would be removed and must
-ask for your confirmation before running the real pass, which is one undo step - the same
-always-ask rule the dialog enforces.
+the <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a> dialog does. It defaults to a dry
+run: the agent first reports what would be removed and must ask for your confirmation before
+running the real pass, which is one undo step - the same always-ask rule the dialog enforces.
 </p>
 
 <hr>

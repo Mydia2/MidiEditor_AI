@@ -27,6 +27,7 @@
                 { href: 'cursor-time-display.html', icon: '🕒', name: 'Cursor Time Display' },
                 { href: 'export-audio.html', icon: '💾', name: 'Export Audio' },
                 { href: 'tempo-conversion.html', icon: '⏱️', name: 'Tempo Conversion' },
+                { href: 'auto-fit-voice-load.html', icon: '✂️', name: 'Auto-Fit Voice Load' },
                 { href: 'menu-tools.html', icon: '🔧', name: 'Tools Menu' },
                 { href: 'shortcuts.html', icon: '⌨️', name: 'Keyboard Shortcuts' },
                 { href: 'logging.html',   icon: '📝', name: 'Logging' }
