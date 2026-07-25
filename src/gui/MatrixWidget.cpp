@@ -2166,11 +2166,9 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     connect(convertTempoAct, &QAction::triggered, mw, &MainWindow::convertTempoForSelection);
 
     // v2.1.0 #1 — Auto-Fit scoped to exactly the selected notes, so single
-    // regions/voices can be thinned without touching the rest (FFXIV only).
-    if (FfxivVoiceAnalyzer::instance()->isEnabled()) {
-        QAction *autoFitAct = menu.addAction(tr("Auto-Fit Voice Load (selection)..."));
-        connect(autoFitAct, &QAction::triggered, mw, &MainWindow::autoFitVoiceLoadSelection);
-    }
+    // regions/voices can be thinned without touching the rest.
+    QAction *autoFitAct = menu.addAction(tr("Auto-Fit Voice Load (selection)..."));
+    connect(autoFitAct, &QAction::triggered, mw, &MainWindow::autoFitVoiceLoadSelection);
 
     menu.addSeparator();
 

@@ -2,6 +2,7 @@
 #include "Appearance.h"
 
 #include "../MidiEvent/MidiEvent.h"
+#include "../ai/FfxivVoiceAnalyzer.h"
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
 #include "../protocol/Protocol.h"
@@ -70,19 +71,33 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     QVBoxLayout *mainLayout = new QVBoxLayout();
     columns->addLayout(mainLayout, 3);
 
+    // The tool is generic; only the wording follows the FFXIV limiter.
+    const bool ffxiv = FfxivVoiceAnalyzer::instance()->isEnabled();
     QString infoText;
     if (!_selectionScope.isEmpty()) {
-        infoText = tr("Thin ONLY the %1 selected note(s) so they fit the FFXIV "
-                      "mixer limits - everything outside the selection stays "
-                      "untouched. Voices count notes that really sound at the "
-                      "same time.")
+        infoText = (ffxiv
+                        ? tr("Thin ONLY the %1 selected note(s) so they fit the "
+                             "FFXIV mixer limits - everything outside the "
+                             "selection stays untouched. Voices count notes "
+                             "that really sound at the same time.")
+                        : tr("Thin ONLY the %1 selected note(s) - everything "
+                             "outside the selection stays untouched. Voices "
+                             "count notes that really sound at the same time."))
                        .arg(_selectionScope.size());
     } else if (_startTick >= 0 || _endTick >= 0) {
-        infoText = tr("Thin the selected range so it fits the FFXIV mixer limits. "
-                      "Voices count notes that really sound at the same time.");
+        infoText = ffxiv
+            ? tr("Thin the selected range so it fits the FFXIV mixer limits. "
+                 "Voices count notes that really sound at the same time.")
+            : tr("Thin the selected range where too many notes sound at once "
+                 "or passages get too dense. Voices count notes that really "
+                 "sound at the same time.");
     } else {
-        infoText = tr("Thin the song so it fits the FFXIV mixer limits. "
-                      "Voices count notes that really sound at the same time.");
+        infoText = ffxiv
+            ? tr("Thin the song so it fits the FFXIV mixer limits. "
+                 "Voices count notes that really sound at the same time.")
+            : tr("Thin the song where too many notes sound at once or "
+                 "passages get too dense. Voices count notes that really "
+                 "sound at the same time.");
     }
     QLabel *info = new QLabel(infoText, this);
     info->setWordWrap(true);
@@ -92,7 +107,10 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     QGroupBox *rateBox = new QGroupBox(tr("Density desaturation (per track)"), this);
     QVBoxLayout *rateLayout = new QVBoxLayout(rateBox);
 
-    _rateCheck = new QCheckBox(tr("Thin passages that are too dense for one FFXIV performer"), this);
+    _rateCheck = new QCheckBox(
+        ffxiv ? tr("Thin passages that are too dense for one FFXIV performer")
+              : tr("Thin passages where the note rate is too dense"),
+        this);
     _rateCheck->setChecked(true);
     rateLayout->addWidget(_rateCheck);
 
@@ -142,8 +160,10 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     _ceilingSpin = new QSpinBox(this);
     _ceilingSpin->setRange(8, 32);
     _ceilingSpin->setValue(16);
-    _ceilingSpin->setToolTip(tr("Maximum simultaneously sounding notes. 16 is the "
-                                "documented in-game limit."));
+    _ceilingSpin->setToolTip(
+        ffxiv ? tr("Maximum simultaneously sounding notes. 16 is the "
+                   "documented in-game limit.")
+              : tr("Maximum simultaneously sounding notes."));
     ceilingRow->addWidget(_ceilingSpin);
     ceilingRow->addWidget(new QLabel(tr("simultaneous voices"), this));
     ceilingRow->addStretch();

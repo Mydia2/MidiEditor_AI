@@ -6751,13 +6751,8 @@ void MainWindow::openAutoFitDialog(int startTick, int endTick,
     if (!file) {
         return;
     }
-    // FFXIV-only tool: the whole voice model exists for the in-game mixer.
-    if (!FfxivVoiceAnalyzer::instance()->isEnabled()) {
-        statusBar()->showMessage(
-            tr("Auto-Fit Voice Load is available in FFXIV mode only "
-               "(enable the FFXIV voice limiter)"), 5000);
-        return;
-    }
+    // Available in every mode: dense-passage thinning is useful for any MIDI
+    // file - the dialog merely speaks FFXIV terms while the limiter is on.
     // Modeless: the editor stays usable (scroll/zoom/track panel) while the
     // dialog is open. Only one instance at a time; re-invoking raises it.
     if (_autoFitDialog) {
@@ -6776,8 +6771,10 @@ void MainWindow::openAutoFitDialog(int startTick, int endTick,
                 eventWidget()->reportSelectionChangedByTool();
                 // Mirror the what-if into the voice lane: grey "before"
                 // bars with the predicted curve on top, live while the
-                // intensity slider is dragged.
-                if (_voiceLaneWidget) {
+                // intensity slider is dragged. Only while the limiter is
+                // on - otherwise the lane is hidden and the per-tick
+                // recompute would be wasted on every slider move.
+                if (_voiceLaneWidget && FfxivVoiceAnalyzer::instance()->isEnabled()) {
                     if (events.isEmpty()) {
                         _voiceLaneWidget->clearPreview();
                     } else {
@@ -9285,10 +9282,6 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     connect(autoFitVoiceAction, SIGNAL(triggered()), this, SLOT(autoFitVoiceLoad()));
     toolsMB->addAction(autoFitVoiceAction);
     _actionMap["auto_fit_voice_load"] = autoFitVoiceAction;
-    // FFXIV-only: grey the entry out while the voice limiter is inactive.
-    connect(toolsMB, &QMenu::aboutToShow, autoFitVoiceAction, [autoFitVoiceAction]() {
-        autoFitVoiceAction->setEnabled(FfxivVoiceAnalyzer::instance()->isEnabled());
-    });
 
 #ifdef FLUIDSYNTH_SUPPORT
     // Phase 39 (FFXIV-EQ-001): per-instrument volume mixer.
