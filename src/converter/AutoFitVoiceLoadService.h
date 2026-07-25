@@ -45,6 +45,12 @@ struct AutoFitOptions {
     /// other tracks still count toward voices/density, they just never become
     /// victims - so the tool can thin e.g. only the Cymbal track.
     QSet<int> trackFilter;
+    /// Optional selection scope: NoteOn event pointers (as quintptr). When
+    /// non-empty, ONLY these notes are in scope - density is measured over
+    /// them and only they can be removed; everything else still counts for
+    /// the voice sweep. Pointers are compared, never dereferenced, so a
+    /// stale entry simply matches nothing.
+    QSet<quintptr> selectionScope;
     int targetCeiling = 16;    ///< RAW concurrent-voice ceiling, clamped [2, 32]
     int chordLimit = 3;        ///< max simultaneous voices per channel; 0 = off
     bool desaturateRates = true;

@@ -6723,6 +6723,31 @@ void MainWindow::autoFitVoiceLoad() {
 }
 
 void MainWindow::autoFitVoiceLoadRange(int startTick, int endTick) {
+    openAutoFitDialog(startTick, endTick, QList<MidiEvent *>());
+}
+
+void MainWindow::autoFitVoiceLoadSelection() {
+    if (!file) {
+        return;
+    }
+    // Capture the selected NOTES (the service only ever matches NoteOns;
+    // off-events and non-note events would just be dead weight in the set).
+    QList<MidiEvent *> notes;
+    for (MidiEvent *ev : Selection::instance()->selectedEvents()) {
+        if (dynamic_cast<NoteOnEvent *>(ev)) {
+            notes.append(ev);
+        }
+    }
+    if (notes.isEmpty()) {
+        statusBar()->showMessage(
+            tr("Auto-Fit Voice Load: no notes selected"), 5000);
+        return;
+    }
+    openAutoFitDialog(-1, -1, notes);
+}
+
+void MainWindow::openAutoFitDialog(int startTick, int endTick,
+                                   const QList<MidiEvent *> &selectionScope) {
     if (!file) {
         return;
     }
@@ -6741,7 +6766,7 @@ void MainWindow::autoFitVoiceLoadRange(int startTick, int endTick) {
         return;
     }
     AutoFitVoiceLoadDialog *dialog =
-        new AutoFitVoiceLoadDialog(file, startTick, endTick, this);
+        new AutoFitVoiceLoadDialog(file, startTick, endTick, selectionScope, this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     _autoFitDialog = dialog;
     MidiFile *dialogFile = file;

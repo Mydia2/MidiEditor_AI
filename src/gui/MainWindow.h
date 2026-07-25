@@ -657,6 +657,13 @@ public slots:
      */
     void autoFitVoiceLoadRange(int startTick, int endTick);
 
+    /**
+     * \brief v2.1.0 #1: same, scoped to EXACTLY the currently selected
+     *        notes - used by the editor's selection context menu, so
+     *        individual regions can be thinned without touching the rest.
+     */
+    void autoFitVoiceLoadSelection();
+
     // v2.0 #3: per-track context-menu operations, called directly from the
     // Tracks/Channels panel context menus (each captures the right-clicked
     // MidiTrack* and resolves its document via track->file()). The MidiTrack*
@@ -1087,6 +1094,14 @@ private:
      * \param toolbar The toolbar to clean up
      */
     void removeTrailingSeparators(QToolBar *toolbar);
+
+    /**
+     * \brief Shared opener behind the three Auto-Fit entry points (whole
+     *  file, tick range, note selection). A non-empty \a selectionScope
+     *  narrows the dialog to exactly those notes.
+     */
+    void openAutoFitDialog(int startTick, int endTick,
+                           const QList<MidiEvent *> &selectionScope);
 
     /**
      * \brief Feeds the MIDI Visualizer during authentic SID (Emulation)

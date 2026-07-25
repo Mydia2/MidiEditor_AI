@@ -16,6 +16,7 @@
 #include <QDialog>
 #include <QList>
 #include <QMap>
+#include <QSet>
 
 #include "../converter/AutoFitVoiceLoadService.h"
 
@@ -33,7 +34,10 @@ class AutoFitVoiceLoadDialog : public QDialog {
 
 public:
     /// startTick/endTick scope the fit; pass -1/-1 for the whole file.
+    /// A non-empty selectionScope narrows the material to exactly those
+    /// notes (captured at open; compared by pointer, never dereferenced).
     AutoFitVoiceLoadDialog(MidiFile *file, int startTick, int endTick,
+                           const QList<MidiEvent *> &selectionScope = {},
                            QWidget *parent = nullptr);
 
     /// Status-bar text describing what Apply did (valid after accept()).
@@ -54,6 +58,7 @@ private:
     MidiFile *_file;
     int _startTick;
     int _endTick;
+    QSet<quintptr> _selectionScope;
 
     /// Track list (right column): checkbox per track for multi-selection, an
     /// eye button mirroring the Tracks panel's visibility toggle (the modal

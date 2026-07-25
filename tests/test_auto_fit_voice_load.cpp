@@ -47,6 +47,12 @@
  *      streams are per (track, pitch), because every drum pitch is a
  *      different instrument: a dense crash wall thins to its own quota
  *      while interleaved accents on another drum pitch survive untouched.
+ *  15. selectionScope_limitsMaterial — a non-empty selectionScope narrows
+ *      the material to exactly those NoteOns: density quotas, victim set
+ *      and totalNotesInScope/trackSummaries all reflect only the selection
+ *      (the second half of a dense run stays untouched when only the first
+ *      half is selected); a scope of stale pointers matches nothing and
+ *      the run is a clean no-op.
  *
  * Strategy
  * --------
@@ -369,6 +375,7 @@ private slots:
     void trackFilter_limitsVictims();
     void perTrackPercent_overridesGlobal();
     void percussionStreams_thinPerPitch();
+    void selectionScope_limitsMaterial();
 };
 
 // -------------------------------------------------------------------------
@@ -905,6 +912,65 @@ void TestAutoFitVoiceLoadService::percussionStreams_thinPerPitch() {
         QCOMPARE(rn.channel, 9);
         QCOMPARE(rn.pitch, 84); // never a china accent
     }
+}
+
+// -------------------------------------------------------------------------
+void TestAutoFitVoiceLoadService::selectionScope_limitsMaterial() {
+    ScopedFile f;
+    // ONE dense 40-note run on track 0 (every 8 ticks from tick 1000). The
+    // editor selection covers only the FIRST 20 notes (ticks 1000..1152);
+    // the second half (1160..1312) is equally dense but unselected.
+    QList<NoteOnEvent *> firstHalf;
+    for (int i = 0; i < 40; ++i) {
+        NoteOnEvent *on = f.addNote(0, 1000 + 8 * i, 4, 60, 100, f.track0);
+        if (i < 20) firstHalf.append(on);
+    }
+
+    // --- Scoped run: quota is 50% of the SELECTION (20), not the run (40).
+    AutoFitOptions o = baseOptions();
+    o.desaturateRates = true;
+    o.ratePercent = 50;
+    for (NoteOnEvent *on : firstHalf) {
+        o.selectionScope.insert(reinterpret_cast<quintptr>(
+            static_cast<MidiEvent *>(on)));
+    }
+    AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
+
+    QVERIFY(r.ok);
+    QCOMPARE(r.totalNotesInScope, 20);   // only the selection is material
+    QCOMPARE(r.rateRemoved, 10);         // 50% of 20, not 50% of 40
+    QCOMPARE(r.rateRemoved, r.removedCount);
+    for (const AutoFitRemovedNote &rn : r.removed) {
+        QCOMPARE(rn.reason, QStringLiteral("note-rate"));
+        QVERIFY(rn.tick >= 1000);
+        QVERIFY(rn.tick <= 1152);        // never a second-half victim
+    }
+    QCOMPARE(r.trackSummaries.size(), 1);
+    QCOMPARE(r.trackSummaries[0].track, 0);
+    QCOMPARE(r.trackSummaries[0].notes, 20); // scoped note count
+    QCOMPARE(r.trackSummaries[0].removed, 10);
+
+    // --- Same file, empty scope: the whole run is material again. --------
+    AutoFitOptions all = baseOptions();
+    all.desaturateRates = true;
+    all.ratePercent = 50;
+    AutoFitResult rAll = AutoFitVoiceLoadService::apply(f.file, all);
+    QVERIFY(rAll.ok);
+    QCOMPARE(rAll.totalNotesInScope, 40);
+    QCOMPARE(rAll.rateRemoved, 20);
+
+    // --- Stale-pointer safety: a scope that matches nothing (the dialog
+    // outlives edits; pointers are compared, never dereferenced) is a
+    // clean no-op, not an error.
+    AutoFitOptions stale = baseOptions();
+    stale.desaturateRates = true;
+    stale.ratePercent = 50;
+    stale.selectionScope.insert(quintptr(0x1));
+    AutoFitResult rStale = AutoFitVoiceLoadService::apply(f.file, stale);
+    QVERIFY(rStale.ok);
+    QCOMPARE(rStale.totalNotesInScope, 0);
+    QCOMPARE(rStale.removedCount, 0);
+    QVERIFY(rStale.trackSummaries.isEmpty());
 }
 
 QTEST_MAIN(TestAutoFitVoiceLoadService)

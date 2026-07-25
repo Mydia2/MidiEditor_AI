@@ -94,7 +94,11 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
             if (on->offEvent() && on->offEvent()->midiTime() > n.startTick)
                 n.endTick = on->offEvent()->midiTime();
             n.startMs = file->timeMS(n.startTick);
-            n.inScope = (n.startTick >= scopeStart && n.startTick <= scopeEnd);
+            n.inScope = (n.startTick >= scopeStart && n.startTick <= scopeEnd)
+                && (opts.selectionScope.isEmpty()
+                    || opts.selectionScope.contains(
+                           reinterpret_cast<quintptr>(
+                               static_cast<MidiEvent *>(on))));
             n.thinnable = n.inScope
                 && (opts.trackFilter.isEmpty()
                     || opts.trackFilter.contains(n.track));

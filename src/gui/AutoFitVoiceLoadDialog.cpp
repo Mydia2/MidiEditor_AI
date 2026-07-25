@@ -23,7 +23,9 @@
 
 
 AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
-                                               int endTick, QWidget *parent)
+                                               int endTick,
+                                               const QList<MidiEvent *> &selectionScope,
+                                               QWidget *parent)
     : QDialog(parent),
       _file(file),
       _startTick(startTick),
@@ -42,6 +44,10 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
       _previewButton(nullptr),
       _applyButton(nullptr) {
 
+    for (MidiEvent *ev : selectionScope) {
+        if (ev) _selectionScope.insert(reinterpret_cast<quintptr>(ev));
+    }
+
     setWindowTitle(tr("Auto-Fit Voice Load"));
     // Modeless on purpose: the editor stays usable behind the dialog, so the
     // user can scroll/zoom the timeline and lane while tuning. The dry run
@@ -57,13 +63,21 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     QVBoxLayout *mainLayout = new QVBoxLayout();
     columns->addLayout(mainLayout, 3);
 
-    QLabel *info = new QLabel(
-        (_startTick >= 0 || _endTick >= 0)
-            ? tr("Thin the selected range so it fits the FFXIV mixer limits. "
-                 "Voices count notes that really sound at the same time.")
-            : tr("Thin the song so it fits the FFXIV mixer limits. "
-                 "Voices count notes that really sound at the same time."),
-        this);
+    QString infoText;
+    if (!_selectionScope.isEmpty()) {
+        infoText = tr("Thin ONLY the %1 selected note(s) so they fit the FFXIV "
+                      "mixer limits - everything outside the selection stays "
+                      "untouched. Voices count notes that really sound at the "
+                      "same time.")
+                       .arg(_selectionScope.size());
+    } else if (_startTick >= 0 || _endTick >= 0) {
+        infoText = tr("Thin the selected range so it fits the FFXIV mixer limits. "
+                      "Voices count notes that really sound at the same time.");
+    } else {
+        infoText = tr("Thin the song so it fits the FFXIV mixer limits. "
+                      "Voices count notes that really sound at the same time.");
+    }
+    QLabel *info = new QLabel(infoText, this);
     info->setWordWrap(true);
     mainLayout->addWidget(info);
 
@@ -329,6 +343,7 @@ AutoFitOptions AutoFitVoiceLoadDialog::currentOptions(bool dryRun) const {
     AutoFitOptions opts;
     opts.startTick = _startTick;
     opts.endTick = _endTick;
+    opts.selectionScope = _selectionScope;
     // Checked tracks form the filter. All checked -> empty filter (= all);
     // none checked -> impossible sentinel so nothing is removable.
     QSet<int> checked;
