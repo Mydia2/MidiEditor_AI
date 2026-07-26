@@ -12782,6 +12782,47 @@ Bonus already noted: one settings accessor replaces the per-service
 `setSettingsScopeForTests` seams that the v2.1.0 round-2 review forced into
 FfxivEqualizerService and FfxivDrumKitStore.
 
+## #5 Phase 46: AI arrangement capability (from the octet experiment)
+
+See Phase 46 below for the full design. Short version: an external AI built a
+complete, FFXIV-compliant bard octet over MCP in one session and the result was
+judged usable as-is, but it had to work around missing tools the GUI has had
+for years, and it MISSED two things a human arranger does by reflex - running
+the channel fixer, and using guitar switches. Cleanup + optimization pass,
+rounds out the 2.2 package.
+
+## #6 Auto-Fit as a SELECTION engine ("Select instead of remove")
+
+**Origin:** a user turned the tremolo passages of a real arrangement into
+thinner ones with Auto-Fit and then asked for the obvious next step - do not
+delete the notes it finds, just SELECT them, so the editor's own operations can
+transform them instead. Concrete case: a dense tremolo run where every 2nd note
+should go up an octave, turning a machine-gun repeat into an alternating-octave
+arpeggio. Today Auto-Fit can only delete what it finds.
+
+**Why this is nearly free:** the dialog ALREADY produces exactly that selection.
+The live preview sets the editor Selection to the victim set on every settings
+change (AutoFitVoiceLoadDialog -> previewSelectionRequested -> MainWindow sets
+Selection), and there is already a "Preview as selection" button. The only
+thing preventing the workflow is the cleanup in the finished handler
+(MainWindow.cpp ~6799), which clears the selection on close so a stale
+highlight cannot survive an Apply.
+
+**Work:** a third action next to Apply - "Select in editor" - that emits the
+victim set, sets a keep-selection flag, and closes; MainWindow skips its
+clearSelection when that flag is set (the flag is also the safety: after a real
+Apply the pointers ARE dangling and must still be cleared). ~20 lines plus a
+manual paragraph.
+
+**Why it is bigger than it looks:** it turns the Auto-Fit engine into a
+rule-based SELECTION tool, and nothing else in the editor can do that today -
+"select every 2nd note of passages denser than X", "select the quietest voice of
+every chord", "select duplicate notes". Each of those becomes a starting point
+for any existing operation: transpose, move to another track, change velocity,
+delete by hand. The thinning engine stops being one destructive action and
+becomes a way of ASKING A QUESTION about the score. Worth considering a small
+preset list of such queries in the same dialog once the mechanism exists.
+
 ## Also parked for 2.2+ (not committed)
 
 Phase 44 (manual bot) stays a strong candidate - it pairs well with #1, since
@@ -12791,3 +12832,90 @@ detection + `.mxl` export, conversation summarization ("Compact"), the
 `analyze_mix_balance` read-only tool, the Trim Start tool port, the rainbow
 octave strip (~18 lines), and a "reasoning model, this can take minutes"
 status hint.
+
+---
+
+## Phase 46: AI arrangement capability - close the MCP gaps (2.2)
+
+**Origin - the octet experiment, 2026-07-25.** An external AI client was given a
+loaded 8-track metal GP file ("untitled", 150 BPM, 133 bars, 6257
+notes) and asked to turn it into an FFXIV bard octet, with free choice of
+instrumentation and percussion. It worked end to end over MCP alone:
+
+* Result: 8 monophonic performers, 4974 notes. `validate_ffxiv` = compliant,
+  raw voice peak 7/16, 0 rate hotspots, everything inside C3-C6.
+* Arrangement decisions the AI got right: spotted that the two bass tracks were
+  the same part (100% rhythm overlap) and dropped one; spotted that "Add Guitar
+  1" was the lead doubled an octave down and reused the freed slot for a second
+  rhythm voice; split the power chords by outer voices (the same rule the
+  Auto-Fit chord limit uses); dropped hi-hats because one Cymbal performer
+  cannot play 8th-note hats and crash accents at once.
+* Verdict after listening to the result: musically solid and usable as-is,
+  comparable to competent hand-made arrangements.
+
+**What the AI had to work around (details in Planning/03_bugs.md, 9 findings):**
+FFXIV tools invisible behind a GUI checkbox; no transpose/chord-split/copy
+tools, so every moved note is re-inserted by hand; analyze_voice_load reporting
+the tail model (peak 24-30) while auto_fit reports the raw truth (7) - the two
+contradict each other; auto_fit's dry run removing 10% by default with nothing
+over a limit; name/program mismatches invisible to validate_ffxiv.
+
+**What the AI MISSED, and a human would not (user feedback):**
+
+1. **Guitar switches.** A bard changes guitar variant mid-song; in this app a
+   guitar TRACK carries notes on SEVERAL channels (one per variant) and
+   FFXIVChannelFixer.cpp:810-860 writes the program changes at the switch
+   points. The AI produced single-variant guitars because nothing in the tool
+   surface hints that this is a thing - `insert_events`' channel field mentions
+   it in passing ("per-note channel override such as FFXIV guitar switches")
+   and that is the ONLY mention an agent ever sees.
+2. **The channel fixer was never run.** `setup_channel_pattern` exists and is
+   exactly the "finish the arrangement properly" step (channels, program
+   changes, guitar switches). An agent has no reason to know it should be the
+   LAST step of any FFXIV arrangement.
+3. **Register choice.** The AI folded the rhythm guitars conservatively into
+   range (+24) where the lower octave (-12 from there) would have been the
+   musical choice: distorted rhythm parts sit better low. Range-folding is not
+   just legality - the register carries the tone.
+
+**Work items:**
+
+* `transpose_events(trackIndex, startTick, endTick, semitones, fold?)` plus
+  `split_chords_to_tracks` and `copy_events_to_track` - the GUI has all three,
+  the tool surface has none.
+* Expose FFXIV mode in `get_editor_state` + a way to request it (the server
+  already computes `ffxivMode` for the config resource, McpServer.cpp:894).
+* Make the two voice-load tools agree: report raw AND tail peak, or say which
+  model each uses. Default the AI tool's `ratePercent` to 0.
+* `validate_ffxiv`: list the legal instrument names in the failure detail, and
+  flag a track-name / program_change mismatch (today it validates as
+  compliant).
+* An FFXIV **arrangement guide** the agent can actually read - either as the
+  Phase 44 help DB or as a compact prompt block: the octet shape, one
+  instrument per performer, monophonic, C3-C6, guitar switches, "run the
+  channel fixer last", register preferences for distorted parts. Most of what
+  the AI missed is knowledge, not tooling.
+* Optional but tempting: a `list_ffxiv_instruments` resource so spellings
+  ("Double Bass" with a space, "ElectricGuitarOverdriven" without) stop being
+  guesswork.
+
+**Comparison against a hand-made arrangement of the same song (done 2026-07-26):**
+both are 8-performer octets. The hand-made version wins on musicality in four
+ways, and all four are KNOWLEDGE, not missing tools: 40 guitar-switch points
+across the two lead performers (one player changing character per section)
+versus none; deliberate density thinning for tone (tremolo 32 repeats -> 16,
+14% fewer notes overall) where the AI declined because nothing exceeded a
+limit; distorted rhythm kept low and narrow (G3, C3-C5) instead of folded
+upward (G4/G5, E3-C6); and two performers sharing one MIDI channel, which the
+AI assumed was forbidden. The AI version wins on strictness: it has zero
+unplayable onsets, while the hand-made one carries 20 (12 duplicate notes
+stacked on the same tick, 8 kick+tom pairs on one Bass Drum performer) and
+therefore fails `validate_ffxiv`.
+
+**The single most actionable outcome:** that monophony/overlap check exists ONLY
+inside the `validate_ffxiv` AI tool - src/gui/ has no surface for it. A human
+arranging by hand finds those 20 spots by exporting, playing the song in game
+and hearing notes go missing. Wiring the existing check into the GUI (the
+voice-load lane, or an action next to the channel fixer) is small, and it is
+worth more than any of the new tools listed above. The fix side is already
+there as "Delete Overlaps"; only FFXIV-aware detection is missing.
