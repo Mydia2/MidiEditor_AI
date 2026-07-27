@@ -2,6 +2,8 @@
 #include "FFXIVChannelFixer.h"
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "../converter/AutoFitVoiceLoadService.h"
+#include "../converter/TempoConversionService.h"
+#include "../MidiEvent/TempoChangeEvent.h"
 #endif
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "FfxivVoiceAnalyzer.h"
@@ -439,6 +441,62 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"})));
     }
 
+    // convert_tempo_preserve_duration (v2.2 #2, Phase 33.5) — deliberately a
+    // CORE tool, not FFXIV-gated: tempo conversion is generic, and core tools
+    // are also what the MCP server exposes.
+    {
+        QJsonObject props;
+        props["sourceBpm"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "number"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Current musical tempo of the material in BPM. Use null to "
+                            "auto-detect from the file's first tempo event."}};
+        props["targetBpm"] = QJsonObject{
+            {"type", "number"},
+            {"description", "Tempo to convert to, in BPM (e.g. the project tempo from "
+                            "get_editor_state)."}};
+        props["scope"] = QJsonObject{
+            {"type", "string"},
+            {"enum", QJsonArray{"whole", "selected_tracks", "selected_channels", "selected_events"}},
+            {"description", "What to convert: the whole file, specific tracks (trackIds), "
+                            "specific channels (channelIds), or the user's current selection."}};
+        props["trackIds"] = QJsonObject{
+            {"anyOf", QJsonArray{
+                 QJsonObject{{"type", "array"}, {"items", QJsonObject{{"type", "integer"}}}},
+                 QJsonObject{{"type", "null"}}}},
+            {"description", "Track numbers to convert. Required when scope == selected_tracks, "
+                            "ignored otherwise."}};
+        props["channelIds"] = QJsonObject{
+            {"anyOf", QJsonArray{
+                 QJsonObject{{"type", "array"}, {"items", QJsonObject{{"type", "integer"}}}},
+                 QJsonObject{{"type", "null"}}}},
+            {"description", "MIDI channels (0-15) to convert. Required when scope == "
+                            "selected_channels, ignored otherwise."}};
+        props["tempoMode"] = QJsonObject{
+            {"anyOf", QJsonArray{
+                 QJsonObject{{"type", "string"},
+                             {"enum", QJsonArray{"replace", "scale_map", "events_only"}}},
+                 QJsonObject{{"type", "null"}}}},
+            {"description", "How to update the tempo map: replace = collapse to one tempo event "
+                            "at the target BPM (default for scope=whole), scale_map = keep the "
+                            "tempo curve's shape, events_only = only re-tick the scoped events. "
+                            "Partial scopes REQUIRE events_only (default there): the tempo map is "
+                            "shared, so replacing it from a partial scope would retime everything "
+                            "outside the scope too. null = the scope's default."}};
+        props["dryRun"] = QJsonObject{
+            {"type", "boolean"},
+            {"description", "true = report what would change WITHOUT modifying the file. "
+                            "ALWAYS run with dryRun=true first, show the user the summary and ask "
+                            "for confirmation before running with dryRun=false."}};
+        tools.append(makeTool(
+            "convert_tempo_preserve_duration",
+            "Scale event ticks and update the tempo map so the material plays back with the SAME "
+            "real-time duration but lives at a different musical tempo - e.g. fit a 90 BPM vocal "
+            "line into a 180 BPM project so bars line up again. One undoable step. MUST be "
+            "confirmed by the user: call with dryRun=true, present the summary, and only call "
+            "with dryRun=false after explicit user approval.",
+            makeParams(props, {"targetBpm", "scope", "dryRun"})));
+    }
+
     // --- FFXIV tools (only when FFXIV mode is active) ---
     if (QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool()) {
 
@@ -718,6 +776,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         actionObj["explanation"] = QString("Agent: move events to track");
         if (!source.isEmpty()) actionObj["_source"] = source;
         return widget->executeAction(actionObj);
+    }
+    if (toolName == "convert_tempo_preserve_duration") {
+        return execConvertTempoPreserveDuration(args, file);
     }
 
     // FFXIV tools
@@ -1420,6 +1481,208 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
                       .arg(r.peakBefore)
                       .arg(r.remainingPeak);
         if (opts.dryRun)
+            summary += QStringLiteral(" Present this to the user and ask for confirmation "
+                                      "before calling again with dryRun=false.");
+        else
+            summary += QStringLiteral(" One undo step restores everything.");
+    }
+    result["summary"] = summary;
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execConvertTempoPreserveDuration(const QJsonObject &args,
+                                                              MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: convert_tempo_preserve_duration is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+
+    TempoConversionOptions opts;
+
+    // Scope first - it decides the tempoMode default and which id lists matter.
+    const QString scopeStr = args.value("scope").toString();
+    if (scopeStr == QLatin1String("whole")) {
+        opts.scope = TempoConversionScope::WholeProject;
+    } else if (scopeStr == QLatin1String("selected_tracks")) {
+        opts.scope = TempoConversionScope::SelectedTracks;
+    } else if (scopeStr == QLatin1String("selected_channels")) {
+        opts.scope = TempoConversionScope::SelectedChannels;
+    } else if (scopeStr == QLatin1String("selected_events")) {
+        opts.scope = TempoConversionScope::SelectedEvents;
+    } else {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid scope '%1'. Use whole, selected_tracks, "
+                                         "selected_channels or selected_events.").arg(scopeStr);
+        return result;
+    }
+    const bool partialScope = opts.scope != TempoConversionScope::WholeProject;
+
+    // Tempo-map mode. The tempo map is SHARED: replacing or rescaling it from
+    // a partial scope would retime every event OUTSIDE the scope too, so
+    // partial scopes only re-tick their own events (events_only).
+    if (args.contains("tempoMode") && !args.value("tempoMode").isNull()) {
+        const QString modeStr = args.value("tempoMode").toString();
+        if (modeStr == QLatin1String("replace")) {
+            opts.tempoMode = TempoConversionTempoMode::ReplaceFixed;
+        } else if (modeStr == QLatin1String("scale_map")) {
+            opts.tempoMode = TempoConversionTempoMode::ScaleTempoMap;
+        } else if (modeStr == QLatin1String("events_only")) {
+            opts.tempoMode = TempoConversionTempoMode::EventsOnly;
+        } else {
+            result["success"] = false;
+            result["error"] = QStringLiteral("Invalid tempoMode '%1'. Use replace, scale_map "
+                                             "or events_only.").arg(modeStr);
+            return result;
+        }
+        if (partialScope && opts.tempoMode != TempoConversionTempoMode::EventsOnly) {
+            result["success"] = false;
+            result["error"] = QStringLiteral(
+                "tempoMode '%1' is only valid with scope=whole: the tempo map is shared, so "
+                "changing it from a partial scope would retime everything outside the scope. "
+                "Use tempoMode=events_only (or omit it) for partial scopes.").arg(modeStr);
+            return result;
+        }
+    } else {
+        opts.tempoMode = partialScope ? TempoConversionTempoMode::EventsOnly
+                                      : TempoConversionTempoMode::ReplaceFixed;
+    }
+
+    // BPM pair. sourceBpm auto-detects from the file's first tempo event so
+    // the agent can say "fit this into the project tempo" without reading the
+    // map first (same detection the Convert Tempo dialog uses).
+    opts.targetBpm = args.value("targetBpm").toDouble();
+    if (args.contains("sourceBpm") && !args.value("sourceBpm").isNull()) {
+        opts.sourceBpm = args.value("sourceBpm").toDouble();
+    } else {
+        QMultiMap<int, MidiEvent *> *tempoMap = file->tempoEvents();
+        int bestTick = -1;
+        int bpm = 0;
+        if (tempoMap) {
+            for (auto it = tempoMap->begin(); it != tempoMap->end(); ++it) {
+                if (it.key() < 0) continue;
+                if (bestTick < 0 || it.key() < bestTick) {
+                    if (auto *tc = dynamic_cast<TempoChangeEvent *>(it.value())) {
+                        bestTick = it.key();
+                        bpm = tc->beatsPerQuarter();
+                    }
+                }
+            }
+        }
+        if (bpm <= 0) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("Could not auto-detect the source tempo (no tempo "
+                                             "event found) - pass sourceBpm explicitly.");
+            return result;
+        }
+        opts.sourceBpm = static_cast<double>(bpm);
+        result["detectedSourceBpm"] = opts.sourceBpm;
+    }
+
+    // Scope id lists.
+    if (opts.scope == TempoConversionScope::SelectedTracks) {
+        const QJsonArray ids = args.value("trackIds").toArray();
+        for (const QJsonValue &v : ids) opts.trackIds.insert(v.toInt());
+        if (opts.trackIds.isEmpty()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("scope=selected_tracks needs a non-empty trackIds "
+                                             "array of track numbers.");
+            return result;
+        }
+    } else if (opts.scope == TempoConversionScope::SelectedChannels) {
+        const QJsonArray ids = args.value("channelIds").toArray();
+        for (const QJsonValue &v : ids) {
+            const int ch = v.toInt(-1);
+            if (ch < 0 || ch > 15) {
+                result["success"] = false;
+                result["error"] = QStringLiteral("channelIds must contain MIDI channels 0-15 "
+                                                 "(got %1).").arg(ch);
+                return result;
+            }
+            opts.channelIds.insert(ch);
+        }
+        if (opts.channelIds.isEmpty()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("scope=selected_channels needs a non-empty "
+                                             "channelIds array (0-15).");
+            return result;
+        }
+    } else if (opts.scope == TempoConversionScope::SelectedEvents) {
+        // forFile, not instance(): during an agent/MCP run the user may have
+        // switched tabs, and instance() would read the wrong document.
+        Selection *sel = Selection::forFile(file);
+        const QList<MidiEvent *> events = sel ? sel->selectedEvents() : QList<MidiEvent *>();
+        for (MidiEvent *ev : events)
+            opts.selectedEventPtrs.insert(reinterpret_cast<quintptr>(ev));
+        if (opts.selectedEventPtrs.isEmpty()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("scope=selected_events, but nothing is selected in "
+                                             "this document.");
+            return result;
+        }
+    }
+
+    const bool dryRun = args.value("dryRun").toBool(true); // safe default
+    const TempoConversionResult r = dryRun ? TempoConversionService::preview(file, opts)
+                                           : TempoConversionService::convert(file, opts);
+    if (!r.ok) {
+        result["success"] = false;
+        result["error"] = r.error;
+        return result;
+    }
+    if (!dryRun && (r.affectedEvents > 0 || r.tempoEventsRemoved > 0)) {
+        // ReplaceFixed DELETES tempo events; if any were selected, the
+        // selection now holds stale pointers - and re-ticked events break the
+        // tick-order assumptions of a retained selection anyway. Clear THIS
+        // file's selection (forFile, same rule as auto_fit_voice_load).
+        Selection *sel = Selection::forFile(file);
+        if (sel) {
+            sel->clearSelection();
+        }
+    }
+
+    result["success"] = true;
+    result["dryRun"] = dryRun;
+    result["scope"] = scopeStr;
+    result["sourceBpm"] = opts.sourceBpm;
+    result["targetBpm"] = opts.targetBpm;
+    result["scaleFactor"] = r.scaleFactor;
+    result["affectedEvents"] = r.affectedEvents;
+    result["tempoEventsRemoved"] = r.tempoEventsRemoved;
+    result["tempoEventsInserted"] = r.tempoEventsInserted;
+    result["oldDurationMs"] = static_cast<double>(r.oldDurationMs);
+    result["newDurationMs"] = static_cast<double>(r.newDurationMs);
+    if (!r.warning.isEmpty())
+        result["warning"] = r.warning;
+
+    QString summary;
+    if (r.affectedEvents == 0 && r.tempoEventsRemoved == 0) {
+        summary = !r.warning.isEmpty()
+                      ? r.warning
+                      : QStringLiteral("Nothing in scope - no events to convert.");
+    } else {
+        summary = QStringLiteral("%1 %2 event(s) from %3 to %4 BPM (ticks x%5); tempo events: "
+                                 "%6 removed, %7 inserted; duration %8s -> %9s.")
+                      .arg(dryRun ? QStringLiteral("Would rescale") : QStringLiteral("Rescaled"))
+                      .arg(r.affectedEvents)
+                      .arg(opts.sourceBpm)
+                      .arg(opts.targetBpm)
+                      .arg(r.scaleFactor, 0, 'g', 6)
+                      .arg(r.tempoEventsRemoved)
+                      .arg(r.tempoEventsInserted)
+                      .arg(r.oldDurationMs / 1000.0, 0, 'f', 1)
+                      .arg(r.newDurationMs / 1000.0, 0, 'f', 1);
+        if (dryRun)
             summary += QStringLiteral(" Present this to the user and ask for confirmation "
                                       "before calling again with dryRun=false.");
         else

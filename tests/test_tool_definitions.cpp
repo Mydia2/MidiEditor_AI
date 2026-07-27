@@ -173,6 +173,7 @@ const QStringList kCoreToolNames = {
     QStringLiteral("set_tempo"),
     QStringLiteral("set_time_signature"),
     QStringLiteral("move_events_to_track"),
+    QStringLiteral("convert_tempo_preserve_duration"), // v2.2 #2: CORE, not FFXIV
 };
 
 // Extra tools added when FFXIV mode is ON.

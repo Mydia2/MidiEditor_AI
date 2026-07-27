@@ -274,6 +274,11 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
         appendFact(state, result.value(QStringLiteral("summary")).toString(QStringLiteral("Voice-load analysis completed")));
     } else if (toolName == QStringLiteral("setup_channel_pattern")) {
         appendFact(state, QStringLiteral("FFXIV channel pattern configured"));
+    } else if (toolName == QStringLiteral("convert_tempo_preserve_duration")) {
+        // Keep the dry-run numbers in the working state so the confirm turn
+        // still knows what it is confirming.
+        appendFact(state, result.value(QStringLiteral("summary")).toString(
+                              QStringLiteral("Tempo conversion completed")));
     }
 }
 
@@ -902,6 +907,20 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         int from = args["sourceTrackIndex"].toInt(-1);
         int to = args["targetTrackIndex"].toInt(-1);
         return QStringLiteral("Move events \u2014 Track %1 \u2192 Track %2").arg(from).arg(to);
+    }
+    if (toolName == "convert_tempo_preserve_duration") {
+        const double source = args["sourceBpm"].toDouble(0);
+        const double target = args["targetBpm"].toDouble(0);
+        const bool dry = args["dryRun"].toBool(true);
+        QString label;
+        if (source > 0 && target > 0)
+            label = QStringLiteral("Convert tempo \u2014 %1 \u2192 %2 BPM").arg(source).arg(target);
+        else if (target > 0)
+            label = QStringLiteral("Convert tempo \u2014 to %1 BPM").arg(target);
+        else
+            label = QStringLiteral("Convert tempo");
+        if (dry) label += QStringLiteral(" (dry run)");
+        return label;
     }
     if (toolName == "query_events") {
         int track = args["trackIndex"].toInt(-1);

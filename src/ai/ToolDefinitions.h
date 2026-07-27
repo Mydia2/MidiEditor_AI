@@ -95,6 +95,11 @@ private:
     static QJsonObject execAnalyzeVoiceLoad(const QJsonObject &args, MidiFile *file);
     // v2.1.0 #1: auto-fit thinning action (dry-run first, user-confirmed)
     static QJsonObject execAutoFitVoiceLoad(const QJsonObject &args, MidiFile *file);
+    // v2.2 #2 (Phase 33.5): time-preserving tempo conversion. A CORE tool,
+    // not FFXIV-gated - tempo conversion is generic, and core tools are what
+    // the MCP server exposes. Dry-run first, user-confirmed.
+    static QJsonObject execConvertTempoPreserveDuration(const QJsonObject &args,
+                                                        MidiFile *file);
 };
 
 #endif // TOOLDEFINITIONS_H

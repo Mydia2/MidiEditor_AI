@@ -12751,7 +12751,7 @@ is then already in the conversation. A draft in the chat box survives the
 round trip, the ellipsis was dropped from the label (nothing to fill in any
 more), and Show-mode viewers are locked out the same way the send button is.
 
-## #2 `convert_tempo_preserve_duration` AI tool (small)
+## #2 `convert_tempo_preserve_duration` AI tool (small) — ✅ DONE 2026-07-27
 
 Phase 33.5, deferred since 1.6.0. The service (TempoConversionService) is
 headless and shipped, the tool schema is already written out at roadmap
@@ -12764,6 +12764,26 @@ NON-FFXIV (tempo conversion is generic - put it in the core tool list, which
 also exposes it over MCP), and it must clear `Selection::forFile(file)` after
 a live run rather than the active document's selection. Update the tool-count
 contract in test_tool_definitions (15 core -> 16). Effort: half a day.
+
+**Implementation notes (as built):**
+* Param names follow the house camelCase convention (`sourceBpm`, `trackIds`),
+  not the snake_case of the original draft above; the tool NAME keeps snake.
+* `sourceBpm` is nullable and auto-detects from the file's first tempo event
+  (same detection as the Convert Tempo dialog), so "fit this into the project
+  tempo" works without the agent reading the map first. The detected value is
+  echoed back as `detectedSourceBpm`.
+* The dialog's planned-but-never-implemented edge-case rule (33.6: ReplaceFixed
+  refused for partial scopes) IS enforced in the tool: partial scopes require
+  `tempoMode=events_only` - which is also their default when the param is
+  omitted - because the shared tempo map would retime everything outside the
+  scope. The error message explains exactly that.
+* Selection cleared with `forFile` when the live run changed anything,
+  INCLUDING tempo-only changes: ReplaceFixed deletes tempo events, and a
+  selection holding one would keep a stale pointer.
+* Also wired: AgentRunner step-chip label ("Convert tempo - 90 -> 180 BPM
+  (dry run)") and a working-state fact carrying the dry-run summary into the
+  confirm turn. Counts updated: test contract 16 core, README 16/21 + MCP
+  18/23, both manual pages.
 
 ## #3 Undo memory: analyse first, then cap (measurement task)
 
