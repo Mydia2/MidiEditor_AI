@@ -9447,6 +9447,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     // AI's validate_ffxiv tool - hand arrangers found those spots by hearing
     // notes go missing in game. Placed next to the fixer: check, fix, check.
     QAction *ffxivPlayabilityAction = new QAction(tr("Check FFXIV Playability..."), this);
+    Appearance::setActionIcon(ffxivPlayabilityAction, ":/run_environment/graphics/tool/ffxiv_check.png");
     connect(ffxivPlayabilityAction, &QAction::triggered,
             this, &MainWindow::checkFfxivPlayability);
     toolsMB->addAction(ffxivPlayabilityAction);
@@ -10817,6 +10818,19 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (!enabledActions.contains("ffxiv_drum_split"))
                 enabledActions << "ffxiv_drum_split";
         }
+        // Phase 46: the playability check joins the FFXIV block, right after
+        // the drum split.
+        if (!actionOrder.contains("check_ffxiv_playability")) {
+            int drumIdx = actionOrder.indexOf("ffxiv_drum_split");
+            if (drumIdx < 0)
+                drumIdx = actionOrder.indexOf("fix_ffxiv_channels");
+            if (drumIdx >= 0)
+                actionOrder.insert(drumIdx + 1, "check_ffxiv_playability");
+            else
+                actionOrder << "check_ffxiv_playability";
+            if (!enabledActions.contains("check_ffxiv_playability"))
+                enabledActions << "check_ffxiv_playability";
+        }
         if (!actionOrder.contains("explode_chords_to_tracks")) {
             int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
             if (splitIdx >= 0)
@@ -11451,6 +11465,19 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 actionOrder << "ffxiv_drum_split";
             if (!enabledActions.contains("ffxiv_drum_split"))
                 enabledActions << "ffxiv_drum_split";
+        }
+        // Phase 46: the playability check joins the FFXIV block, right after
+        // the drum split.
+        if (!actionOrder.contains("check_ffxiv_playability")) {
+            int drumIdx = actionOrder.indexOf("ffxiv_drum_split");
+            if (drumIdx < 0)
+                drumIdx = actionOrder.indexOf("fix_ffxiv_channels");
+            if (drumIdx >= 0)
+                actionOrder.insert(drumIdx + 1, "check_ffxiv_playability");
+            else
+                actionOrder << "check_ffxiv_playability";
+            if (!enabledActions.contains("check_ffxiv_playability"))
+                enabledActions << "check_ffxiv_playability";
         }
         if (!actionOrder.contains("explode_chords_to_tracks")) {
             int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
