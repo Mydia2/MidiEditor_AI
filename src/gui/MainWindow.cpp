@@ -7012,8 +7012,40 @@ void MainWindow::checkFfxivPlayability() {
                 savedVisibility->clear();
                 updateAll();
             });
-    // Contextual repairs. The dialog emits selectEventsRequested first for
-    // delete_overlaps, so the tool acts on exactly the collisions.
+    // One-click collision repair (second QA: the button must DELETE, not
+    // route through the Tools-menu mode dialog). Same bulk idiom as
+    // deleteSelectedEvents: ONE channel snapshot per touched channel - not
+    // one per event, which the undo-memory analysis showed costs ~1 MB per
+    // note on dense channels.
+    connect(dialog, &FfxivPlayabilityDialog::deleteEventsRequested, this,
+            [this, checkedFile](const QList<MidiEvent *> &victims) {
+                if (file != checkedFile || victims.isEmpty()) return;
+                checkedFile->protocol()->startNewAction(tr("Delete colliding notes"));
+                QMap<int, QList<MidiEvent *>> byChannel;
+                for (MidiEvent *ev : victims) byChannel[ev->channel()].append(ev);
+                for (auto it = byChannel.constBegin(); it != byChannel.constEnd(); ++it) {
+                    MidiChannel *channel = checkedFile->channel(it.key());
+                    if (!channel) continue;
+                    ProtocolEntry *toCopy = channel->copy();
+                    for (MidiEvent *ev : it.value()) {
+                        channel->eventMap()->remove(ev->midiTime(), ev);
+                        if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
+                            if (on->offEvent()) {
+                                channel->eventMap()->remove(
+                                    on->offEvent()->midiTime(), on->offEvent());
+                            }
+                        }
+                    }
+                    channel->protocol(toCopy, channel);
+                }
+                Selection::instance()->clearSelection();
+                eventWidget()->reportSelectionChangedByTool();
+                checkedFile->protocol()->endAction();
+                updateAll();
+                // endAction fires actionFinished -> the workbench re-checks
+                // and the fixed findings disappear from the list.
+            });
+    // Contextual repairs that hand off to their own tools.
     connect(dialog, &FfxivPlayabilityDialog::fixRequested, this,
             [this, checkedFile](const QString &actionId) {
                 if (file != checkedFile) return;

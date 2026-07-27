@@ -94,9 +94,16 @@ signals:
     void focusTrackRequested(int track);
 
     /** Run a repair tool. actionId is a MainWindow action-map id:
-     *  "delete_overlaps" (the colliding notes get selected first),
      *  "fix_ffxiv_channels", "auto_fit_voice_load". */
     void fixRequested(const QString &actionId);
+
+    /** Delete exactly these events as ONE undo step ("Delete colliding
+     *  notes"). Emitted with the computed surplus of every collision:
+     *  duplicates keep one copy, simultaneous chords keep the highest
+     *  note (the melody rule Auto-Fit documents). Unlike the Tools-menu
+     *  Delete Overlaps this needs no mode dialog - the workbench already
+     *  knows exactly which notes are surplus. */
+    void deleteEventsRequested(const QList<MidiEvent *> &events);
 
     /** Submit this prompt to MidiPilot (normal chat path, answer mirrored
      *  back via showAnalysis). */

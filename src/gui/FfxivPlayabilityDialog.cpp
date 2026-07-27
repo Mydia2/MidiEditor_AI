@@ -1,5 +1,7 @@
 #include "FfxivPlayabilityDialog.h"
 
+#include "../MidiEvent/NoteOnEvent.h"
+
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -114,25 +116,43 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
             this, &FfxivPlayabilityDialog::onSelectAllClicked);
     buttons->addWidget(_selectAllButton);
 
-    _fixOverlapsButton = new QPushButton(tr("Delete Overlaps"), this);
-    _fixOverlapsButton->setToolTip(tr("Selects the colliding notes and runs the "
-                                      "editor's Delete Overlaps on them"));
+    _fixOverlapsButton = new QPushButton(tr("Delete colliding notes"), this);
+    _fixOverlapsButton->setToolTip(tr("Deletes the surplus notes of every collision "
+                                      "in one undo step: duplicates keep one copy, "
+                                      "simultaneous chords keep the highest note"));
     connect(_fixOverlapsButton, &QPushButton::clicked, this, [this]() {
-        // Selection first, so the tool acts on exactly the collisions.
-        QList<MidiEvent *> events;
+        // The workbench knows exactly which notes are surplus - no mode
+        // dialog (second QA: the button must DELETE, not just mark).
+        // Survivor per collision group: highest pitch (the melody rule
+        // Auto-Fit documents), among equal pitches the louder note. A note
+        // may survive one issue and be a victim of another (C+C+E: the
+        // chord keeps E, the duplicate pair contributes both Cs) - the
+        // victim UNION handles that correctly.
+        QList<MidiEvent *> victims;
         QSet<MidiEvent *> seen;
         for (const FfxivPlayabilityIssue &i : _report.issues) {
             if (i.type != FfxivPlayabilityIssue::Type::Overlap
                 && i.type != FfxivPlayabilityIssue::Type::DuplicateNote)
                 continue;
+            NoteOnEvent *survivor = nullptr;
             for (MidiEvent *ev : i.events) {
-                if (ev && !seen.contains(ev)) { seen.insert(ev); events.append(ev); }
+                auto *on = dynamic_cast<NoteOnEvent *>(ev);
+                if (!on) continue;
+                if (!survivor || on->note() > survivor->note()
+                    || (on->note() == survivor->note()
+                        && on->velocity() > survivor->velocity())) {
+                    survivor = on;
+                }
+            }
+            for (MidiEvent *ev : i.events) {
+                if (ev && ev != survivor && !seen.contains(ev)) {
+                    seen.insert(ev);
+                    victims.append(ev);
+                }
             }
         }
-        if (!events.isEmpty()) {
-            emit selectEventsRequested(events);
-            emit fixRequested(QStringLiteral("delete_overlaps"));
-        }
+        if (!victims.isEmpty())
+            emit deleteEventsRequested(victims);
     });
     buttons->addWidget(_fixOverlapsButton);
 
