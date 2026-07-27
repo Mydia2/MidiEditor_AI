@@ -439,7 +439,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to 15 core tools (plus extra FFXIV tools when FFXIV mode is on) for inspecting and modifying MIDI files:
+The AI has access to **15 core tools**, plus **5 more when FFXIV mode is on** (20 total), for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
@@ -456,6 +456,7 @@ The AI has access to 15 core tools (plus extra FFXIV tools when FFXIV mode is on
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
 | `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
 | `analyze_voice_load` | Audit simultaneous-voice count vs the FFXIV 16-voice ceiling *(FFXIV)* |
+| `auto_fit_voice_load` | Thin overloaded moments and over-dense passages - dry run first, your confirmation required *(FFXIV)* |
 
 > **Tip:** The **Fix X\|V Channels** toolbar button runs the same channel setup deterministically - no AI call needed. Find it in **Tools → Fix X\|V Channels** or on the toolbar.
 
@@ -469,7 +470,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers all 15 tools automatically and can compose, edit, and analyze MIDI
+3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 17 by default (the 15 core tools plus `list_documents` / `switch_document` for driving the open tabs), 22 with FFXIV mode on
 
 ### Quick Setup
 
@@ -489,7 +490,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 ### Features
 
 - **Streamable HTTP** transport (MCP 2025-03-26) on a single `/mcp` endpoint
-- **All 15 MidiPilot tools** exposed - same tools the built-in AI uses
+- **All MidiPilot tools** exposed - the same ones the built-in AI uses - plus `list_documents` and `switch_document` so a client can drive the open tabs itself
 - **3 MCP Resources** - `midi://state`, `midi://tracks`, `midi://config` for read-only context
 - **Client identification** - Protocol panel shows which client made each edit (e.g. "MidiPilotMCP (VS Code Copilot Claude Opus 4.6)")
 - **Security** - localhost-only, Origin validation, optional auth token, rate limiting (100 calls/min)
@@ -616,9 +617,11 @@ cmake --build build --config Release
 
 The executable will be at `build/bin/MidiEditorAI.exe` with Qt DLLs auto-deployed.
 
+> **Building from `main`?** Work that is merged but part of **no release yet** is documented in **[PLAYGROUND.md](PLAYGROUND.md)** - experimental, source-only, no prebuilt binaries and no auto-updates. The [CHANGELOG](CHANGELOG.md) covers releases only.
+
 ### macOS (experimental, community-maintained)
 
-macOS is supported as a **build-from-source** platform only: no prebuilt binaries, no auto-updates, and testing relies on the community and a build-only CI job. Contributed and maintained by the community.
+macOS is supported as a **build-from-source** platform only: no prebuilt binaries, no auto-updates, and testing relies on the community and a build-only CI job. Contributed and maintained by the community - see [PLAYGROUND.md](PLAYGROUND.md) for what has landed so far.
 
 ```bash
 make mac-setup   # install dependencies via Homebrew Bundle
@@ -679,9 +682,14 @@ MidiEditor_AI/
 │   │   ├── LameEncoder.*      # MP3 encoding (LAME 3.100)
 │   │   ├── MidiInput.*        # Real-time MIDI input (RtMidi)
 │   │   └── ...
-│   ├── converter/             # File format converters
+│   ├── converter/             # File format converters & headless services
 │   │   ├── GuitarPro/         # GP1-GP8 import (Gp12, Gp345, Gp678 parsers)
 │   │   ├── MusicXml/          # MusicXML / MXL / MuseScore import
+│   │   ├── Score/             # MusicXML export (MidiToScore engraving core)
+│   │   ├── Sid/               # Commodore 64 .sid import
+│   │   ├── MML/               # MML / 3MLE import
+│   │   ├── TempoConversionService.*   # Time-preserving tempo conversion
+│   │   ├── AutoFitVoiceLoadService.*  # Voice/density thinning engine
 │   │   ├── SrtParser.*        # SRT subtitle parser
 │   │   └── LrcExporter.*      # LRC karaoke import/export
 │   ├── MidiEvent/             # MIDI event types
