@@ -171,6 +171,15 @@ signals:
      */
     void ffxivModeChanged(bool enabled);
 
+    /**
+     * \brief Phase 46: the final text of every completed reply, simple AND
+     *  agent mode. Lets a caller that submitted a prompt programmatically
+     *  (the playability dialog's "Analyze with MidiPilot") mirror the answer
+     *  into its own window. Fired for every reply, not only submitted ones -
+     *  listeners latch on their own send and drop the rest.
+     */
+    void assistantReplied(const QString &text);
+
 
 private slots:
     void onSendMessage();

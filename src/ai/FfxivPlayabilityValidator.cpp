@@ -45,7 +45,8 @@ QList<MidiEvent *> FfxivPlayabilityReport::offendingNotes() const {
     return out;
 }
 
-FfxivPlayabilityReport FfxivPlayabilityValidator::validate(MidiFile *file) {
+FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
+    MidiFile *file, const FfxivPlayabilityChecks &checks) {
     FfxivPlayabilityReport report;
     if (!file) {
         report.error = QStringLiteral("No file loaded.");
@@ -95,7 +96,8 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(MidiFile *file) {
         // default) would be flagged and the report would cry wolf on every
         // check. (Deliberate sharpening over the old AI-tool rule, which
         // flagged any non-empty non-instrument name.)
-        if (!notes.isEmpty() && !baseName.isEmpty() && !isInstrument) {
+        if (checks.trackNames && !notes.isEmpty() && !baseName.isEmpty()
+            && !isInstrument) {
             FfxivPlayabilityIssue issue;
             issue.type = FfxivPlayabilityIssue::Type::TrackName;
             issue.track = t;
@@ -104,19 +106,62 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(MidiFile *file) {
             report.issues.append(issue);
         }
 
-        // Range check: C3-C6 = MIDI 48-84.
-        for (const NoteInfo &n : notes) {
-            if (n.note < 48 || n.note > 84) {
+        // Empty instrument track: named like a performer, but nothing to
+        // play. Informational - it wastes one of the eight slots and is
+        // usually a leftover from experimenting.
+        if (checks.emptyTracks && notes.isEmpty() && isInstrument) {
+            FfxivPlayabilityIssue issue;
+            issue.type = FfxivPlayabilityIssue::Type::EmptyTrack;
+            issue.track = t;
+            issue.details = QStringLiteral(
+                "Track '%1' is named like an instrument but has no notes").arg(name);
+            report.issues.append(issue);
+        }
+
+        // Channel spread - EDITOR playback only (in game the track name
+        // selects the instrument): a non-guitar track whose notes sit on
+        // several channels plays as several instruments in the editor's
+        // SoundFont preview. The channel fixer is the repair. Deliberately
+        // NOT a program-change comparison: shared channels and stacked
+        // tick-0 PCs made that produce false findings on real octets.
+        if (checks.channelSpread && isInstrument && !trackIsGuitar
+            && !notes.isEmpty()) {
+            QSet<int> usedChannels;
+            for (const NoteInfo &n : notes) usedChannels.insert(n.channel);
+            if (usedChannels.size() > 1) {
                 FfxivPlayabilityIssue issue;
-                issue.type = FfxivPlayabilityIssue::Type::OutOfRange;
+                issue.type = FfxivPlayabilityIssue::Type::ChannelSpread;
                 issue.track = t;
-                issue.tick = n.tick;
+                issue.tick = notes.first().tick;
+                for (const NoteInfo &n : notes) issue.events.append(n.ev);
                 issue.details = QStringLiteral(
-                    "Note %1 (%2) outside C3-C6 (MIDI 48-84) at tick %3")
-                        .arg(noteName(n.note)).arg(n.note).arg(n.tick);
-                issue.events.append(n.ev);
+                    "Track '%1' has notes on %2 channels - editor playback "
+                    "will use different sounds for them (in game the track "
+                    "name decides; run the channel fixer to tidy up)")
+                        .arg(name).arg(usedChannels.size());
                 report.issues.append(issue);
             }
+        }
+
+        // Range check: C3-C6 = MIDI 48-84.
+        if (checks.range) {
+            for (const NoteInfo &n : notes) {
+                if (n.note < 48 || n.note > 84) {
+                    FfxivPlayabilityIssue issue;
+                    issue.type = FfxivPlayabilityIssue::Type::OutOfRange;
+                    issue.track = t;
+                    issue.tick = n.tick;
+                    issue.details = QStringLiteral(
+                        "Note %1 (%2) outside C3-C6 (MIDI 48-84) at tick %3")
+                            .arg(noteName(n.note)).arg(n.note).arg(n.tick);
+                    issue.events.append(n.ev);
+                    report.issues.append(issue);
+                }
+            }
+        }
+
+        if (!checks.monophony) {
+            continue;
         }
 
         // Monophony - user-verified in-game rule (2026-07-27): a held note

@@ -259,6 +259,59 @@ private slots:
         delete f;
     }
 
+    // --- 10. check selection: categories run only when asked ----------------
+    void checkSelectionIsHonoured() {
+        MidiFile *f = makeFile("Lead Guitar", 0); // bad name, WITH notes
+        addNote(f, 0, f->track(1), 40, 0, 100);   // also out of range
+        addNote(f, 0, f->track(1), 44, 0, 100);   // and a same-tick collision
+
+        FfxivPlayabilityChecks none;
+        none.monophony = false;
+        none.range = false;
+        none.trackNames = false;
+        none.channelSpread = false;
+        none.emptyTracks = false;
+        FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f, none);
+        QVERIFY(r.valid()); // everything off -> nothing found
+
+        FfxivPlayabilityChecks onlyNames = none;
+        onlyNames.trackNames = true;
+        r = FfxivPlayabilityValidator::validate(f, onlyNames);
+        QCOMPARE(r.issues.size(), 1);
+        QCOMPARE(r.countOf(Type::TrackName), 1);
+        delete f;
+    }
+
+    // --- 11. channel spread (editor playback) -------------------------------
+    void channelSpreadFlaggedForNonGuitarOnly() {
+        // Non-guitar instrument with notes on two channels -> flagged.
+        MidiFile *f = makeFile("Trumpet", 0);
+        addNote(f, 0, f->track(1), 60, 0, 100);
+        addNote(f, 1, f->track(1), 62, 200, 300);
+        FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
+        QCOMPARE(r.countOf(Type::ChannelSpread), 1);
+        delete f;
+
+        // Guitars spread channels BY DESIGN (variant switches) -> never.
+        f = makeFile("ElectricGuitarOverdriven", 0);
+        addNote(f, 0, f->track(1), 60, 0, 100);
+        addNote(f, 1, f->track(1), 62, 200, 300);
+        r = FfxivPlayabilityValidator::validate(f);
+        QCOMPARE(r.countOf(Type::ChannelSpread), 0);
+        delete f;
+    }
+
+    // --- 12. empty instrument tracks ---------------------------------------
+    void emptyInstrumentTrackIsInformational() {
+        MidiFile *f = makeFile("Trumpet", 0); // named, no notes anywhere
+        FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
+        QCOMPARE(r.countOf(Type::EmptyTrack), 1);
+        // ... but a non-instrument name without notes stays silent
+        // ("Tempo Track" must not flag every file).
+        QCOMPARE(r.countOf(Type::TrackName), 0);
+        delete f;
+    }
+
     // --- 9. ALL groups reported, not just the first -------------------------
     void allGroupsReportedNotJustFirst() {
         MidiFile *f = makeFile("Trumpet", 0);

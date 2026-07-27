@@ -354,11 +354,28 @@ faithful, which is the <a href="#overview">channel fixer</a>'s job.
 </p>
 
 <p>
-Click an issue to select its notes in the editor and move the cursor there, or use
-<b>Select all offending notes</b> and fix them in one go - for overlaps, <b>Delete Overlaps</b>
-on the selection is usually the fastest repair. The same check is available to the AI as the
-<b>validate_ffxiv</b> tool (Agent mode or MCP, with FFXIV enabled), so an arrangement built by
-the AI is held to exactly the same rules.
+Beyond the playability rules, three more checks can be run from the same window:
+<b>Voice limit</b> (the raw voice peak against the 16-voice ceiling and notes/sec hotspots),
+<b>Channels</b> (a non-guitar track whose notes are spread over several channels - this only
+affects playback inside the editor, in game the track name decides) and <b>Empty tracks</b>
+(instrument-named tracks without any notes). Every check is a checkbox at the top of the
+window, so single aspects can be re-checked in isolation with <b>Run checks</b>.
+</p>
+
+<p>
+The window is a workbench, not just a report: click an issue to select its notes in the editor
+and move the cursor there, and the buttons at the bottom offer the repair matching what was
+found - <b>Delete Overlaps</b> (selects the colliding notes and removes the overlaps),
+<b>Channel Fixer</b>, and <b>Auto-Fit</b> for voice-limit findings. The window stays open while
+you fix and re-checks automatically after every change, so repairs show their effect
+immediately. If MidiPilot has an AI provider set up, <b>Analyze with MidiPilot</b> sends the
+findings to the AI and shows its prioritized assessment right in the window.
+</p>
+
+<p>
+The same playability rules are available to the AI as the <b>validate_ffxiv</b> tool
+(Agent mode or MCP, with FFXIV enabled), so an arrangement built by the AI is held to exactly
+the same standard.
 </p>
 
 <hr>

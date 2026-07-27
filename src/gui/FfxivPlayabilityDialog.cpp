@@ -1,8 +1,11 @@
 #include "FfxivPlayabilityDialog.h"
 
+#include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QSet>
+#include <QTextBrowser>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
@@ -21,21 +24,58 @@ QString groupTitle(FfxivPlayabilityIssue::Type t, int count) {
         return FfxivPlayabilityDialog::tr("Stacked duplicates (%1)").arg(count);
     case FfxivPlayabilityIssue::Type::OutOfRange:
         return FfxivPlayabilityDialog::tr("Notes outside C3-C6 (%1)").arg(count);
+    case FfxivPlayabilityIssue::Type::VoiceCeiling:
+        return FfxivPlayabilityDialog::tr("Voice limit (%1)").arg(count);
+    case FfxivPlayabilityIssue::Type::NoteRate:
+        return FfxivPlayabilityDialog::tr("Note-rate hotspots (%1)").arg(count);
+    case FfxivPlayabilityIssue::Type::ChannelSpread:
+        return FfxivPlayabilityDialog::tr("Channel spread - editor playback only (%1)").arg(count);
     case FfxivPlayabilityIssue::Type::TrackName:
         return FfxivPlayabilityDialog::tr("Track names (%1)").arg(count);
+    case FfxivPlayabilityIssue::Type::EmptyTrack:
+        return FfxivPlayabilityDialog::tr("Empty instrument tracks (%1)").arg(count);
     }
     return QString();
 }
 
 } // namespace
 
-FfxivPlayabilityDialog::FfxivPlayabilityDialog(
-    const FfxivPlayabilityReport &report, QWidget *parent)
-    : QDialog(parent), _report(report) {
+FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
+    : QDialog(parent) {
     setWindowTitle(tr("FFXIV Playability Check"));
-    setMinimumSize(560, 420);
+    setMinimumSize(640, 520);
 
     auto *layout = new QVBoxLayout(this);
+
+    // --- Check row: every category is individually re-runnable ------------
+    auto *checksRow = new QHBoxLayout();
+    _checkMonophony = new QCheckBox(tr("Collisions"), this);
+    _checkMonophony->setToolTip(tr("Notes starting on the same tick on one performer "
+                                   "(simultaneous notes and stacked duplicates)"));
+    _checkRange = new QCheckBox(tr("Range"), this);
+    _checkRange->setToolTip(tr("Notes outside C3-C6"));
+    _checkNames = new QCheckBox(tr("Track names"), this);
+    _checkNames->setToolTip(tr("Names matching no FFXIV instrument (in game the "
+                               "track name selects the instrument)"));
+    _checkChannels = new QCheckBox(tr("Channels"), this);
+    _checkChannels->setToolTip(tr("Non-guitar tracks with notes spread over several "
+                                  "channels - affects editor playback only"));
+    _checkEmpty = new QCheckBox(tr("Empty tracks"), this);
+    _checkEmpty->setToolTip(tr("Instrument-named tracks without any notes"));
+    _checkVoiceLoad = new QCheckBox(tr("Voice limit"), this);
+    _checkVoiceLoad->setToolTip(tr("Raw voice peak vs the 16-voice ceiling and "
+                                   "notes/sec hotspots"));
+    for (QCheckBox *cb : {_checkMonophony, _checkRange, _checkNames,
+                          _checkChannels, _checkEmpty, _checkVoiceLoad}) {
+        cb->setChecked(true);
+        checksRow->addWidget(cb);
+    }
+    checksRow->addStretch();
+    auto *runButton = new QPushButton(tr("Run checks"), this);
+    connect(runButton, &QPushButton::clicked,
+            this, &FfxivPlayabilityDialog::runChecksRequested);
+    checksRow->addWidget(runButton);
+    layout->addLayout(checksRow);
 
     _summaryLabel = new QLabel(this);
     _summaryLabel->setWordWrap(true);
@@ -49,20 +89,75 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(
             this, &FfxivPlayabilityDialog::onItemClicked);
     layout->addWidget(_tree, 1);
 
+    // --- AI analysis pane (hidden until an answer arrives) -----------------
+    _analysisView = new QTextBrowser(this);
+    _analysisView->setOpenExternalLinks(false);
+    _analysisView->setMaximumHeight(180);
+    _analysisView->hide();
+    layout->addWidget(_analysisView);
+
     auto *hint = new QLabel(
         tr("Click an issue to select its notes in the editor and move the "
-           "cursor there. Notes starting on the same tick collide in game - "
-           "fix them by editing, or with Delete Overlaps on the selection."),
+           "cursor there. The buttons below offer the matching repair for "
+           "what was found."),
         this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
 
+    // --- Fix row: contextual repairs + AI + close --------------------------
     auto *buttons = new QHBoxLayout();
     _selectAllButton = new QPushButton(tr("Select all offending notes"), this);
     connect(_selectAllButton, &QPushButton::clicked,
             this, &FfxivPlayabilityDialog::onSelectAllClicked);
     buttons->addWidget(_selectAllButton);
+
+    _fixOverlapsButton = new QPushButton(tr("Delete Overlaps"), this);
+    _fixOverlapsButton->setToolTip(tr("Selects the colliding notes and runs the "
+                                      "editor's Delete Overlaps on them"));
+    connect(_fixOverlapsButton, &QPushButton::clicked, this, [this]() {
+        // Selection first, so the tool acts on exactly the collisions.
+        QList<MidiEvent *> events;
+        QSet<MidiEvent *> seen;
+        for (const FfxivPlayabilityIssue &i : _report.issues) {
+            if (i.type != FfxivPlayabilityIssue::Type::Overlap
+                && i.type != FfxivPlayabilityIssue::Type::DuplicateNote)
+                continue;
+            for (MidiEvent *ev : i.events) {
+                if (ev && !seen.contains(ev)) { seen.insert(ev); events.append(ev); }
+            }
+        }
+        if (!events.isEmpty()) {
+            emit selectEventsRequested(events);
+            emit fixRequested(QStringLiteral("delete_overlaps"));
+        }
+    });
+    buttons->addWidget(_fixOverlapsButton);
+
+    _fixChannelsButton = new QPushButton(tr("Channel Fixer"), this);
+    _fixChannelsButton->setToolTip(tr("Runs Fix X|V Channels - repairs channel "
+                                      "spread and tidies track naming/programs"));
+    connect(_fixChannelsButton, &QPushButton::clicked, this, [this]() {
+        emit fixRequested(QStringLiteral("fix_ffxiv_channels"));
+    });
+    buttons->addWidget(_fixChannelsButton);
+
+    _fixVoiceButton = new QPushButton(tr("Auto-Fit..."), this);
+    _fixVoiceButton->setToolTip(tr("Opens Auto-Fit Voice Load to thin the "
+                                   "overloaded passages"));
+    connect(_fixVoiceButton, &QPushButton::clicked, this, [this]() {
+        emit fixRequested(QStringLiteral("auto_fit_voice_load"));
+    });
+    buttons->addWidget(_fixVoiceButton);
+
     buttons->addStretch();
+
+    _analyzeButton = new QPushButton(tr("Analyze with MidiPilot"), this);
+    _analyzeButton->setToolTip(tr("Sends the findings to MidiPilot and shows its "
+                                  "assessment here"));
+    connect(_analyzeButton, &QPushButton::clicked,
+            this, &FfxivPlayabilityDialog::onAnalyzeClicked);
+    buttons->addWidget(_analyzeButton);
+
     auto *closeButton = new QPushButton(tr("Close"), this);
     closeButton->setDefault(true);
     connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
@@ -72,27 +167,55 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(
     rebuildTree();
 }
 
+FfxivPlayabilityChecks FfxivPlayabilityDialog::selectedChecks() const {
+    FfxivPlayabilityChecks c;
+    c.monophony = _checkMonophony->isChecked();
+    c.range = _checkRange->isChecked();
+    c.trackNames = _checkNames->isChecked();
+    c.channelSpread = _checkChannels->isChecked();
+    c.emptyTracks = _checkEmpty->isChecked();
+    return c;
+}
+
+bool FfxivPlayabilityDialog::voiceLoadEnabled() const {
+    return _checkVoiceLoad->isChecked();
+}
+
 void FfxivPlayabilityDialog::refresh(const FfxivPlayabilityReport &report) {
     _report = report;
     rebuildTree();
 }
 
+void FfxivPlayabilityDialog::showAnalysis(const QString &text) {
+    _awaitingAnalysis = false;
+    _analyzeButton->setEnabled(_midiPilotAvailable);
+    _analyzeButton->setText(tr("Analyze with MidiPilot"));
+    _analysisView->setMarkdown(text);
+    _analysisView->show();
+}
+
+void FfxivPlayabilityDialog::setMidiPilotAvailable(bool available) {
+    _midiPilotAvailable = available;
+    _analyzeButton->setVisible(available);
+    _analyzeButton->setEnabled(available && !_awaitingAnalysis);
+}
+
 void FfxivPlayabilityDialog::rebuildTree() {
     _tree->clear();
 
+    const int problemCount = _report.issues.size();
     if (_report.valid()) {
         _summaryLabel->setText(
             tr("<b>File is FFXIV-playable.</b> %1 note(s) on %2 track(s) "
-               "checked - no overlaps, duplicates, range or instrument "
-               "problems found.")
+               "checked with the selected checks - nothing found.")
                 .arg(_report.checkedNotes)
                 .arg(_report.checkedTracks));
     } else {
         _summaryLabel->setText(
-            tr("<b>%1 issue(s) found</b> in %2 note(s) on %3 track(s). "
-               "Simultaneous and duplicate note starts will not play "
-               "correctly in game - a performer plays one note at a time.")
-                .arg(_report.issues.size())
+            tr("<b>%1 finding(s)</b> in %2 note(s) on %3 track(s). "
+               "Collisions will not play correctly in game - a performer "
+               "plays one note at a time.")
+                .arg(problemCount)
                 .arg(_report.checkedNotes)
                 .arg(_report.checkedTracks));
     }
@@ -101,8 +224,12 @@ void FfxivPlayabilityDialog::rebuildTree() {
     const FfxivPlayabilityIssue::Type order[] = {
         FfxivPlayabilityIssue::Type::Overlap,
         FfxivPlayabilityIssue::Type::DuplicateNote,
+        FfxivPlayabilityIssue::Type::VoiceCeiling,
+        FfxivPlayabilityIssue::Type::NoteRate,
         FfxivPlayabilityIssue::Type::OutOfRange,
         FfxivPlayabilityIssue::Type::TrackName,
+        FfxivPlayabilityIssue::Type::ChannelSpread,
+        FfxivPlayabilityIssue::Type::EmptyTrack,
     };
     for (FfxivPlayabilityIssue::Type type : order) {
         const int count = _report.countOf(type);
@@ -114,14 +241,71 @@ void FfxivPlayabilityDialog::rebuildTree() {
             const FfxivPlayabilityIssue &issue = _report.issues.at(idx);
             if (issue.type != type) continue;
             auto *item = new QTreeWidgetItem(group);
-            item->setText(0, tr("Track %1: %2").arg(issue.track)
-                                               .arg(issue.details));
+            // File-level findings (voice limit, rate hotspots) carry track -1.
+            item->setText(0, issue.track >= 0
+                                 ? tr("Track %1: %2").arg(issue.track)
+                                                     .arg(issue.details)
+                                 : issue.details);
             item->setData(0, kIssueIndexRole, idx);
         }
         group->setExpanded(count <= 20);
     }
 
+    rebuildFixRow();
+}
+
+void FfxivPlayabilityDialog::rebuildFixRow() {
+    // Offer only the repairs matching what was FOUND - a wall of disabled
+    // buttons is a console, contextual tools are a workbench.
+    const bool hasCollisions =
+        _report.countOf(FfxivPlayabilityIssue::Type::Overlap) > 0
+        || _report.countOf(FfxivPlayabilityIssue::Type::DuplicateNote) > 0;
+    const bool hasChannelIssues =
+        _report.countOf(FfxivPlayabilityIssue::Type::ChannelSpread) > 0
+        || _report.countOf(FfxivPlayabilityIssue::Type::TrackName) > 0;
+    const bool hasVoiceIssues =
+        _report.countOf(FfxivPlayabilityIssue::Type::VoiceCeiling) > 0
+        || _report.countOf(FfxivPlayabilityIssue::Type::NoteRate) > 0;
+
+    _fixOverlapsButton->setVisible(hasCollisions);
+    _fixChannelsButton->setVisible(hasChannelIssues);
+    _fixVoiceButton->setVisible(hasVoiceIssues);
     _selectAllButton->setEnabled(!_report.offendingNotes().isEmpty());
+}
+
+QString FfxivPlayabilityDialog::buildAnalysisPrompt() const {
+    QStringList lines;
+    lines << QStringLiteral(
+        "Please assess this FFXIV playability report for the current file "
+        "and give a short, prioritized verdict: what MUST be fixed before "
+        "playing in game, what is cosmetic, and in which order you would "
+        "fix it (mention the matching tools). Be concise.");
+    lines << QStringLiteral("Report: %1 finding(s), %2 notes on %3 tracks checked.")
+                 .arg(_report.issues.size())
+                 .arg(_report.checkedNotes)
+                 .arg(_report.checkedTracks);
+    // Compact findings list, capped so the prompt stays small - the agent
+    // can always run validate_ffxiv itself for the full picture.
+    const int cap = 40;
+    for (int i = 0; i < _report.issues.size() && i < cap; ++i) {
+        const FfxivPlayabilityIssue &issue = _report.issues.at(i);
+        lines << QStringLiteral("- Track %1: %2").arg(issue.track)
+                                                 .arg(issue.details);
+    }
+    if (_report.issues.size() > cap)
+        lines << QStringLiteral("(%1 more findings omitted)")
+                     .arg(_report.issues.size() - cap);
+    return lines.join(QStringLiteral("\n"));
+}
+
+void FfxivPlayabilityDialog::onAnalyzeClicked() {
+    if (!_midiPilotAvailable || _awaitingAnalysis) return;
+    _awaitingAnalysis = true;
+    _analyzeButton->setEnabled(false);
+    _analyzeButton->setText(tr("Waiting for MidiPilot..."));
+    _analysisView->setMarkdown(tr("*Asking MidiPilot...*"));
+    _analysisView->show();
+    emit analyzeRequested(buildAnalysisPrompt());
 }
 
 void FfxivPlayabilityDialog::onItemClicked(QTreeWidgetItem *item, int) {

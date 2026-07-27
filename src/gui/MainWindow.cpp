@@ -122,6 +122,7 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 #include "AutoFitVoiceLoadDialog.h"
 #include "FfxivPlayabilityDialog.h"
 #include "../ai/FfxivPlayabilityValidator.h"
+#include "../converter/AutoFitVoiceLoadService.h"
 #include "DrumKitPreset.h"
 #include "MatrixWidget.h"
 #include "OpenGLMatrixWidget.h"
@@ -2063,6 +2064,11 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     // wiping the new document's restored one.
     if (_autoFitDialog) {
         _autoFitDialog->close();
+    }
+    // Same rule for the playability workbench (Phase 46): its report holds
+    // note pointers of ONE document.
+    if (_playabilityDialog) {
+        _playabilityDialog->close();
     }
 
     Selection::setFile(newFile);
@@ -6871,35 +6877,129 @@ void MainWindow::askMidiPilotAboutSelection() {
             .arg(MidiEventSerializer::noteName(hiPitch)));
 }
 
+// Phase 46: compose the full workbench report - the dependency-free
+// validator plus the dialog-side voice-limit / note-rate synthesis (Auto-Fit
+// dry run with every removal pass off = the raw truth, and the analyzer's
+// rate hotspots).
+static FfxivPlayabilityReport buildPlayabilityReport(MidiFile *f,
+                                                     FfxivPlayabilityDialog *dialog) {
+    FfxivPlayabilityReport report =
+        FfxivPlayabilityValidator::validate(f, dialog->selectedChecks());
+    if (!report.ok || !dialog->voiceLoadEnabled()) {
+        return report;
+    }
+
+    AutoFitOptions rawOpts;
+    rawOpts.dryRun = true;
+    rawOpts.ratePercent = 0;
+    rawOpts.chordLimit = 0;
+    rawOpts.desaturateRates = false;
+    const AutoFitResult rawR = AutoFitVoiceLoadService::apply(f, rawOpts);
+    if (rawR.ok && rawR.overflowRangeCount > 0) {
+        FfxivPlayabilityIssue issue;
+        issue.type = FfxivPlayabilityIssue::Type::VoiceCeiling;
+        issue.track = -1;
+        issue.events = rawR.victims; // what Auto-Fit would thin - clickable
+        issue.details = QObject::tr(
+            "Raw peak %1/16 voices in %2 overflow range(s) - more notes "
+            "sound at once than the game mixes; Auto-Fit can thin them")
+                .arg(rawR.peakBefore).arg(rawR.overflowRangeCount);
+        report.issues.append(issue);
+    }
+
+    const FfxivVoiceAnalyzer::Result ar =
+        FfxivVoiceAnalyzer::instance()->recomputeNow(f);
+    if (ar.valid) {
+        for (const auto &h : ar.rateHotspots) {
+            FfxivPlayabilityIssue issue;
+            issue.type = FfxivPlayabilityIssue::Type::NoteRate;
+            issue.track = -1;
+            issue.tick = h.startTick;
+            issue.details = QObject::tr(
+                "Channel %1: %2 notes/sec around tick %3 (cap %4) - the game "
+                "drops notes above the rate; Auto-Fit's density thinning helps")
+                    .arg(h.channel)
+                    .arg(h.notesPerSecond, 0, 'f', 1)
+                    .arg(h.startTick)
+                    .arg(FfxivVoiceAnalyzer::kNoteRateCeilingPerChannel);
+            report.issues.append(issue);
+        }
+    }
+    return report;
+}
+
 void MainWindow::checkFfxivPlayability() {
     if (!file) {
         return;
     }
+    // Single instance, modeless (same pattern as Auto-Fit): the fix buttons
+    // hand off to tools that need a usable editor - Auto-Fit itself opens a
+    // modeless dialog a modal parent would freeze.
+    if (_playabilityDialog) {
+        _playabilityDialog->raise();
+        _playabilityDialog->activateWindow();
+        return;
+    }
     MidiFile *checkedFile = file;
-    FfxivPlayabilityDialog dialog(FfxivPlayabilityValidator::validate(checkedFile), this);
+    FfxivPlayabilityDialog *dialog = new FfxivPlayabilityDialog(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    _playabilityDialog = dialog;
+    dialog->setMidiPilotAvailable(isMidiPilotUsable());
 
-    connect(&dialog, &FfxivPlayabilityDialog::selectEventsRequested, this,
+    auto rerun = [this, dialog, checkedFile]() {
+        if (file != checkedFile) return;
+        dialog->refresh(buildPlayabilityReport(checkedFile, dialog));
+    };
+
+    connect(dialog, &FfxivPlayabilityDialog::runChecksRequested, this, rerun);
+    connect(dialog, &FfxivPlayabilityDialog::selectEventsRequested, this,
             [this](const QList<MidiEvent *> &events) {
                 Selection::instance()->setSelection(events);
                 eventWidget()->reportSelectionChangedByTool();
                 updateAll();
             });
-    connect(&dialog, &FfxivPlayabilityDialog::jumpToTickRequested, this,
+    connect(dialog, &FfxivPlayabilityDialog::jumpToTickRequested, this,
             [this, checkedFile](int tick) {
                 if (file != checkedFile) return;
                 checkedFile->setCursorTick(tick);
                 updateAll();
             });
-    // The dialog is modal, but exec() spins the event loop - an MCP/agent
-    // edit can still mutate the file while it is open, which would leave the
-    // report holding stale MidiEvent pointers. Re-validate after every
-    // finished protocol action so a click can never select a freed note.
-    connect(checkedFile->protocol(), &Protocol::actionFinished, &dialog,
-            [&dialog, checkedFile]() {
-                dialog.refresh(FfxivPlayabilityValidator::validate(checkedFile));
+    // Contextual repairs. The dialog emits selectEventsRequested first for
+    // delete_overlaps, so the tool acts on exactly the collisions.
+    connect(dialog, &FfxivPlayabilityDialog::fixRequested, this,
+            [this, checkedFile](const QString &actionId) {
+                if (file != checkedFile) return;
+                if (actionId == QLatin1String("auto_fit_voice_load")) {
+                    autoFitVoiceLoad();
+                } else if (actionId == QLatin1String("fix_ffxiv_channels")) {
+                    fixFFXIVChannels();
+                } else if (_actionMap.contains(actionId)) {
+                    _actionMap[actionId]->trigger();
+                }
+                // The repair's protocol action triggers the re-validate below.
             });
+    // AI assessment: through the normal chat path; the reply is mirrored
+    // back while the dialog is waiting for one (unrelated chat stays out).
+    connect(dialog, &FfxivPlayabilityDialog::analyzeRequested, this,
+            [this](const QString &prompt) {
+                if (_midiPilotDock) {
+                    _midiPilotDock->setVisible(true);
+                    _midiPilotDock->raise();
+                }
+                if (_midiPilotWidget) _midiPilotWidget->submitPrompt(prompt);
+            });
+    connect(_midiPilotWidget, &MidiPilotWidget::assistantReplied, dialog,
+            [dialog](const QString &text) {
+                if (dialog->awaitingAnalysis()) dialog->showAnalysis(text);
+            });
+    // Modeless: MCP/agent edits keep flowing while the dialog is open, and
+    // the fix buttons mutate the file themselves. Re-validate after every
+    // finished protocol action so the tree never holds freed note pointers -
+    // and repairs show their effect immediately.
+    connect(checkedFile->protocol(), &Protocol::actionFinished, dialog, rerun);
 
-    dialog.exec();
+    rerun();
+    dialog->show();
 }
 
 void MainWindow::openAutoFitDialog(int startTick, int endTick,

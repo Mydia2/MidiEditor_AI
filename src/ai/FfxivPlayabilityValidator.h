@@ -50,8 +50,16 @@ struct FfxivPlayabilityIssue {
         TrackName,        ///< name matches no FFXIV instrument
         OutOfRange,       ///< note outside C3-C6
         DuplicateNote,    ///< same pitch, same start tick, same performer
-        Overlap           ///< distinct pitches starting on the same tick
+        Overlap,          ///< distinct pitches starting on the same tick
                           ///< (guitar tracks: on the same channel)
+        ChannelSpread,    ///< non-guitar track's notes on several channels -
+                          ///< EDITOR playback only (in game the name rules);
+                          ///< the channel fixer is the repair
+        EmptyTrack,       ///< instrument-named track without any notes (info)
+        VoiceCeiling,     ///< raw voice peak over 16 - synthesized by the
+                          ///< DIALOG from an Auto-Fit dry run, never emitted
+                          ///< by the validator itself (keeps it dependency-free)
+        NoteRate          ///< notes/sec hotspot - dialog-synthesized as well
     };
 
     Type type;
@@ -59,6 +67,16 @@ struct FfxivPlayabilityIssue {
     int tick = 0;              ///< first tick involved (0 for TrackName)
     QString details;           ///< human-readable, one line
     QList<MidiEvent *> events; ///< offending NoteOn events (may be empty)
+};
+
+/** Which checks validate() runs - the GUI dialog exposes these as
+ *  checkboxes so single aspects can be re-checked in isolation. */
+struct FfxivPlayabilityChecks {
+    bool monophony = true;     ///< simultaneous starts + stacked duplicates
+    bool range = true;         ///< C3-C6
+    bool trackNames = true;    ///< FFXIV instrument names
+    bool channelSpread = true; ///< editor-playback channel consistency
+    bool emptyTracks = true;   ///< instrument-named tracks without notes
 };
 
 struct FfxivPlayabilityReport {
@@ -78,7 +96,8 @@ struct FfxivPlayabilityReport {
 
 class FfxivPlayabilityValidator {
 public:
-    static FfxivPlayabilityReport validate(MidiFile *file);
+    static FfxivPlayabilityReport validate(
+        MidiFile *file, const FfxivPlayabilityChecks &checks = {});
 };
 
 #endif // FFXIVPLAYABILITYVALIDATOR_H_

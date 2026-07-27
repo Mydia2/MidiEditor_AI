@@ -1651,6 +1651,10 @@ private:
     /// v2.1.0 #1: the modeless Auto-Fit dialog (single instance; closed on
     /// document switch because it is bound to one file).
     QPointer<QDialog> _autoFitDialog;
+
+    /** \brief Phase 46: single-instance modeless playability workbench,
+     *  same lifecycle as _autoFitDialog (closed on tab switch). */
+    QPointer<QDialog> _playabilityDialog;
     QWidget *_voiceLaneArea = nullptr;
     QAction *_toggleVoiceLaneAction = nullptr;
     /** \brief 1.6.1 (UX-VOICE-LANE-002): auto-show the voice lane while FFXIV

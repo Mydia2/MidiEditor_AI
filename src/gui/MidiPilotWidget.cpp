@@ -1474,6 +1474,10 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
     _simpleRetryCount = 0;
     _lastSimpleMessage.clear();
 
+    // Phase 46: external listeners (the playability dialog mirrors the
+    // answer to a check it submitted) get the final text of every reply.
+    emit assistantReplied(content);
+
     // Extract token usage
     QJsonObject usage = fullResponse["usage"].toObject();
     if (!usage.isEmpty()) {
@@ -2155,6 +2159,10 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     _isAgentRunning = false;
     // Phase 28: the run (and all its tool applies) is done - release the origin pin.
     _runOriginFile = nullptr;
+
+    // Phase 46: mirror the final text to external listeners (see
+    // onResponseReceived - same signal for both modes).
+    emit assistantReplied(finalMessage);
 
     // Stop the thought-cursor pulse and freeze the thought label at its
     // final accumulated text (drop the trailing blinking cursor glyph).
