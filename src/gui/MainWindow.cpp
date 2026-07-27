@@ -64,9 +64,22 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+// PSAPI_VERSION 2 maps GetProcessMemoryInfo to K32GetProcessMemoryInfo in
+// kernel32 - no extra link dependency (same approach as test_event_perf).
+#ifndef PSAPI_VERSION
+#define PSAPI_VERSION 2
+#endif
+#include <psapi.h>
 #else
 #include <unistd.h>
 #endif
+
+#include <QLoggingCategory>
+
+// v2.2 #3: measurement-session channel. Silent at the default logging level
+// (Warnings) - enable via Settings key Logging/perCategory =
+// "midieditor.memory=true" to get the 1 Hz fixed-field samples.
+Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 
 #include <cmath>
 #include <algorithm>
@@ -1266,6 +1279,20 @@ MainWindow::MainWindow(QString initFile)
     statusBar()->addPermanentWidget(_statusSelectionLabel);
     statusBar()->addPermanentWidget(_statusChordLabel);
 
+    // v2.2 #3: undo-memory readout, fed by a 1 Hz sampler (NOT by
+    // actionFinished, which fires per protocol item - one erase-drag would
+    // repaint it hundreds of times). Plain text, no colour thresholds: the
+    // measurement phase decides bands, not a guess.
+    _statusUndoLabel = new QLabel(this);
+    _statusUndoLabel->setToolTip(tr("Undo history of the active document and the "
+                                    "session-wide undo-snapshot memory (structural "
+                                    "estimate; Task Manager shows more)"));
+    statusBar()->addPermanentWidget(_statusUndoLabel);
+    _memorySampler = new QTimer(this);
+    _memorySampler->setInterval(1000);
+    connect(_memorySampler, &QTimer::timeout, this, &MainWindow::sampleUndoMemory);
+    _memorySampler->start();
+
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     _statusLiveSessionLabel = new QLabel(this);
     _statusLiveSessionLabel->setStyleSheet(
@@ -2041,6 +2068,11 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     channelWidget->setFile(newFile);
     _trackWidget->setFile(newFile);
     eventWidget()->setFile(newFile);
+    // v2.2 #3 (found during the undo-memory investigation): updateStatusBar()
+    // exists only as a connect target of the per-file actionFinished, so after
+    // a tab switch the cursor/selection/chord labels kept showing the PREVIOUS
+    // document's numbers until the next edit. Refresh explicitly.
+    updateStatusBar();
 
     Tool::setFile(newFile);
     _midiPilotWidget->onFileChanged(newFile);
@@ -12177,6 +12209,94 @@ void MainWindow::updateStatusBar() {
         _statusChordLabel->setText(chord.isEmpty() ? "" : chord);
     } else {
         _statusChordLabel->setText("");
+    }
+}
+
+void MainWindow::sampleUndoMemory() {
+    // Both editor groups, deduped by MidiFile* - the same document can sit in
+    // both groups at once (same guard as promptSaveAllDirtyTabs).
+    QList<MidiFile *> all;
+    if (_documentManager) {
+        for (Document *d : _documentManager->documents()) {
+            if (d->file()) all.append(d->file());
+        }
+    }
+    if (_group1Docs) {
+        for (Document *d : _group1Docs->documents()) {
+            if (d->file() && !all.contains(d->file())) all.append(d->file());
+        }
+    }
+    if (all.isEmpty() && file) all.append(file);
+
+    // Structural bytes per undo-snapshot map node: measured sizeof of one
+    // MSVC x64 std::multimap<int, MidiEvent*> node. Committed heap runs
+    // ~a third higher (48 B lands in the 64 B LFH bucket) - hence the "~"
+    // in the label and the PrivateUsage column in the measurement log.
+    const qint64 kNodeBytes = 48;
+
+    qint64 totalNodes = 0;
+    qint64 totalSnaps = 0;
+    const bool logging = memLog().isInfoEnabled();
+    QStringList perDoc;
+    for (MidiFile *f : all) {
+        qint64 nodes = 0, snaps = 0;
+        for (int ch = 0; ch < 19; ++ch) {
+            MidiChannel *c = f->channel(ch);
+            if (!c) continue;
+            nodes += c->snapshotNodeSum();
+            snaps += c->snapshotCount();
+        }
+        totalNodes += nodes;
+        totalSnaps += snaps;
+        if (logging) {
+            Protocol *p = f->protocol();
+            perDoc << QStringLiteral("%1%2: back=%3 fwd=%4 snaps=%5 nodes=%6")
+                          .arg(f == file ? QStringLiteral("*") : QString(),
+                               QFileInfo(f->path()).fileName())
+                          .arg(p ? p->stepsBack() : -1)
+                          .arg(p ? p->stepsForward() : -1)
+                          .arg(snaps)
+                          .arg(nodes);
+        }
+    }
+
+    const double structMb = totalNodes * kNodeBytes / (1024.0 * 1024.0);
+    if (_statusUndoLabel) {
+        Protocol *p = file ? file->protocol() : nullptr;
+        if (!p) {
+            _statusUndoLabel->clear();
+        } else {
+            // Depth is the ACTIVE document's; the MB figure is the whole
+            // session (all tabs, both groups) - closed tabs keep their
+            // memory (~MidiFile deliberately leaks the protocol), so the
+            // session figure is what actually tracks the process.
+            _statusUndoLabel->setText(tr("Undo %1 | ~%2 MB")
+                                          .arg(p->stepsBack())
+                                          .arg(structMb, 0, 'f', 1));
+        }
+    }
+
+    if (logging) {
+        qint64 privBytes = 0;
+        qint64 wsBytes = 0;
+#ifdef Q_OS_WIN
+        PROCESS_MEMORY_COUNTERS_EX pmc;
+        pmc.cb = sizeof(pmc);
+        if (GetProcessMemoryInfo(GetCurrentProcess(),
+                                 reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&pmc),
+                                 sizeof(pmc))) {
+            privBytes = static_cast<qint64>(pmc.PrivateUsage);
+            wsBytes = static_cast<qint64>(pmc.WorkingSetSize);
+        }
+#endif
+        qCInfo(memLog).noquote()
+            << QStringLiteral("sample priv=%1 ws=%2 docs=%3 snaps=%4 structMB=%5 | %6")
+                   .arg(privBytes)
+                   .arg(wsBytes)
+                   .arg(all.size())
+                   .arg(totalSnaps)
+                   .arg(structMb, 0, 'f', 1)
+                   .arg(perDoc.join(QStringLiteral(" | ")));
     }
 }
 

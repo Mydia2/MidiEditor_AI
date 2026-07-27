@@ -12006,7 +12006,9 @@ cost is GL views and the per-tab undo stack.**
   `GraphicObject` holds 4 ints + a bool ([GraphicObject.h:120](src/gui/GraphicObject.h#L120));
   `MidiEvent` adds 2 ints + 2 ptrs + 1 int. With two vptrs (multiple polymorphic
   bases) a base event is ~64-72 B; a NoteOn/Off pair ~160 B of object data. Events
-  live in per-channel `QMultiMap<int, MidiEvent*>` (red-black tree, ~40 B/node).
+  live in per-channel `QMultiMap<int, MidiEvent*>` (red-black tree; measured
+  2026-07-27: sizeof one MSVC x64 node = 48 B, ~64 B committed via the LFH
+  bucket - the "~40 B" first written here was an estimate).
   **All-in ~= 250-300 B per note.**
 * **Per-document MIDI data** therefore: 20k notes ~= 6 MB, 50k ~= 15 MB, 100k (a
   very dense file) ~= 30 MB. Even heavy files are tens of MB - **not** the binding
@@ -12016,9 +12018,16 @@ cost is GL views and the per-tab undo stack.**
      (each action stores `copy()`s of touched events). This is per-tab and the main
      RAM wildcard in long sessions. Consider a configurable undo-depth cap and/or a
      memory readout.
-  2. **GL contexts dominate** (tens of MB each, driver-dependent). Keep only the
-     active (+ a pinned compare) `OpenGLMatrixWidget` live; lazily build/destroy the
-     view for inactive tabs while keeping their `MidiFile` resident.
+  2. ~~**GL contexts dominate**~~ **DISPROVEN 2026-07-27 (v2.2 #3 deep-dive):
+     there is no per-tab view to make lazy.** One MatrixWidget per editor
+     group (max 2, group 1 explicitly software), rebound by setFile() on tab
+     switch; hardware_acceleration defaults to OFF and needs a restart. Max
+     one GL context process-wide, usually zero - and the lazy lifecycle this
+     bullet asked for is exactly what setFile() rebinding already is. The
+     real per-tab unbounded terms besides undo: `MidiFile::playerMap` (a
+     second full event index, built on first play, freed only in ~MidiFile)
+     and the per-file singleton caches (FfxivVoiceAnalyzer, Selection,
+     ChannelVisibilityManager).
 * **Tab limit?** No hard *data* limit is needed. Recommended guardrails: (a) lazy
   GL-view lifecycle (the single most important decision); (b) a generous,
   configurable **soft** cap on open tabs (~20-30) with a warning rather than a hard
@@ -12787,40 +12796,80 @@ contract in test_tool_definitions (15 core -> 16). Effort: half a day.
 
 ## #3 Undo memory: analyse first, then cap (measurement task)
 
-**Analysis done 2026-07-25, findings:**
+**(a) instrumentation ✅ SHIPPED 2026-07-27; analysis re-verified by an
+8-agent deep-dive the same week - three of the four 2026-07-25 findings
+below needed correcting, and one correction changes the item's shape.**
 
-* The undo stack is `QList<ProtocolStep *> *_undoSteps` (Protocol.h:159) with
-  NO cap anywhere in the class - it grows for the lifetime of the document.
-* Cost per step is NOT uniform, which is why a naive "cap at N steps" is a
-  guess. Two very different shapes:
-  - *Fine-grained edits* (move one note) store a handful of small
-    ProtocolItems.
-  - *Bulk ops* (Auto-Fit, Edit Tempo, drum split, channel fixer, paste) take
-    a per-channel snapshot: `MidiChannel::copy()` -> `new MidiChannel(*this)`
-    (MidiChannel.cpp:48-59), which allocates an INDEPENDENT
-    `QMultiMap<int, MidiEvent*>` holding one node per event. The MidiEvents
-    themselves are shared, so a snapshot costs map nodes (tens of bytes each),
-    not note data - a 20k-event channel is roughly a megabyte per snapshot,
-    and one bulk op can snapshot several channels.
-  - Additionally, events REMOVED by a bulk op must stay alive for undo, so
-    their ~336 B/note (test_event_perf) is held by the stack, not freed.
-* Multiplied by tabs: every MidiFile owns its own Protocol, so the total is
-  (history depth) x (documents open).
-* There is no memory readout anywhere in src/ (grepped) - so today neither the
-  user nor we can see the number.
+**Corrected analysis (measured, MSVC x64 /O2, Qt 6.5.3):**
 
-**Plan, in this order:** (a) instrument first - a debug/status readout of
-per-document undo depth and estimated bytes (sum of snapshot map sizes +
-retained removed events), reachable from the Protocol panel or a Help/About
-diagnostics line; (b) measure a real session (Dragonforce-sized file, an hour
-of editing, several tabs) to learn whether the practical ceiling is 50 MB or
-2 GB; (c) only THEN decide the cap policy - and prefer a byte budget over a
-step count, because of the shape difference above. Also on the list: the
-never-measured GL-context cost per tab (roadmap line 12036), which is the
-other unbounded term and the prerequisite for lazy view construction.
+* VERIFIED: the undo stack is `QList<ProtocolStep *> *_undoSteps`
+  (Protocol.h:159) with no cap, no trim, no clear-on-save; every MidiFile
+  owns its own Protocol. `MidiChannel::copy()` is the SINGLE heavy snapshot
+  factory; one map node measures 48 B structural (~64 B committed - LFH
+  bucket), so a 20k-event channel snapshot is ~0.92 MiB structural.
+* WRONG - "fine-grained edits are cheap": `insertNote` / `insertEvent` /
+  `removeEvent` / `deleteAllEvents` all default `toProtocol=true` and take a
+  FULL channel snapshot per call (MidiChannel.cpp:154-222). Drawing or
+  erasing ONE note on a 20k-event channel costs ~0.92 MiB; an erase-drag
+  over 200 notes is ~184 MB in ONE undo step. Only value edits
+  (setNote/setVelocity/setMidiTime via MidiEvent::copy(), 72-104 B) are
+  genuinely small. This 1:400 per-step spread is the case for a BYTE budget
+  over a step count.
+* WRONG - the ~336 B/note figure from test_event_perf already INCLUDES the
+  two map nodes; charging it on top of snapshot nodes double-counts.
+* WRONG - "GL-context cost per tab as the other unbounded term": there is no
+  per-tab view. ONE MatrixWidget per editor group (max 2 groups, group 1
+  explicitly software-rendered), rebound by setFile() on tab switch;
+  hardware_acceleration defaults to OFF. Max one GL context process-wide,
+  usually zero. Lazy view lifecycle already ships. The genuinely unbounded
+  per-tab terms the old text never named: MidiFile::playerMap (a second full
+  event index, built on first play, freed only in ~MidiFile) and the
+  per-file singleton caches (FfxivVoiceAnalyzer ~16 B/note, Selection,
+  ChannelVisibilityManager).
+* NEW and decisive: closing a tab frees NEITHER the protocol NOR the events
+  (~MidiFile keeps them deliberately, MidiFile.cpp:174-176; `delete prot`
+  appears nowhere in src/). Session memory scales with tabs EVER OPENED, so
+  a live-stack cap alone can never bound the process. Also, snapshots are
+  QMultiMap COW: copy() costs 8 B at call time and the tree is charged to
+  whoever detaches first - always within one repaint/save in practice.
 
-Effort: 1 day for (a)+(b); the cap itself is small once the numbers exist.
-Explicitly NOT doing: a cap based on a guessed number.
+**(a) as built (deliberately the minimum that measures - the reviewed
+full design with a virtual estimator on ProtocolEntry was rejected as
+3.5 days of scaffolding whose stack-walk could not see the leak classes):**
+
+* `MidiChannel::copy()` counts: per-live-channel `snapshotCount` +
+  `snapshotNodeSum` (charged at copy time, monotonic, not inherited by
+  snapshots, untouched by reloadState; pinned by a new test case in
+  test_event_perf).
+* 1 Hz sampler in MainWindow: status-bar label `Undo <depth> | ~<MB> MB`
+  (active doc's depth, SESSION-wide structural bytes = nodeSum x 48 across
+  both editor groups, deduped by MidiFile* like promptSaveAllDirtyTabs).
+  Plain text, no colour bands - thresholds come from (b), not a guess.
+* Same tick optionally logs one fixed-field line (priv/ws via PSAPI, per-doc
+  back/fwd/snaps/nodes) under the `midieditor.memory` category - SILENT at
+  the default log level; enable via Settings key `Logging/perCategory` =
+  `midieditor.memory=true` for a measurement session. ~150 B/s, well inside
+  the 10 MB log rotation.
+* Drive-by fix: updateStatusBar() was only ever signal-driven, so after a
+  tab switch the cursor/selection/chord labels showed the PREVIOUS
+  document's numbers until the next edit. setActiveDocument() now refreshes
+  explicitly.
+
+**(b) measurement session - still open, needs a real >100k-event
+arrangement (none in the repo) and one hour of scripted editing with the
+category enabled.** Watch two phases especially: plain note draw/erase on a
+dense channel (the dominant cost per the corrected model) and undo-then-edit
+churn (where the estimator and PrivateUsage DIVERGE - that divergence is the
+invisible-leak term, and it decides whether a cap on the live stack helps at
+all).
+
+**(c) cap policy - only after (b), and gated on an ownership fix first:**
+ProtocolItem has no destructor, so dropping a step today would free ~50-80 B
+of shells and leak the ~1 MB map - depth would drop, RAM would not. Shape
+when it comes: byte budget (not steps - autosave appends zero-byte steps),
+default OFF opt-in (AiClient max_tokens precedent; tests assert exact step
+counts), drop-oldest with a pinned head (the open-file sentinel step) and a
+synthetic marker step. Explicitly NOT doing: a cap based on a guessed number.
 
 ## #4 Phase 45 AppPaths - issue #13 + portable INI (technical debt)
 

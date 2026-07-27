@@ -105,6 +105,22 @@ public:
     QMultiMap<int, MidiEvent *> *eventMap();
 
     /**
+     * \brief v2.2 #3 (undo-memory instrumentation): how many full-channel
+     *  snapshots this LIVE channel has produced via copy() since the document
+     *  was opened. Monotonic; snapshots themselves report 0.
+     */
+    qint64 snapshotCount() const { return _snapshotCount; }
+
+    /**
+     * \brief v2.2 #3: running sum of eventMap()->size() over all snapshots -
+     *  i.e. the total number of map nodes the undo history was charged for.
+     *  Multiply by the measured node size (48 B on MSVC x64) for structural
+     *  bytes. Counts at copy() time, so shared-until-detach COW trees are
+     *  charged in full (they detach on the next repaint or save anyway).
+     */
+    qint64 snapshotNodeSum() const { return _snapshotNodeSum; }
+
+    /**
      * \brief Inserts a new note into this channel.
      * \param note MIDI note number (0-127)
      * \param startTick Start time in MIDI ticks
@@ -230,6 +246,12 @@ protected:
 
     /** \brief The channel number (0-18) */
     int _num;
+
+    /** \brief v2.2 #3: undo-snapshot counters, see snapshotCount(). Not
+     *  copied by the copy ctor (it lists its fields explicitly), not touched
+     *  by reloadState(). */
+    qint64 _snapshotCount = 0;
+    qint64 _snapshotNodeSum = 0;
 };
 
 #endif // MIDICHANNEL_H_

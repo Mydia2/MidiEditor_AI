@@ -1083,6 +1083,15 @@ public slots:
     void updateStatusBar();
 
     /**
+     * \brief v2.2 #3: 1 Hz undo-memory sample - refreshes _statusUndoLabel
+     *  (active doc's undo depth + session-wide structural snapshot bytes,
+     *  both editor groups, deduped by MidiFile*) and, when the
+     *  "midieditor.memory" logging category is enabled, writes one
+     *  fixed-field line for measurement sessions.
+     */
+    void sampleUndoMemory();
+
+    /**
      * \brief Applies widget size constraints at startup based on settings.
      */
     void applyWidgetSizeConstraints();
@@ -1809,6 +1818,14 @@ private:
     QLabel *_statusCursorLabel = nullptr;
     QLabel *_statusSelectionLabel = nullptr;
     QLabel *_statusChordLabel = nullptr;
+
+    /** \brief v2.2 #3: undo-memory readout (steps + structural snapshot MB),
+     *  refreshed by a 1 Hz sampler timer - deliberately NOT by actionFinished,
+     *  which fires per protocol item and would repaint hundreds of times
+     *  during one erase-drag. The same tick optionally logs a fixed-field
+     *  line under the "midieditor.memory" category for measurement sessions. */
+    QLabel *_statusUndoLabel = nullptr;
+    QTimer *_memorySampler = nullptr;
 
     /** \brief Status bar indicator for active LAN Live Session (hosting or
      *  joined). Hidden when role is Idle. Built-in even when collab is

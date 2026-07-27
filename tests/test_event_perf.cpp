@@ -160,6 +160,9 @@ MidiTrack *MidiEvent::track() { return _track; }
 #include "../src/MidiEvent/NoteOnEvent.h"
 #include "../src/MidiEvent/OffEvent.h"
 #include "../src/MidiEvent/OnEvent.h"
+// Real MidiChannel (its .cpp is already in this target); forward-declares
+// MidiFile, so it composes with the shim above.
+#include "../src/midi/MidiChannel.h"
 
 // =========================================================================
 
@@ -285,6 +288,59 @@ private slots:
         QVERIFY2(selectMs < 30000 && scanMs < 30000, "select/scan took absurdly long (>30s)");
 
         destroyAll(maps, sink);
+    }
+
+    // -----------------------------------------------------------------
+    // v2.2 #3 (undo-memory instrumentation): MidiChannel::copy() is the undo
+    // system's single heavy snapshot factory - every protocolled channel
+    // mutation clones the whole event map there - and the status-bar sampler
+    // prices undo history via the counters copy() maintains. Pin their
+    // arithmetic: count/node-sum track copy() exactly and charge the map size
+    // at copy time; snapshots themselves report zero (the counters are not
+    // inherited); and reloadState() (= undo) leaves them untouched, so the
+    // session figure stays monotonic through undo/redo churn.
+    void undoSnapshotCountersTrackCopyExactly() {
+        MidiFile shimFile;
+        MidiChannel ch(&shimFile, 0);
+        QCOMPARE(ch.snapshotCount(), qint64(0));
+        QCOMPARE(ch.snapshotNodeSum(), qint64(0));
+
+        const int n1 = 500;
+        for (int i = 0; i < n1; ++i)
+            ch.eventMap()->insert(i, nullptr);
+
+        ProtocolEntry *snap1 = ch.copy();
+        ProtocolEntry *snap2 = ch.copy();
+        QCOMPARE(ch.snapshotCount(), qint64(2));
+        QCOMPARE(ch.snapshotNodeSum(), qint64(2 * n1));
+
+        // Growth is charged with the map size AT COPY TIME.
+        const int n2 = 250;
+        for (int i = 0; i < n2; ++i)
+            ch.eventMap()->insert(n1 + i, nullptr);
+        ProtocolEntry *snap3 = ch.copy();
+        QCOMPARE(ch.snapshotCount(), qint64(3));
+        QCOMPARE(ch.snapshotNodeSum(), qint64(2 * n1 + n1 + n2));
+
+        // The snapshot prices as zero - only LIVE channels are summed, so a
+        // copied-counter would double the session figure.
+        MidiChannel *snapCh = dynamic_cast<MidiChannel *>(snap3);
+        QVERIFY(snapCh);
+        QCOMPARE(snapCh->snapshotCount(), qint64(0));
+        QCOMPARE(snapCh->snapshotNodeSum(), qint64(0));
+
+        // Undo restores the map but never the counters.
+        ch.reloadState(snap1);
+        QCOMPARE(static_cast<int>(ch.eventMap()->size()), n1);
+        QCOMPARE(ch.snapshotCount(), qint64(3));
+        QCOMPARE(ch.snapshotNodeSum(), qint64(2 * n1 + n1 + n2));
+
+        // snap1's map is now owned by ch (reloadState adopted it); the
+        // MidiChannel shells have no destructor, so these deletes drop the
+        // shells only - fine here, the test process ends right after.
+        delete snap2;
+        delete snap3;
+        delete snap1;
     }
 };
 
