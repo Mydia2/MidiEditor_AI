@@ -13091,6 +13091,29 @@ finding #2), all CORE (20 core / MCP 22/27 now):
   per touched channel, insertNote with toProtocol=false) - per-note
   snapshots cost ~1 MB each on dense channels per the undo-memory analysis.
 
-Still open in Phase 46: the arrangement guide (knowledge block: octet
-shape, guitar switches, run-the-fixer-last, register choice, channel
-sharing).
+**✅ Phase 46 part 3b (2026-07-27): the arrangement guide - PHASE 46
+COMPLETE.** The four things the hand-made comparison did better were all
+knowledge, and the old prompt actively FORBADE one of them ("do not
+manually set channels" is exactly how guitar switches are placed - which
+is why the octet AI produced single-variant guitars). Now:
+
+* ffxivContext() gained an "Arrangement Craft" section: guitar switches
+  (explicitly the ONE exception to the no-manual-channels rule, with the
+  how), register-is-tone (-12 over +24 for distorted parts), density-is-
+  tone (ratePercent as musical tool), channel sharing allowed, the three
+  new workhorse tools, judge-by-rawPeak, and the order of work ending in
+  "setup_channel_pattern LAST" - octet miss #2.
+* New MCP resource midi://ffxiv-guide serves the same text to external
+  clients, which previously arranged blind (no system prompt at all).
+
+Octet findings ledger after Phase 46: #1 ✅ (set_ffxiv_mode + ffxivMode +
+list_changed), #2 ✅ (three tools), #3 ✅ (rawPeak), #4 ✅ (ratePercent 0),
+#5 ✅ closed invalid (in-game rule), #6 ✅ (legalInstruments), #10-#12 ✅
+(the knowledge gaps - covered by the Arrangement Craft block + guide
+resource). STILL OPEN, all LOW: #7 (analyze_voice_load requires
+startTick/endTick while auto_fit treats them optional - align defaults),
+#8 (create_track cannot set a program), #9 (no save tool - deliberate
+safety default, wants a conscious decision). Review at 2.2 release. Plus
+beyond the plan: the playability workbench (the GUI check the roadmap
+called the single most actionable outcome, grown through three QA
+iterations into a check-and-repair tool).

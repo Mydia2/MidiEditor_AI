@@ -594,7 +594,34 @@ QString EditorContext::ffxivContext(bool includeDrums, bool includeGuitar)
         );
     }
 
+    // Phase 46: arrangement CRAFT - the four things the octet experiment
+    // showed an AI misses while a human does them by reflex. Most of what
+    // separated the hand-made comparison arrangement from the AI's was
+    // knowledge, not tooling.
     ctx += QStringLiteral(
+        "\n"
+        "### Arrangement Craft (what good bard arrangements do)\n"
+        "- GUITAR SWITCHES: one guitar track may CHANGE variants mid-song - a lead\n"
+        "  switching Clean (verse) to Overdriven (chorus) sounds like a real player.\n"
+        "  This is the ONE exception to the no-manual-channels rule: on a guitar\n"
+        "  track, the per-note channel field selects the variant; place section\n"
+        "  boundaries on different channels, then setup_channel_pattern writes the\n"
+        "  switch program changes and reports which channel is which variant.\n"
+        "- REGISTER IS TONE: when folding into C3-C6, prefer bringing parts DOWN\n"
+        "  (-12) over up (+24) - distorted rhythm guitar sits better low and\n"
+        "  narrow. transpose_events(foldToRange=true) folds; pick the octave\n"
+        "  deliberately, do not just take the nearest legal one.\n"
+        "- DENSITY IS TONE: thinning dense tremolo/32nd runs (keep 1 of 2) often\n"
+        "  sounds BETTER in game, not worse - auto_fit_voice_load's ratePercent is\n"
+        "  a musical tool, not only a limit fixer.\n"
+        "- CHANNEL SHARING is allowed: the game selects instruments by track NAME,\n"
+        "  so two performers may share one MIDI channel.\n"
+        "- Workhorse tools: split_chords_to_tracks (chords -> monophonic\n"
+        "  performers), transpose_events, copy_events_to_track.\n"
+        "- Judge voice load by rawPeak from analyze_voice_load - the display-model\n"
+        "  numbers read higher on perfectly fine files.\n"
+        "- ORDER OF WORK: arrange -> name every performer track exactly ->\n"
+        "  setup_channel_pattern LAST -> validate_ffxiv.\n"
         "\n"
         "### Polyphony / Chord Simulation\n"
         "Multiple notes at the same tick play as a fast arpeggio = chord effect.\n"
