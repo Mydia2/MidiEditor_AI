@@ -13057,6 +13057,24 @@ there as "Delete Overlaps"; only FFXIV-aware detection is missing.
 * New test target test_ffxiv_playability (10 cases; suite 62). Manual:
   ffxiv-channel-fixer.html Validation section rewritten around the dialog.
 
-Still open in Phase 46: transpose/chord-split/copy tools, FFXIV mode in
-get_editor_state + set_ffxiv_mode, voice-load model agreement (raw vs tail),
-auto_fit ratePercent default 0 for the AI tool, the arrangement guide.
+**✅ Phase 46 part 2 (2026-07-27):** the tool-surface fixes from the octet
+findings, all landed as one pass:
+
+* `set_ffxiv_mode` CORE tool (17th) + `ffxivMode` in get_editor_state
+  (finding #1: the bundle was invisible AND unreachable for MCP clients).
+  The tool drives the MidiPilot checkbox, so persistence and notification
+  take the one existing path - and the checkbox now actually triggers
+  `McpServer::broadcastToolsChanged()`, which existed since the MCP server
+  shipped but was never called by anything (the manual promised the
+  notification regardless).
+* Voice-load agreement (finding #3): analyze_voice_load now computes
+  rawPeak/rawOverflowRangeCount via the same AutoFit engine (dry run, all
+  removal passes off) NEXT TO the display-model numbers, labels both, and
+  bases OK/WARNING on the raw truth. Schema description tells agents to
+  judge by raw and not to "fix" display-only peaks.
+* auto_fit ratePercent defaults to 0 for the AI tool (finding #4) - density
+  thinning is a tone decision, the agent opts in; the GUI dialog keeps 10.
+
+Still open in Phase 46: transpose/chord-split/copy tools, the arrangement
+guide (knowledge block: octet shape, guitar switches, run-the-fixer-last,
+register choice, channel sharing).

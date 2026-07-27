@@ -439,7 +439,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **16 core tools**, plus **5 more when FFXIV mode is on** (21 total), for inspecting and modifying MIDI files:
+The AI has access to **17 core tools**, plus **5 more when FFXIV mode is on** (22 total), for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
@@ -453,6 +453,7 @@ The AI has access to **16 core tools**, plus **5 more when FFXIV mode is on** (2
 | `move_events_to_track` | Move events between tracks |
 | `set_tempo` / `set_time_signature` | Change tempo and meter |
 | `convert_tempo_preserve_duration` | Re-tempo material while keeping its real-time duration (e.g. fit a 90 BPM vocal into a 180 BPM project) - dry run first, your confirmation required |
+| `set_ffxiv_mode` | Turn FFXIV mode on/off - the FFXIV tool bundle appears/disappears with it (MCP clients are notified) |
 | `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
 | `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
@@ -471,7 +472,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 18 by default (the 16 core tools plus `list_documents` / `switch_document` for driving the open tabs), 23 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 19 by default (the 17 core tools plus `list_documents` / `switch_document` for driving the open tabs), 24 with FFXIV mode on
 
 ### Quick Setup
 

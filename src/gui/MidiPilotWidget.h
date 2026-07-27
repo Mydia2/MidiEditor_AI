@@ -81,6 +81,15 @@ public:
     bool ffxivMode() const;
 
     /**
+     * \brief Phase 46: programmatic FFXIV-mode switch - drives the same
+     *  checkbox the user clicks, so persistence and the ffxivModeChanged
+     *  notification take the one existing path. Used by the set_ffxiv_mode
+     *  AI tool: an MCP client sees the 5 FFXIV tools appear/disappear with
+     *  the mode and could previously neither see nor change it.
+     */
+    void setFfxivMode(bool enabled);
+
+    /**
      * \brief Abort whatever request is currently in flight (agent or
      * simple) and restore the input UI to an idle, usable state.
      *
@@ -153,6 +162,14 @@ signals:
      * \brief Emitted when the matrix widget should be repainted.
      */
     void requestRepaint();
+
+    /**
+     * \brief Phase 46: FFXIV mode was toggled (checkbox or set_ffxiv_mode
+     *  tool). MainWindow forwards this to McpServer::broadcastToolsChanged
+     *  so connected MCP clients refresh their tool list - the notification
+     *  the manual always promised but nothing ever sent.
+     */
+    void ffxivModeChanged(bool enabled);
 
 
 private slots:

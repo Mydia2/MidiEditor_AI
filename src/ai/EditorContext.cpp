@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDir>
+#include <QSettings>
 
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
@@ -42,6 +43,14 @@ QJsonObject EditorContext::captureState(MidiFile *file, MatrixWidget *matrix)
         state[QStringLiteral("error")] = QStringLiteral("No file open");
         return state;
     }
+
+    // Phase 46 (octet finding #1): report the FFXIV-mode state. The FFXIV
+    // tool bundle is gated on this, and an MCP client previously could
+    // neither see nor request it - now it reads the flag here and toggles
+    // it with set_ffxiv_mode.
+    state[QStringLiteral("ffxivMode")] =
+        QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"))
+            .value(QStringLiteral("AI/ffxiv_mode"), false).toBool();
 
     // Cursor position
     int cursorTick = file->cursorTick();

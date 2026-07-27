@@ -123,9 +123,11 @@ class MidiPilotWidget {
 public:
     QJsonObject executeAction(QJsonObject const &);
     void setApplyTarget(MidiFile *);  // Phase 28: executeTool's apply-target guard
+    void setFfxivMode(bool);          // Phase 46: set_ffxiv_mode tool
 };
 QJsonObject MidiPilotWidget::executeAction(QJsonObject const &) { return QJsonObject(); }
 void MidiPilotWidget::setApplyTarget(MidiFile *) {}
+void MidiPilotWidget::setFfxivMode(bool) {}
 
 class EditorContext {
 public:
@@ -174,6 +176,7 @@ const QStringList kCoreToolNames = {
     QStringLiteral("set_time_signature"),
     QStringLiteral("move_events_to_track"),
     QStringLiteral("convert_tempo_preserve_duration"), // v2.2 #2: CORE, not FFXIV
+    QStringLiteral("set_ffxiv_mode"), // Phase 46: CORE - reaches the gated bundle
 };
 
 // Extra tools added when FFXIV mode is ON.

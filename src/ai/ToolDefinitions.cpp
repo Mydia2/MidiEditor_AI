@@ -498,6 +498,26 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"targetBpm", "scope", "dryRun"})));
     }
 
+    // set_ffxiv_mode (Phase 46) - CORE, deliberately OUTSIDE the FFXIV gate
+    // below: the whole point is that an agent can turn the mode ON to reach
+    // the gated bundle. Octet finding #1: a client saw 17 tools, had no hint
+    // 5 more existed, and no way to ask for them.
+    {
+        QJsonObject props;
+        props["enabled"] = QJsonObject{
+            {"type", "boolean"},
+            {"description", "true = enable FFXIV Bard Performance mode, false = disable."}};
+        tools.append(makeTool(
+            "set_ffxiv_mode",
+            "Enable or disable FFXIV Bard Performance mode. The mode gates the FFXIV tool "
+            "bundle (validate_ffxiv, convert_drums_ffxiv, setup_channel_pattern, "
+            "analyze_voice_load, auto_fit_voice_load): enabling adds them to the tool list, "
+            "disabling removes them - refresh the tool list after calling this (MCP clients "
+            "also receive notifications/tools/list_changed). The current mode is reported by "
+            "get_editor_state as ffxivMode.",
+            makeParams(props, {"enabled"})));
+    }
+
     // --- FFXIV tools (only when FFXIV mode is active) ---
     if (QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool()) {
 
@@ -555,9 +575,12 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             tools.append(makeTool(
                 "analyze_voice_load",
                 "Read-only check of the FFXIV 16-voice ceiling and 14 notes/sec/channel rate ceiling. "
-                "Returns globalPeak (max simultaneous voices), overflowRanges (tick spans where voices > 16), "
-                "and rateHotspots (per-channel passages exceeding the rate cap). Use BEFORE finishing dense "
-                "compositions to confirm the file will play in FFXIV without dropped notes.",
+                "TWO models are reported: rawPeak/rawOverflowRangeCount count notes really ON at once "
+                "- the number the game enforces and what auto_fit_voice_load uses; JUDGE BY THESE. "
+                "globalPeak/overflowRanges use the tail-extended display model (release tails count as "
+                "sounding), which reads higher on a perfectly fine file - do NOT 'fix' a file because "
+                "only the display numbers are high. Also returns rateHotspots (per-channel passages "
+                "exceeding the rate cap).",
                 makeParams(props, {"startTick", "endTick"})));
         }
 
@@ -590,9 +613,12 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             props["ratePercent"] = QJsonObject{
                 {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
                 {"description", "Density target: thin about this percent of each track's notes, densest "
-                                "passages first (default 10, clamped 0-85, 0 = off). Percent-of-track "
-                                "instead of an absolute rate because density is relative to tempo and "
-                                "instrument - the tool auto-tunes the cutoff per track."}};
+                                "passages first (clamped 0-85). For THIS tool the default is 0 (off): "
+                                "fix only real overflows, opt in to density thinning explicitly. (The "
+                                "GUI dialog defaults to 10 - density-as-tone is a human choice.) "
+                                "Percent-of-track instead of an absolute rate because density is "
+                                "relative to tempo and instrument - the tool auto-tunes the cutoff "
+                                "per track."}};
             props["rateKeepOneOf"] = QJsonObject{
                 {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
                 {"description", "Keep 1 of N notes in dense passages: 2 = halve (default), 3 = third, "
@@ -788,6 +814,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     }
     if (toolName == "convert_tempo_preserve_duration") {
         return execConvertTempoPreserveDuration(args, file);
+    }
+    if (toolName == "set_ffxiv_mode") {
+        return execSetFfxivMode(args, widget);
     }
 
     // FFXIV tools
@@ -1223,6 +1252,28 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
 // ---------------------------------------------------------------------------
 // analyze_voice_load — read-only FFXIV voice / rate ceiling report (Phase 32.6)
 // ---------------------------------------------------------------------------
+QJsonObject ToolDefinitions::execSetFfxivMode(const QJsonObject &args,
+                                              MidiPilotWidget *widget) {
+    const bool enabled = args.value("enabled").toBool();
+    if (widget) {
+        // Through the checkbox: persists the setting AND raises
+        // ffxivModeChanged, which MainWindow forwards to the MCP server's
+        // tools/list_changed broadcast.
+        widget->setFfxivMode(enabled);
+    } else {
+        QSettings("MidiEditor", "NONE").setValue("AI/ffxiv_mode", enabled);
+    }
+    QJsonObject result;
+    result["success"] = true;
+    result["ffxivMode"] = enabled;
+    result["summary"] = enabled
+        ? QStringLiteral("FFXIV mode enabled - the FFXIV tool bundle is now available; "
+                         "refresh the tool list.")
+        : QStringLiteral("FFXIV mode disabled - the FFXIV tool bundle is gone; "
+                         "refresh the tool list.");
+    return result;
+}
+
 QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiFile *file) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
     Q_UNUSED(args);
@@ -1311,7 +1362,37 @@ QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiF
         rateHotspots.append(hotspot);
     }
 
+    // Octet finding #3: this report used the tail-extended DISPLAY model
+    // (release tails keep sounding after note-off) while auto_fit_voice_load
+    // judges RAW concurrency - the two contradicted each other (display 24-30
+    // vs raw 7 on a fine file), and an agent reading only this tool "fixed"
+    // files that were never broken. Compute the raw truth alongside via the
+    // same engine auto_fit uses (a dry run with every removal pass off) and
+    // base the verdict on it.
+    int rawPeak = -1;
+    int rawOverflowRanges = -1;
+    {
+        AutoFitOptions rawOpts;
+        rawOpts.dryRun = true;
+        rawOpts.ratePercent = 0;
+        rawOpts.chordLimit = 0;        // 0 = chord pass off
+        rawOpts.desaturateRates = false;
+        if (hasStart) rawOpts.startTick = startTick;
+        if (hasEnd) rawOpts.endTick = endTick;
+        const AutoFitResult rawR = AutoFitVoiceLoadService::apply(file, rawOpts);
+        if (rawR.ok) {
+            rawPeak = rawR.peakBefore;
+            rawOverflowRanges = rawR.overflowRangeCount;
+        }
+    }
+
     result["success"] = true;
+    result["rawPeak"] = rawPeak;
+    result["rawOverflowRangeCount"] = rawOverflowRanges;
+    result["displayModelNote"] = QStringLiteral(
+        "globalPeak/overflowRanges use the tail-extended DISPLAY model (release tails "
+        "count as sounding). rawPeak counts notes that are really on - the number the "
+        "game enforces and the one auto_fit_voice_load uses. Judge by rawPeak.");
     result["voiceCeiling"] = FfxivVoiceAnalyzer::kVoiceCeiling;
     result["noteRateCeilingPerChannel"] = FfxivVoiceAnalyzer::kNoteRateCeilingPerChannel;
     result["noteRateWindowMs"] = FfxivVoiceAnalyzer::kNoteRateWindowMs;
@@ -1322,9 +1403,24 @@ QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiF
     result["rateHotspots"] = rateHotspots;
     if (hasStart) result["startTick"] = startTick;
     if (hasEnd) result["endTick"] = endTick;
+    // Verdict by the RAW model - the physical truth the game enforces.
     QString summary;
-    if (peak == 0) {
+    const bool rawKnown = rawPeak >= 0;
+    const bool rawOk = rawKnown && rawOverflowRanges == 0;
+    if (peak == 0 && (!rawKnown || rawPeak == 0)) {
         summary = QStringLiteral("No notes in range; voice-load is 0/16.");
+    } else if (rawKnown && rawOk && rateHotspots.isEmpty()) {
+        summary = QStringLiteral("OK: raw peak %1/16 voices (display model shows %2 with "
+                                 "release tails - that is normal), no rate hotspots.")
+                      .arg(rawPeak).arg(peak);
+    } else if (rawKnown) {
+        summary = QStringLiteral("WARNING: raw peak %1/16 voices, %2 raw overflow range(s), "
+                                 "%3 rate hotspot(s). (Display model: peak %4, %5 range(s).)")
+                      .arg(rawPeak)
+                      .arg(rawOverflowRanges)
+                      .arg(rateHotspots.size())
+                      .arg(peak)
+                      .arg(overflowRanges.size());
     } else if (overflowRanges.isEmpty() && rateHotspots.isEmpty()) {
         summary = QStringLiteral("OK: peak %1/16 voices, no rate hotspots.").arg(peak);
     } else {
@@ -1365,6 +1461,11 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
         opts.chordLimit = args.value("chordLimit").toInt();
     if (args.contains("desaturateRates"))
         opts.desaturateRates = args.value("desaturateRates").toBool(true);
+    // Octet finding #4: the service default (10) is a GUI-dialog default -
+    // for the AI tool a dry run on a perfectly fine file reported "would
+    // remove 734 notes", which reads as "your file is broken". The agent
+    // fixes real overflows by default and OPTS IN to density thinning.
+    opts.ratePercent = 0;
     if (args.contains("ratePercent") && !args.value("ratePercent").isNull())
         opts.ratePercent = args.value("ratePercent").toInt();
     if (args.contains("rateKeepOneOf") && !args.value("rateKeepOneOf").isNull())

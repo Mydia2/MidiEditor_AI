@@ -1234,6 +1234,12 @@ MainWindow::MainWindow(QString initFile)
     _mcpServer = new McpServer(this);
     _mcpServer->setWidget(_midiPilotWidget);
     if (file) _mcpServer->setFile(file);
+    // Phase 46: the FFXIV tool bundle appears/disappears with the mode, so
+    // connected MCP clients must be told to refresh their tool list. This is
+    // the notification the manual promised since the MCP server shipped -
+    // broadcastToolsChanged() existed but nothing ever called it.
+    connect(_midiPilotWidget, &MidiPilotWidget::ffxivModeChanged,
+            _mcpServer, [this]() { _mcpServer->broadcastToolsChanged(); });
 
     QWidget *buttons = setupActions(central);
 

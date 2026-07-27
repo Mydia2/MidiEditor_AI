@@ -742,8 +742,13 @@ void MidiPilotWidget::setupUi() {
                             "(C3-C6 range, monophonic, max 8 tracks, FFXIV instrument names)");
     _ffxivCheck->setStyleSheet("font-size: 11px;");
     _ffxivCheck->setChecked(QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool());
-    connect(_ffxivCheck, &QCheckBox::toggled, this, [](bool checked) {
+    connect(_ffxivCheck, &QCheckBox::toggled, this, [this](bool checked) {
         QSettings("MidiEditor", "NONE").setValue("AI/ffxiv_mode", checked);
+        // Phase 46: the FFXIV tool bundle appears/disappears with the mode -
+        // whoever exposes tools (the MCP server) must be able to tell its
+        // clients (notifications/tools/list_changed). MainWindow wires this
+        // to McpServer::broadcastToolsChanged.
+        emit ffxivModeChanged(checked);
     });
     footerLayout->addWidget(_ffxivCheck);
 
@@ -1851,6 +1856,13 @@ QString MidiPilotWidget::currentMode() const {
 
 bool MidiPilotWidget::ffxivMode() const {
     return _ffxivCheck->isChecked();
+}
+
+void MidiPilotWidget::setFfxivMode(bool enabled) {
+    if (!_ffxivCheck) return;
+    // setChecked only fires toggled() on an actual change; when the mode is
+    // already right, settings and clients are in sync and nothing happens.
+    _ffxivCheck->setChecked(enabled);
 }
 
 void MidiPilotWidget::updateTokenLabel() {

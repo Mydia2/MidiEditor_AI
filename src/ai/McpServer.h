@@ -72,6 +72,12 @@ public:
     /** Number of active sessions. */
     int sessionCount() const;
 
+    /** Phase 46: tell every connected client the tool list changed
+     *  (notifications/tools/list_changed). Public because the trigger lives
+     *  outside the server: MainWindow forwards MidiPilot's ffxivModeChanged
+     *  here - the FFXIV tool bundle appears/disappears with the mode. */
+    void broadcastToolsChanged();
+
 signals:
     void started(quint16 port);
     void stopped();
@@ -144,9 +150,6 @@ private:
 
     // Tool schema conversion (OpenAI -> MCP format)
     QJsonArray convertToolSchemas();
-
-    // SSE notification broadcasting
-    void broadcastToolsChanged();
 
     // Session management
     QString createSession();

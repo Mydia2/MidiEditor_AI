@@ -100,6 +100,11 @@ private:
     // the MCP server exposes. Dry-run first, user-confirmed.
     static QJsonObject execConvertTempoPreserveDuration(const QJsonObject &args,
                                                         MidiFile *file);
+    // Phase 46: FFXIV-mode switch - CORE (an agent needs it to REACH the
+    // gated FFXIV bundle). Drives the MidiPilot checkbox so persistence and
+    // the MCP tools/list_changed broadcast take the one existing path.
+    static QJsonObject execSetFfxivMode(const QJsonObject &args,
+                                        MidiPilotWidget *widget);
 };
 
 #endif // TOOLDEFINITIONS_H
