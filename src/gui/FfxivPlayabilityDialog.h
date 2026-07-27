@@ -86,6 +86,13 @@ signals:
      *  outside the visible range). */
     void revealTickRequested(int tick);
 
+    /** Double-click: focus mode - show ONLY the affected track so the
+     *  finding is not buried under seven other tracks' notes. MainWindow
+     *  hides the others via the silent (non-undoable) path and restores the
+     *  previous visibility when this dialog closes. Not emitted for
+     *  file-level findings (track -1). */
+    void focusTrackRequested(int track);
+
     /** Run a repair tool. actionId is a MainWindow action-map id:
      *  "delete_overlaps" (the colliding notes get selected first),
      *  "fix_ffxiv_channels", "auto_fit_voice_load". */

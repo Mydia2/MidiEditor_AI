@@ -100,8 +100,9 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
 
     auto *hint = new QLabel(
         tr("Click an issue to select its notes and move the cursor there; "
-           "double-click to also scroll the piano roll to the spot. The "
-           "buttons below offer the matching repair for what was found."),
+           "double-click to jump to the spot with only the affected track "
+           "shown (the previous visibility returns when this window closes). "
+           "The buttons below offer the matching repair for what was found."),
         this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
@@ -324,14 +325,17 @@ void FfxivPlayabilityDialog::onItemClicked(QTreeWidgetItem *item, int) {
 
 void FfxivPlayabilityDialog::onItemDoubleClicked(QTreeWidgetItem *item, int column) {
     // A double-click always arrives after the single-click handler already
-    // selected the notes and set the cursor - add the view scroll on top.
+    // selected the notes and set the cursor - add view scroll + track focus.
     onItemClicked(item, column);
     if (!item) return;
     const QVariant idxVar = item->data(0, kIssueIndexRole);
     if (!idxVar.isValid()) return;
     const int idx = idxVar.toInt();
     if (idx < 0 || idx >= _report.issues.size()) return;
-    emit revealTickRequested(_report.issues.at(idx).tick);
+    const FfxivPlayabilityIssue &issue = _report.issues.at(idx);
+    if (issue.track >= 0)
+        emit focusTrackRequested(issue.track);
+    emit revealTickRequested(issue.tick);
 }
 
 void FfxivPlayabilityDialog::onSelectAllClicked() {

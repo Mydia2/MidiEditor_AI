@@ -83,6 +83,7 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 
 #include <cmath>
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <QComboBox>
 
@@ -6974,6 +6975,42 @@ void MainWindow::checkFfxivPlayability() {
                 if (MatrixWidget *mw = matrixWidget()) {
                     mw->timeMsChanged(checkedFile->msOfTick(tick), true);
                 }
+            });
+    // Double-click focus mode: show ONLY the affected track, so the finding
+    // is not buried under seven other tracks' notes. setHiddenSilent, NOT
+    // setHidden: visibility here is temporary view state and must not land
+    // in the undo history. The pre-focus visibility is snapshotted once and
+    // restored when the dialog closes.
+    auto savedVisibility = std::make_shared<QHash<MidiTrack *, bool>>();
+    connect(dialog, &FfxivPlayabilityDialog::focusTrackRequested, this,
+            [this, checkedFile, savedVisibility](int trackNumber) {
+                if (file != checkedFile) return;
+                if (trackNumber < 0 || trackNumber >= checkedFile->numTracks())
+                    return;
+                if (savedVisibility->isEmpty()) {
+                    for (int i = 0; i < checkedFile->numTracks(); ++i) {
+                        if (MidiTrack *t = checkedFile->track(i))
+                            savedVisibility->insert(t, t->hidden());
+                    }
+                }
+                for (int i = 0; i < checkedFile->numTracks(); ++i) {
+                    if (MidiTrack *t = checkedFile->track(i))
+                        t->setHiddenSilent(i != trackNumber);
+                }
+                updateAll();
+            });
+    // finished() fires SYNCHRONOUSLY inside close() - setActiveDocument
+    // closes this dialog before any document teardown, so the tracks are
+    // still alive here (destroyed() would arrive via deleteLater, too late).
+    connect(dialog, &QDialog::finished, this,
+            [this, savedVisibility](int) {
+                if (savedVisibility->isEmpty()) return;
+                for (auto it = savedVisibility->constBegin();
+                     it != savedVisibility->constEnd(); ++it) {
+                    it.key()->setHiddenSilent(it.value());
+                }
+                savedVisibility->clear();
+                updateAll();
             });
     // Contextual repairs. The dialog emits selectEventsRequested first for
     // delete_overlaps, so the tool acts on exactly the collisions.
