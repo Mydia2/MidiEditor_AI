@@ -10,24 +10,26 @@
  * the song in game and hearing notes go missing.
  *
  * What it checks, per track (tracks WITHOUT notes are exempt from the name
- * and program checks - a silent track occupies no performer, and the app's
- * own default "Tempo Track" must not flag every file):
+ * check - a silent track occupies no performer, and the app's own default
+ * "Tempo Track" must not flag every file):
  *   - track name against the canonical FFXIV instrument spellings
  *     (FFXIVChannelFixer::instrumentNames())
  *   - note range C3-C6 (MIDI 48-84)
- *   - stacked duplicates: two notes of the SAME pitch starting on the SAME
- *     tick on one performer - the most common hand-arranging slip (they
- *     sound as one note in game, or not at all)
- *   - overlaps: a performer is monophonic; overlapping notes on one channel
- *     drop notes in game. Guitar tracks may spread notes over SEVERAL
- *     channels (variant switches) - only same-channel overlaps are flagged
- *     there.
- *   - track-name / program_change mismatch: a renamed track whose channel
- *     still carries the OLD instrument's program change plays the wrong
- *     sound while validating fine by name (octet finding #5). Guitar tracks
- *     are exempt (switch channels intentionally carry different variants);
- *     a track with NO program change is not flagged (that is the channel
- *     fixer's job, not a validity failure).
+ *   - stacked duplicates: the SAME pitch starting twice on the SAME tick on
+ *     one performer - the most common hand-arranging slip
+ *   - simultaneous notes: distinct pitches STARTING on the same tick on one
+ *     performer - a chord a monophonic performer cannot play. Guitar tracks
+ *     spread notes over SEVERAL channels (variant switches), so only
+ *     same-channel groups count there.
+ *
+ * Deliberately NOT checked (user-verified in-game behaviour, 2026-07-27):
+ *   - hold-overlaps: a held note overlapped by later staccato notes is
+ *     inaudible at game speed; only same-tick starts truly collide.
+ *   - program changes: in game the TRACK NAME selects the instrument (with
+ *     guitars, the per-note channel drives variant switches) - program
+ *     changes only make the editor's SF2 playback faithful, so a
+ *     name/program mismatch is the channel fixer's business, never a
+ *     playability failure.
  *
  * Unlike the original tool implementation this reports ALL findings (the
  * tool used to stop at the first overlap per track) and carries the
@@ -48,8 +50,8 @@ struct FfxivPlayabilityIssue {
         TrackName,        ///< name matches no FFXIV instrument
         OutOfRange,       ///< note outside C3-C6
         DuplicateNote,    ///< same pitch, same start tick, same performer
-        Overlap,          ///< overlapping notes on one (guitar: same) channel
-        ProgramMismatch   ///< track name says X, program change says Y
+        Overlap           ///< distinct pitches starting on the same tick
+                          ///< (guitar tracks: on the same channel)
     };
 
     Type type;

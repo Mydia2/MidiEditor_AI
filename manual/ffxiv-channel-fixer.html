@@ -333,18 +333,25 @@ and lists everything that would go wrong, grouped by problem type:
 </p>
 
 <ul>
-<li><b>Overlapping notes</b> - a performer is monophonic; where two notes sound at once on one
-channel, the game drops notes. On guitar tracks, notes on <i>different</i> channels are variant
-switches and are not flagged - only same-channel overlaps count</li>
+<li><b>Simultaneous notes</b> - a performer plays one note at a time; where several notes
+<i>start on the same tick</i>, the game cannot play them all. A held note overlapped by later
+notes is fine (barely audible at speed) and is not flagged. On guitar tracks, notes on
+<i>different</i> channels are variant switches and are not flagged - only same-channel groups
+count</li>
 <li><b>Stacked duplicates</b> - the same pitch starting twice on the same tick, the classic
 hand-arranging slip. Easy to overlook in the editor because the notes sit exactly on top of each
 other</li>
 <li><b>Notes outside C3-C6</b> - outside the bard's playable range</li>
-<li><b>Program mismatches</b> - a track whose name says one instrument while its program change
-says another plays the wrong sound in game. Re-running the channel fixer resolves these</li>
-<li><b>Track names</b> - names that match no FFXIV instrument (only tracks that contain notes
-are checked; a silent track occupies no performer)</li>
+<li><b>Track names</b> - names that match no FFXIV instrument. In game the track name is what
+selects the instrument, so this is the one naming check that matters. Only tracks that contain
+notes are checked; a silent track occupies no performer</li>
 </ul>
+
+<p>
+Program changes are deliberately <i>not</i> validated: in game the track name selects the
+instrument - the program changes in the MIDI only make the editor's SoundFont playback sound
+faithful, which is the <a href="#overview">channel fixer</a>'s job.
+</p>
 
 <p>
 Click an issue to select its notes in the editor and move the cursor there, or use

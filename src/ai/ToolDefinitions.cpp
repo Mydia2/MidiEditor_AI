@@ -506,12 +506,15 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             tools.append(makeTool(
                 "validate_ffxiv",
                 "Check if the current MIDI file meets FFXIV Bard Performance constraints. "
-                "Reports ALL issues with their ticks: overlapping notes (performers are "
-                "monophonic; guitar tracks may spread notes over several channels for variant "
-                "switches, only same-channel overlaps count there), stacked duplicate notes "
-                "(same pitch, same tick), notes outside C3-C6, track names matching no FFXIV "
-                "instrument (the legal spellings are returned as legalInstruments), and "
-                "track-name/program_change mismatches that would sound as the wrong instrument.",
+                "Reports ALL issues with their ticks: simultaneous notes STARTING on the same "
+                "tick on one performer (performers are monophonic; a held note overlapped by "
+                "later notes is fine in game and NOT flagged; guitar tracks spread notes over "
+                "several channels for variant switches, so only same-channel groups count "
+                "there), stacked duplicate notes (same pitch, same tick), notes outside C3-C6, "
+                "and track names matching no FFXIV instrument (the legal spellings are "
+                "returned as legalInstruments). NOTE: in game the TRACK NAME selects the "
+                "instrument - program changes only affect the editor's SoundFont playback and "
+                "are not validated here.",
                 makeParams(QJsonObject(), QJsonArray())));
         }
 
@@ -983,8 +986,6 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
             return QStringLiteral("out_of_range");
         case FfxivPlayabilityIssue::Type::DuplicateNote:
             return QStringLiteral("duplicate_note");
-        case FfxivPlayabilityIssue::Type::ProgramMismatch:
-            return QStringLiteral("program_mismatch");
         case FfxivPlayabilityIssue::Type::Overlap:
             break;
         }
@@ -1026,14 +1027,13 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
         result["summary"] = QStringLiteral("File is FFXIV-compliant");
     } else {
         result["summary"] = QStringLiteral(
-            "%1 issue(s): %2 overlap(s), %3 stacked duplicate(s), %4 out of "
-            "range, %5 track name(s), %6 program mismatch(es)")
+            "%1 issue(s): %2 simultaneous-note chord(s), %3 stacked "
+            "duplicate(s), %4 out of range, %5 track name(s)")
             .arg(report.issues.size())
             .arg(report.countOf(FfxivPlayabilityIssue::Type::Overlap))
             .arg(report.countOf(FfxivPlayabilityIssue::Type::DuplicateNote))
             .arg(report.countOf(FfxivPlayabilityIssue::Type::OutOfRange))
-            .arg(report.countOf(FfxivPlayabilityIssue::Type::TrackName))
-            .arg(report.countOf(FfxivPlayabilityIssue::Type::ProgramMismatch));
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::TrackName));
     }
     return result;
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV

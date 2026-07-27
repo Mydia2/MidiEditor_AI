@@ -16,15 +16,13 @@ constexpr int kIssueIndexRole = Qt::UserRole;
 QString groupTitle(FfxivPlayabilityIssue::Type t, int count) {
     switch (t) {
     case FfxivPlayabilityIssue::Type::Overlap:
-        return FfxivPlayabilityDialog::tr("Overlapping notes (%1)").arg(count);
+        return FfxivPlayabilityDialog::tr("Simultaneous notes (%1)").arg(count);
     case FfxivPlayabilityIssue::Type::DuplicateNote:
         return FfxivPlayabilityDialog::tr("Stacked duplicates (%1)").arg(count);
     case FfxivPlayabilityIssue::Type::OutOfRange:
         return FfxivPlayabilityDialog::tr("Notes outside C3-C6 (%1)").arg(count);
     case FfxivPlayabilityIssue::Type::TrackName:
         return FfxivPlayabilityDialog::tr("Track names (%1)").arg(count);
-    case FfxivPlayabilityIssue::Type::ProgramMismatch:
-        return FfxivPlayabilityDialog::tr("Program mismatches (%1)").arg(count);
     }
     return QString();
 }
@@ -53,8 +51,8 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(
 
     auto *hint = new QLabel(
         tr("Click an issue to select its notes in the editor and move the "
-           "cursor there. Overlaps and duplicates drop notes in game - fix "
-           "them by editing, or with Delete Overlaps on the selection."),
+           "cursor there. Notes starting on the same tick collide in game - "
+           "fix them by editing, or with Delete Overlaps on the selection."),
         this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
@@ -92,8 +90,8 @@ void FfxivPlayabilityDialog::rebuildTree() {
     } else {
         _summaryLabel->setText(
             tr("<b>%1 issue(s) found</b> in %2 note(s) on %3 track(s). "
-               "Overlapping and duplicate notes will not play correctly in "
-               "game - a performer is monophonic.")
+               "Simultaneous and duplicate note starts will not play "
+               "correctly in game - a performer plays one note at a time.")
                 .arg(_report.issues.size())
                 .arg(_report.checkedNotes)
                 .arg(_report.checkedTracks));
@@ -104,7 +102,6 @@ void FfxivPlayabilityDialog::rebuildTree() {
         FfxivPlayabilityIssue::Type::Overlap,
         FfxivPlayabilityIssue::Type::DuplicateNote,
         FfxivPlayabilityIssue::Type::OutOfRange,
-        FfxivPlayabilityIssue::Type::ProgramMismatch,
         FfxivPlayabilityIssue::Type::TrackName,
     };
     for (FfxivPlayabilityIssue::Type type : order) {

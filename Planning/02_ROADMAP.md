@@ -13032,11 +13032,22 @@ there as "Delete Overlaps"; only FFXIV-aware detection is missing.
   every finished protocol action because exec() spins the event loop and an
   MCP edit could otherwise leave the report holding freed note pointers.
 * The validator reports ALL findings (the old tool code stopped at the first
-  overlap per track), splits stacked duplicates (same pitch, same tick) from
-  overlaps, and adds the name/program-mismatch check (octet finding #5).
-  Guitar tracks: only same-channel overlaps count; program checks skipped.
-* Deliberate sharpening: only tracks WITH notes get the name/program checks -
-  a silent track occupies no performer, and the app's own default "Tempo
+  overlap per track) and splits stacked duplicates (same pitch, same tick)
+  from simultaneous-note chords. Guitar tracks: only same-channel groups
+  count (different channels = variant switches).
+* **First-QA domain corrections (2026-07-27, user-verified in-game rules):**
+  (1) In game the TRACK NAME selects the instrument for everything except
+  guitar variant switches (per-note channel); program changes only make the
+  editor's SF2 playback faithful. The name/program-mismatch check shipped in
+  the morning was therefore removed the same day - octet finding #5 rested
+  on a false premise. (2) Hold-overlaps (a held note under later staccato
+  notes) are inaudible at game speed and nobody fixes them - only notes
+  STARTING on the same tick collide. The monophony check now groups note
+  starts per tick (one issue per chord group) instead of scanning for any
+  time overlap, which had produced 64 findings on a real arrangement where
+  the honest number was near zero.
+* Deliberate sharpening: only tracks WITH notes get the name check - a
+  silent track occupies no performer, and the app's own default "Tempo
   Track" must not flag every file.
 * validate_ffxiv now returns per-issue ticks, per-type counts in the summary,
   a 100-issue cap with issuesTruncated, and legalInstruments (the canonical
