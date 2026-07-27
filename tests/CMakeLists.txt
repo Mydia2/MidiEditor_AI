@@ -683,6 +683,9 @@ add_test(NAME MidiTrack COMMAND test_midi_track)
 add_executable(test_tool_definitions
     test_tool_definitions.cpp
     ../src/ai/ToolDefinitions.cpp
+    # Phase 44: ToolDefinitions references HelpDatabase unconditionally
+    # (pure QtCore, no shims needed).
+    ../src/ai/HelpDatabase.cpp
 )
 target_include_directories(test_tool_definitions PRIVATE
     ../src/ai
@@ -1694,6 +1697,28 @@ target_link_libraries(test_ffxiv_playability PRIVATE
 )
 add_test(NAME FfxivPlayability COMMAND test_ffxiv_playability)
 
+# -----------------------------------------------------------------------------
+# test_help_database
+# -----------------------------------------------------------------------------
+# Phase 44 ("Manual Bot"): pins the generated help_db.json against manual/
+# (no drift) and the retrieval quality of HelpDatabase (known questions land
+# on the right page). Pure QtCore - no shims.
+add_executable(test_help_database
+    test_help_database.cpp
+    ../src/ai/HelpDatabase.cpp
+)
+target_include_directories(test_help_database PRIVATE
+    ../src/ai
+)
+target_compile_definitions(test_help_database PRIVATE
+    HELPDB_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(test_help_database PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME HelpDatabase COMMAND test_help_database)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1735,6 +1760,7 @@ if(WIN32)
         FfxivFixerResync
         MidiMeasure
         FfxivPlayability
+        HelpDatabase
         GpToNative
         MidiDiff
         PrBundle

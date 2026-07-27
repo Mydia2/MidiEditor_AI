@@ -6,6 +6,7 @@
 #include "../MidiEvent/TempoChangeEvent.h"
 #include "FfxivPlayabilityValidator.h"
 #endif
+#include "HelpDatabase.h" // pure QtCore - fine in the schema-test stub build too
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "FfxivVoiceAnalyzer.h"
 #endif
@@ -518,6 +519,45 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"enabled"})));
     }
 
+    // --- Phase 44: the "Manual Bot" - search->read->answer over the manual.
+    // MidiPilot could edit music but only GUESS about the editor itself;
+    // these two tools ground "how do I ..." answers in manual/*.html
+    // (help_db.json, regenerated from the manual so it cannot drift).
+
+    // search_help
+    {
+        QJsonObject props;
+        props["query"] = QJsonObject{
+            {"type", "string"},
+            {"description", "Free-text question or keywords about the editor, e.g. "
+                            "'how do I split drums' or 'tempo curve'."}};
+        tools.append(makeTool(
+            "search_help",
+            "Search the built-in manual. Use this FIRST for any question about the editor "
+            "itself (features, dialogs, menus, 'how do I ...'), then read the best match "
+            "with get_help_section and answer from it, citing the manual page. Returns the "
+            "top matching sections with page, anchor, title and a snippet.",
+            makeParams(props, {"query"})));
+    }
+
+    // get_help_section
+    {
+        QJsonObject props;
+        props["page"] = QJsonObject{
+            {"type", "string"},
+            {"description", "Manual page file name from a search_help result, e.g. "
+                            "'ffxiv-drum-split.html'."}};
+        props["anchor"] = QJsonObject{
+            {"type", "string"},
+            {"description", "Section anchor from the search_help result. Empty string = "
+                            "the page's intro section."}};
+        tools.append(makeTool(
+            "get_help_section",
+            "Read one manual section's full text (found via search_help). Answer the user "
+            "from this text and cite the page.",
+            makeParams(props, {"page", "anchor"})));
+    }
+
     // --- Phase 46 pt 3: the three arrangement tools (octet finding #2). ---
     // The GUI has had all three for years (Transpose, Explode Chords, copy
     // via explode's keep-original); the octet experiment had to re-insert
@@ -902,6 +942,12 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     }
     if (toolName == "set_ffxiv_mode") {
         return execSetFfxivMode(args, widget);
+    }
+    if (toolName == "search_help") {
+        return execSearchHelp(args);
+    }
+    if (toolName == "get_help_section") {
+        return execGetHelpSection(args);
     }
     if (toolName == "transpose_events") {
         return execTransposeEvents(args, file);
@@ -2165,4 +2211,81 @@ QJsonObject ToolDefinitions::execCopyEventsToTrack(const QJsonObject &args, Midi
             .arg(found).arg(sourceIndex).arg(targetIndex);
     return result;
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execSearchHelp(const QJsonObject &args) {
+    QJsonObject result;
+    const QString query = args.value("query").toString().trimmed();
+    if (query.isEmpty()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Empty query.");
+        return result;
+    }
+    HelpDatabase &db = HelpDatabase::instance();
+    if (!db.isLoaded()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Help database not available in this build.");
+        return result;
+    }
+    const QList<HelpDatabase::Hit> hits = db.search(query, 5);
+    QJsonArray results;
+    for (const HelpDatabase::Hit &hit : hits) {
+        const HelpDatabase::Section &s = *hit.section;
+        QJsonObject r;
+        r["page"] = s.page;
+        r["anchor"] = s.anchor;
+        r["title"] = s.title;
+        r["pageTitle"] = s.pageTitle;
+        r["link"] = s.anchor.isEmpty() ? s.page
+                                       : QStringLiteral("%1#%2").arg(s.page, s.anchor);
+        QString snippet = s.text.left(220);
+        if (s.text.size() > 220) snippet += QStringLiteral("...");
+        r["snippet"] = snippet;
+        results.append(r);
+    }
+    result["success"] = true;
+    result["results"] = results;
+    result["summary"] = results.isEmpty()
+        ? QStringLiteral("No manual section matches '%1'.").arg(query)
+        : QStringLiteral("%1 manual section(s) match; read the best one with "
+                         "get_help_section and cite it.").arg(results.size());
+    return result;
+}
+
+QJsonObject ToolDefinitions::execGetHelpSection(const QJsonObject &args) {
+    QJsonObject result;
+    const QString page = args.value("page").toString();
+    const QString anchor = args.value("anchor").toString();
+    HelpDatabase &db = HelpDatabase::instance();
+    if (!db.isLoaded()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Help database not available in this build.");
+        return result;
+    }
+    const HelpDatabase::Section *s = db.section(page, anchor);
+    if (!s) {
+        result["success"] = false;
+        result["error"] = QStringLiteral(
+            "No section '%1#%2' - use the page/anchor values a search_help "
+            "result returned.").arg(page, anchor);
+        return result;
+    }
+    result["success"] = true;
+    result["page"] = s->page;
+    result["anchor"] = s->anchor;
+    result["title"] = s->title;
+    result["pageTitle"] = s->pageTitle;
+    result["link"] = s->anchor.isEmpty() ? s->page
+                                         : QStringLiteral("%1#%2").arg(s->page, s->anchor);
+    // Cap: one manual section can reach ~18k chars; keep the reply sane and
+    // say so instead of silently cutting.
+    const int cap = 8000;
+    if (s->text.size() > cap) {
+        result["text"] = s->text.left(cap);
+        result["truncated"] = true;
+        result["totalChars"] = static_cast<int>(s->text.size());
+    } else {
+        result["text"] = s->text;
+    }
+    return result;
 }

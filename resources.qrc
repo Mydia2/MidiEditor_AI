@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
+        <file>run_environment/help_db.json</file>
         <file>run_environment/graphics/tool/add.png</file>
         <file>run_environment/graphics/tool/align_left.png</file>
         <file>run_environment/graphics/tool/align_right.png</file>

@@ -110,6 +110,10 @@ private:
     static QJsonObject execTransposeEvents(const QJsonObject &args, MidiFile *file);
     static QJsonObject execSplitChordsToTracks(const QJsonObject &args, MidiFile *file);
     static QJsonObject execCopyEventsToTrack(const QJsonObject &args, MidiFile *file);
+    // Phase 44 ("Manual Bot"): grounded answers about the editor itself.
+    // Need no MidiFile - they read the embedded help_db.json.
+    static QJsonObject execSearchHelp(const QJsonObject &args);
+    static QJsonObject execGetHelpSection(const QJsonObject &args);
 };
 
 #endif // TOOLDEFINITIONS_H

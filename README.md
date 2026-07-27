@@ -439,7 +439,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **20 core tools**, plus **5 more when FFXIV mode is on** (25 total), for inspecting and modifying MIDI files:
+The AI has access to **22 core tools**, plus **5 more when FFXIV mode is on** (27 total), for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
@@ -454,6 +454,7 @@ The AI has access to **20 core tools**, plus **5 more when FFXIV mode is on** (2
 | `transpose_events` | Transpose notes by semitones (track/range/file), optionally folded into the bard range C3-C6 |
 | `split_chords_to_tracks` | Split a chordal track voice-wise onto new tracks (voice 1 = highest) - chords become monophonic performers |
 | `copy_events_to_track` | Copy notes to another track (e.g. double a melody, then transpose the copy) |
+| `search_help` / `get_help_section` | Ask about the editor itself - the AI searches the built-in manual and answers from it, citing the page |
 | `set_tempo` / `set_time_signature` | Change tempo and meter |
 | `convert_tempo_preserve_duration` | Re-tempo material while keeping its real-time duration (e.g. fit a 90 BPM vocal into a 180 BPM project) - dry run first, your confirmation required |
 | `set_ffxiv_mode` | Turn FFXIV mode on/off - the FFXIV tool bundle appears/disappears with it (MCP clients are notified) |
@@ -475,7 +476,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 22 by default (the 20 core tools plus `list_documents` / `switch_document` for driving the open tabs), 27 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 24 by default (the 22 core tools plus `list_documents` / `switch_document` for driving the open tabs), 29 with FFXIV mode on
 
 ### Quick Setup
 

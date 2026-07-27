@@ -180,6 +180,8 @@ const QStringList kCoreToolNames = {
     QStringLiteral("transpose_events"),        // Phase 46 pt 3 (octet #2)
     QStringLiteral("split_chords_to_tracks"),  // Phase 46 pt 3 (octet #2)
     QStringLiteral("copy_events_to_track"),    // Phase 46 pt 3 (octet #2)
+    QStringLiteral("search_help"),             // Phase 44 manual bot
+    QStringLiteral("get_help_section"),        // Phase 44 manual bot
 };
 
 // Extra tools added when FFXIV mode is ON.

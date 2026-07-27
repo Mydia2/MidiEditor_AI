@@ -12608,7 +12608,31 @@ Order: #3 -> #1 -> #2.
 
 ---
 
-## Phase 44: Integrated Help - "Manual Bot" via AI tools (IDEA, 2.2 candidate)
+## Phase 44: Integrated Help - "Manual Bot" via AI tools — ✅ SHIPPED 2026-07-27 (v2.2)
+
+**Built exactly as sketched below** (retrieval, not embeddings; the manual
+stays the only truth). As-built record:
+
+* `scripts/build_help_db.py` (stdlib only, sibling of build_changelog.py)
+  chunks manual/*.html by h1/h2 anchors -> `run_environment/help_db.json`,
+  223 sections from 35 pages, ~345 KB, embedded via resources.qrc.
+  Marketing/generated pages skipped (index, download, changelog, 404).
+* `src/ai/HelpDatabase.{h,cpp}` - QtCore-only loader + scorer (title x3,
+  keywords x2, body x1 capped per token). `loadFromFile()` as test seam.
+* Two CORE tools `search_help` / `get_help_section` (22 core now; MCP
+  24/29). get_help_section caps at 8k chars with a truncated flag - one
+  manual section reaches 17.6k.
+* Agent prompt: "for questions about the editor itself, search_help first,
+  answer from the manual, cite the page - do not guess". Simple mode has
+  no tools, so the hook lives only in the agent prompt.
+* New test target test_help_database (suite 63): DB size sanity, EVERY
+  page#anchor resolves against manual/ (drift guard), retrieval pins
+  (drums -> ffxiv-drum-split, thinning -> auto-fit, playability -> fixer
+  page), section() round-trip, junk queries.
+* Release checklist: regenerate help_db.json after manual edits (step
+  added next to build_changelog).
+
+Original sketch (implemented 1:1):
 
 **The gap (user idea, 2026-07-25):** MidiPilot can edit music but cannot explain
 the editor. "How do I split drums?" gets a guess, not the manual's answer. The

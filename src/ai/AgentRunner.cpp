@@ -908,6 +908,14 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         int to = args["targetTrackIndex"].toInt(-1);
         return QStringLiteral("Move events \u2014 Track %1 \u2192 Track %2").arg(from).arg(to);
     }
+    if (toolName == "search_help") {
+        const QString q = args["query"].toString();
+        return q.isEmpty() ? QStringLiteral("Search manual")
+                           : QStringLiteral("Search manual — \"%1\"").arg(q.left(40));
+    }
+    if (toolName == "get_help_section") {
+        return QStringLiteral("Read manual — %1").arg(args["page"].toString());
+    }
     if (toolName == "transpose_events") {
         const int semis = args["semitones"].toInt(0);
         return args["foldToRange"].toBool(false)
