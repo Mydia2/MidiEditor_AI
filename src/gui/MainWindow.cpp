@@ -6793,12 +6793,17 @@ void MainWindow::openAutoFitDialog(int startTick, int endTick,
         }
         // The live preview keeps the victim set selected; after an apply
         // those pointers are dangling, after a cancel the highlight is just
-        // noise - drop the selection either way. forFile, not instance():
+        // noise - drop the selection in both cases. forFile, not instance():
         // when the close comes from a tab switch the active selection may
         // already belong to the NEW document.
-        Selection *dialogSel = Selection::forFile(dialogFile);
-        if (dialogSel) {
-            dialogSel->clearSelection();
+        // EXCEPTION: "Select in editor" closes precisely IN ORDER to hand the
+        // analysed notes over untouched, so the user can transform them with
+        // any editor operation - keep that selection alive.
+        if (!dialog->keepSelectionOnClose()) {
+            Selection *dialogSel = Selection::forFile(dialogFile);
+            if (dialogSel) {
+                dialogSel->clearSelection();
+            }
         }
         eventWidget()->reportSelectionChangedByTool();
         if (rc == QDialog::Accepted) {

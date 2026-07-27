@@ -43,6 +43,14 @@ public:
     /// Status-bar text describing what Apply did (valid after accept()).
     QString resultSummary() const { return _resultSummary; }
 
+    /// True when the dialog closed via "Select in editor": the caller must
+    /// KEEP the emitted selection instead of clearing it, so the user can
+    /// run any editor operation on the notes the analysis found (e.g.
+    /// transpose every 2nd note of a dense run an octave up to build an
+    /// arpeggio). After a real Apply this stays false - those pointers are
+    /// dangling and the selection must be dropped.
+    bool keepSelectionOnClose() const { return _keepSelection; }
+
 signals:
     /// Emitted with the current would-be victims (live preview + button).
     void previewSelectionRequested(const QList<MidiEvent *> &events);
@@ -56,6 +64,7 @@ public slots:
 private slots:
     void onPreviewClicked();
     void onApplyClicked();
+    void onSelectClicked();
 
 private:
     AutoFitOptions currentOptions(bool dryRun) const;
@@ -100,7 +109,9 @@ private:
     QCheckBox *_livePreviewCheck;
     QLabel *_summaryLabel;
     QPushButton *_previewButton;
+    QPushButton *_selectButton;
     QPushButton *_applyButton;
+    bool _keepSelection = false;
 
     AutoFitResult _lastDry;
     QString _resultSummary;

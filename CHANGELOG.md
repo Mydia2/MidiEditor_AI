@@ -5,6 +5,19 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [2.2.0] - Unreleased
+
+> The next release, being prepared on the feature/v2.2 branch. On release day:
+> set the real date (drop "Unreleased"), then run scripts/build_changelog.py -
+> the website generator skips every entry whose date field starts with
+> "Unreleased". Experimental merges that are part of NO release live in
+> PLAYGROUND.md.
+
+### New Features
+* **Auto-Fit Voice Load can select instead of remove** - the tool's analysis is useful beyond deleting, so the dialog gained a **Select in editor** button: it closes and leaves the notes it found selected and unchanged, ready for any editor operation. On a dense tremolo run, set the skip slider to every 2nd note, press Select in editor and then Transpose Octave Up - and the machine-gun repeat becomes an alternating-octave arpeggio, in two undo steps without clicking a single note by hand. The same works for moving the found notes to another track or changing their velocity.
+
+---
+
 ## [2.1.0] - 2026-07-26 - Precision Tools
 
 ### Summary

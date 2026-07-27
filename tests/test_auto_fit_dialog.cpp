@@ -385,6 +385,21 @@ void fillOneRunPerTrack(ScopedFile &f) {
     }
 }
 
+/// NoteOns still present across every channel - used to prove that a path
+/// removes notes (Apply) or leaves the file untouched (Select in editor).
+int countNotes(ScopedFile &f) {
+    int n = 0;
+    for (int ch = 0; ch < 19; ++ch) {
+        MidiChannel *channel = f.file->channel(ch);
+        if (!channel) continue;
+        for (auto it = channel->eventMap()->constBegin();
+             it != channel->eventMap()->constEnd(); ++it) {
+            if (dynamic_cast<NoteOnEvent *>(it.value())) ++n;
+        }
+    }
+    return n;
+}
+
 QPushButton *findButton(AutoFitVoiceLoadDialog *dlg, const QString &text) {
     for (QPushButton *b : dlg->findChildren<QPushButton *>()) {
         if (b->text() == text) return b;
@@ -411,6 +426,7 @@ private slots:
     void structureGuard_keepsOpenWhenUnchanged();
     void advancedOptions_reachOptions();
     void previewSignal_emittedWithVictims_suppressedWhenOff();
+    void selectInEditor_handsOverTheSetWithoutRemoving();
 };
 
 // -------------------------------------------------------------------------
@@ -795,6 +811,61 @@ void TestAutoFitDialog::previewSignal_emittedWithVictims_suppressedWhenOff() {
     dlg._livePreviewCheck->setChecked(true);
     QVERIFY(!dlg._previewButton->isEnabled());
     QVERIFY(dlg._applyButton->isEnabled()); // Apply is NOT affected
+}
+
+// -------------------------------------------------------------------------
+//  9. selectInEditor_handsOverTheSetWithoutRemoving - v2.2: the analysis is
+//     useful beyond deleting, so "Select in editor" closes with the found
+//     notes SELECTED and the file untouched. Pins the three things the
+//     feature rests on: the set is emitted, keepSelectionOnClose() flips (it
+//     is what stops MainWindow from clearing the selection on close), and
+//     NOTHING is removed. Also pins that the button stays available while
+//     live preview is on - unlike "Preview as selection", it does not
+//     re-highlight, it hands the set over.
+void TestAutoFitDialog::selectInEditor_handsOverTheSetWithoutRemoving() {
+    ScopedFile f(2);
+    fillOneRunPerTrack(f);
+    const int notesBefore = countNotes(f);
+    QVERIFY(notesBefore > 0);
+
+    AutoFitVoiceLoadDialog dlg(f.file, -1, -1, {}, nullptr);
+    dlg._intensitySlider->setValue(50);
+
+    QVERIFY(dlg._livePreviewCheck->isChecked());          // on by default
+    QVERIFY(dlg._selectButton->isEnabled());              // still available
+    QVERIFY(!dlg._previewButton->isEnabled());            // this one is not
+    QVERIFY(!dlg.keepSelectionOnClose());                 // not yet
+
+    const AutoFitResult expect =
+        AutoFitVoiceLoadService::apply(f.file, dlg.currentOptions(true));
+    QVERIFY(expect.ok);
+    QVERIFY(!expect.victims.isEmpty());
+
+    QSignalSpy spy(&dlg, &AutoFitVoiceLoadDialog::previewSelectionRequested);
+    QSignalSpy finished(&dlg, &QDialog::finished);
+    dlg._selectButton->click();
+
+    // The exact analysed set is handed over ...
+    QVERIFY(spy.count() >= 1);
+    const QList<MidiEvent *> emitted =
+        spy.at(spy.count() - 1).at(0).value<QList<MidiEvent *>>();
+    QCOMPARE(QSet<MidiEvent *>(emitted.begin(), emitted.end()),
+             QSet<MidiEvent *>(expect.victims.begin(), expect.victims.end()));
+    // ... the caller is told to keep it ...
+    QVERIFY(dlg.keepSelectionOnClose());
+    QCOMPARE(finished.count(), 1);
+    QCOMPARE(finished.at(0).at(0).toInt(), int(QDialog::Accepted));
+    // ... and the file is untouched: this path removes nothing.
+    QCOMPARE(countNotes(f), notesBefore);
+
+    // The Apply path must NOT set the flag - there the victim pointers are
+    // freed and MainWindow's cleanup has to run.
+    AutoFitVoiceLoadDialog apply(f.file, -1, -1, {}, nullptr);
+    apply._intensitySlider->setValue(50);
+    QVERIFY(!apply.keepSelectionOnClose());
+    apply._applyButton->click();
+    QVERIFY(!apply.keepSelectionOnClose());
+    QVERIFY(countNotes(f) < notesBefore);                 // it really removed
 }
 
 QTEST_MAIN(TestAutoFitDialog)

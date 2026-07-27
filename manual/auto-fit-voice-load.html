@@ -324,6 +324,17 @@ just a count.
 </p>
 
 <p>
+The analysis is useful beyond removing notes, so the dialog can also just hand its result over:
+<b>Select in editor</b> closes it and leaves the notes it found <i>selected and unchanged</i>. From
+there any editor operation applies to exactly that set. The example that inspired it: on a dense
+tremolo run, set the skip slider to every 2nd note, press <b>Select in editor</b>, then
+<b>Transpose Octave Up</b> - and a machine-gun repeat becomes an alternating-octave arpeggio, in
+two undo steps and without clicking a single note by hand. The same trick works with any other
+operation: move the found notes to another track, change their velocity, or delete just some of
+them by hand.
+</p>
+
+<p>
 That highlight replaces whatever was selected in the editor, and it does so again on every change.
 Two situations where you may prefer to turn <b>Live preview</b> off: when you want to keep your
 own selection visible while tuning, and on very large files where recomputing the highlight after
