@@ -664,6 +664,15 @@ public slots:
      */
     void autoFitVoiceLoadSelection();
 
+    /**
+     * \brief v2.2: opens MidiPilot from the note context menu with the
+     *        question pre-seeded from what is selected (bars, tracks, note
+     *        count, pitch range). Sends nothing - the user completes the
+     *        sentence. Without a selection it behaves like the Edit-menu
+     *        entry and just focuses the chat.
+     */
+    void askMidiPilotAboutSelection();
+
     // v2.0 #3: per-track context-menu operations, called directly from the
     // Tracks/Channels panel context menus (each captures the right-clicked
     // MidiTrack* and resolves its document via track->file()). The MidiTrack*

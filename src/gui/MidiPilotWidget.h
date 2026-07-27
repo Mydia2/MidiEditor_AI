@@ -47,6 +47,16 @@ public:
      * \brief Sets focus to the input field.
      */
     void focusInput();
+
+    /**
+     * \brief Seeds the input field with `text` and puts the caret at the end,
+     *  then focuses it. Used by "Ask MidiPilot about the selection" so the
+     *  question already carries WHAT the user is pointing at (bars, track,
+     *  note count) - an empty chat box makes the user restate context the
+     *  editor already knows. Never sends; the user completes and presses
+     *  Enter. An existing draft is left alone.
+     */
+    void prefillInput(const QString &text);
     /**
      * \\brief Returns the current mode: \"simple\" or \"agent\".
      */

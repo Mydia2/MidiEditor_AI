@@ -150,6 +150,7 @@
 
 #include "../ai/McpServer.h"
 #include "../ai/FfxivVoiceAnalyzer.h"
+#include "../ai/MidiEventSerializer.h"
 
 #include <QDockWidget>
 
@@ -6745,6 +6746,67 @@ void MainWindow::autoFitVoiceLoadSelection() {
         return;
     }
     openAutoFitDialog(-1, -1, notes);
+}
+
+void MainWindow::askMidiPilotAboutSelection() {
+    if (_midiPilotDock) {
+        _midiPilotDock->setVisible(true);
+        _midiPilotDock->raise();
+    }
+    if (!_midiPilotWidget) {
+        return;
+    }
+    // Describe WHAT the user is pointing at, so the question does not start
+    // with the user retyping context the editor already knows. Note-only:
+    // a selection of control events has no meaningful bar/pitch summary.
+    QList<NoteOnEvent *> notes;
+    for (MidiEvent *ev : Selection::instance()->selectedEvents()) {
+        if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) notes.append(on);
+    }
+    if (notes.isEmpty() || !file) {
+        _midiPilotWidget->focusInput();
+        return;
+    }
+
+    int firstTick = notes.first()->midiTime();
+    int lastTick = firstTick;
+    int loPitch = notes.first()->note();
+    int hiPitch = loPitch;
+    QSet<int> trackNumbers;
+    for (NoteOnEvent *on : notes) {
+        firstTick = qMin(firstTick, on->midiTime());
+        lastTick = qMax(lastTick, on->midiTime());
+        loPitch = qMin(loPitch, on->note());
+        hiPitch = qMax(hiPitch, on->note());
+        if (on->track()) trackNumbers.insert(on->track()->number());
+    }
+    // measure() is 0-based; users count bars from 1.
+    const int firstBar = file->measure(firstTick, nullptr, nullptr) + 1;
+    const int lastBar = file->measure(lastTick, nullptr, nullptr) + 1;
+
+    QString where = (firstBar == lastBar)
+        ? tr("bar %1").arg(firstBar)
+        : tr("bars %1-%2").arg(firstBar).arg(lastBar);
+    QString onWhat;
+    if (trackNumbers.size() == 1) {
+        const int n = *trackNumbers.constBegin();
+        MidiTrack *t = file->track(n);
+        const QString name = (t && !t->name().isEmpty()) ? t->name() : QString();
+        onWhat = name.isEmpty() ? tr(" on track %1").arg(n)
+                                : tr(" on track %1 (%2)").arg(n).arg(name);
+    } else {
+        onWhat = tr(" across %1 tracks").arg(trackNumbers.size());
+    }
+    // A statement of fact plus a trailing space: the user types the actual
+    // request after it. Deliberately NOT a full question - guessing the
+    // intent ("make this quieter?") would be wrong more often than right.
+    _midiPilotWidget->prefillInput(
+        tr("About my selection of %1 note(s) in %2%3, range %4-%5: ")
+            .arg(notes.size())
+            .arg(where)
+            .arg(onWhat)
+            .arg(MidiEventSerializer::noteName(loPitch))
+            .arg(MidiEventSerializer::noteName(hiPitch)));
 }
 
 void MainWindow::openAutoFitDialog(int startTick, int endTick,

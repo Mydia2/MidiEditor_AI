@@ -2176,6 +2176,12 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     QAction *autoFitAct = menu.addAction(tr("Auto-Fit Voice Load (selection)..."));
     connect(autoFitAct, &QAction::triggered, mw, &MainWindow::autoFitVoiceLoadSelection);
 
+    // v2.2 — ask the AI about what is selected, with the question pre-seeded
+    // from the selection (bars, track, note count, range) so the user does not
+    // have to describe what the editor already knows.
+    QAction *askAiAct = menu.addAction(tr("Ask MidiPilot about the selection..."));
+    connect(askAiAct, &QAction::triggered, mw, &MainWindow::askMidiPilotAboutSelection);
+
     menu.addSeparator();
 
     // Copy / Delete

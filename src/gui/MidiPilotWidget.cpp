@@ -1025,6 +1025,19 @@ void MidiPilotWidget::focusInput() {
     _inputField->setFocus();
 }
 
+void MidiPilotWidget::prefillInput(const QString &text) {
+    if (!_inputField) return;
+    // Never clobber something the user already typed - append instead, so a
+    // half-written question survives reaching for the context menu.
+    const QString existing = _inputField->toPlainText().trimmed();
+    _inputField->setPlainText(existing.isEmpty() ? text
+                                                 : existing + QLatin1Char(' ') + text);
+    QTextCursor c = _inputField->textCursor();
+    c.movePosition(QTextCursor::End);
+    _inputField->setTextCursor(c);
+    _inputField->setFocus();
+}
+
 void MidiPilotWidget::onFileChanged(MidiFile *f) {
     _file = f;
 #ifdef MIDIEDITOR_COLLAB_ENABLED
