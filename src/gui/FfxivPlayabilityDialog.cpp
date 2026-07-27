@@ -87,6 +87,8 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
     _tree->setSelectionMode(QAbstractItemView::SingleSelection);
     connect(_tree, &QTreeWidget::itemClicked,
             this, &FfxivPlayabilityDialog::onItemClicked);
+    connect(_tree, &QTreeWidget::itemDoubleClicked,
+            this, &FfxivPlayabilityDialog::onItemDoubleClicked);
     layout->addWidget(_tree, 1);
 
     // --- AI analysis pane (hidden until an answer arrives) -----------------
@@ -97,9 +99,9 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
     layout->addWidget(_analysisView);
 
     auto *hint = new QLabel(
-        tr("Click an issue to select its notes in the editor and move the "
-           "cursor there. The buttons below offer the matching repair for "
-           "what was found."),
+        tr("Click an issue to select its notes and move the cursor there; "
+           "double-click to also scroll the piano roll to the spot. The "
+           "buttons below offer the matching repair for what was found."),
         this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
@@ -318,6 +320,18 @@ void FfxivPlayabilityDialog::onItemClicked(QTreeWidgetItem *item, int) {
     if (!issue.events.isEmpty())
         emit selectEventsRequested(issue.events);
     emit jumpToTickRequested(issue.tick);
+}
+
+void FfxivPlayabilityDialog::onItemDoubleClicked(QTreeWidgetItem *item, int column) {
+    // A double-click always arrives after the single-click handler already
+    // selected the notes and set the cursor - add the view scroll on top.
+    onItemClicked(item, column);
+    if (!item) return;
+    const QVariant idxVar = item->data(0, kIssueIndexRole);
+    if (!idxVar.isValid()) return;
+    const int idx = idxVar.toInt();
+    if (idx < 0 || idx >= _report.issues.size()) return;
+    emit revealTickRequested(_report.issues.at(idx).tick);
 }
 
 void FfxivPlayabilityDialog::onSelectAllClicked() {

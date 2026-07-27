@@ -81,6 +81,11 @@ signals:
     /** Move the edit cursor to this tick. */
     void jumpToTickRequested(int tick);
 
+    /** Double-click: additionally SCROLL the piano roll so the spot is on
+     *  screen (single click only selects and moves the cursor, which may be
+     *  outside the visible range). */
+    void revealTickRequested(int tick);
+
     /** Run a repair tool. actionId is a MainWindow action-map id:
      *  "delete_overlaps" (the colliding notes get selected first),
      *  "fix_ffxiv_channels", "auto_fit_voice_load". */
@@ -92,6 +97,7 @@ signals:
 
 private slots:
     void onItemClicked(QTreeWidgetItem *item, int column);
+    void onItemDoubleClicked(QTreeWidgetItem *item, int column);
     void onSelectAllClicked();
     void onAnalyzeClicked();
 

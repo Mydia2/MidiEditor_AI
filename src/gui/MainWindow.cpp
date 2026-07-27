@@ -6964,6 +6964,17 @@ void MainWindow::checkFfxivPlayability() {
                 checkedFile->setCursorTick(tick);
                 updateAll();
             });
+    // Double-click: scroll the piano roll to the spot. timeMsChanged is the
+    // playback-follow path - it moves the REAL scrollbars via scrollChanged,
+    // so the bars never desync from the view (the ZOOM-ANCHOR-001 lesson);
+    // ignoreLocked, because an explicit jump is the user's own navigation.
+    connect(dialog, &FfxivPlayabilityDialog::revealTickRequested, this,
+            [this, checkedFile](int tick) {
+                if (file != checkedFile) return;
+                if (MatrixWidget *mw = matrixWidget()) {
+                    mw->timeMsChanged(checkedFile->msOfTick(tick), true);
+                }
+            });
     // Contextual repairs. The dialog emits selectEventsRequested first for
     // delete_overlaps, so the tool acts on exactly the collisions.
     connect(dialog, &FfxivPlayabilityDialog::fixRequested, this,
