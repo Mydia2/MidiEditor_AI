@@ -13075,6 +13075,22 @@ findings, all landed as one pass:
 * auto_fit ratePercent defaults to 0 for the AI tool (finding #4) - density
   thinning is a tone decision, the agent opts in; the GUI dialog keeps 10.
 
-Still open in Phase 46: transpose/chord-split/copy tools, the arrangement
-guide (knowledge block: octet shape, guitar switches, run-the-fixer-last,
-register choice, channel sharing).
+**✅ Phase 46 part 3a (2026-07-27): the three arrangement tools** (octet
+finding #2), all CORE (20 core / MCP 22/27 now):
+
+* `transpose_events(semitones, trackIndex?, startTick?, endTick?,
+  foldToRange?)` - value edits via setNote (the CHEAP protocol path);
+  foldToRange folds octave-wise into C3-C6, so semitones=0 + fold is a pure
+  range fold. Notes that would leave MIDI 0-127 are skipped and reported.
+* `split_chords_to_tracks(trackIndex, minNotes?, keepOriginal?)` - the
+  same-start/voices-across-chords strategy of the GUI's Explode Chords,
+  headless: voice 1 = highest note, new tracks named "<src> - Voice N",
+  summary tells the agent to rename + run setup_channel_pattern LAST.
+* `copy_events_to_track(source, target, range?)` - notes only, channels
+  kept. Both copy paths use the documented bulk idiom (ONE channel snapshot
+  per touched channel, insertNote with toProtocol=false) - per-note
+  snapshots cost ~1 MB each on dense channels per the undo-memory analysis.
+
+Still open in Phase 46: the arrangement guide (knowledge block: octet
+shape, guitar switches, run-the-fixer-last, register choice, channel
+sharing).

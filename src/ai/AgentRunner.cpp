@@ -908,6 +908,23 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         int to = args["targetTrackIndex"].toInt(-1);
         return QStringLiteral("Move events \u2014 Track %1 \u2192 Track %2").arg(from).arg(to);
     }
+    if (toolName == "transpose_events") {
+        const int semis = args["semitones"].toInt(0);
+        return args["foldToRange"].toBool(false)
+            ? QStringLiteral("Transpose %1%2 st + fold to C3-C6")
+                  .arg(semis > 0 ? QStringLiteral("+") : QString()).arg(semis)
+            : QStringLiteral("Transpose %1%2 st")
+                  .arg(semis > 0 ? QStringLiteral("+") : QString()).arg(semis);
+    }
+    if (toolName == "split_chords_to_tracks") {
+        int track = args["trackIndex"].toInt(-1);
+        return QStringLiteral("Split chords — Track %1 → voice tracks").arg(track);
+    }
+    if (toolName == "copy_events_to_track") {
+        int from = args["sourceTrackIndex"].toInt(-1);
+        int to = args["targetTrackIndex"].toInt(-1);
+        return QStringLiteral("Copy notes — Track %1 → Track %2").arg(from).arg(to);
+    }
     if (toolName == "convert_tempo_preserve_duration") {
         const double source = args["sourceBpm"].toDouble(0);
         const double target = args["targetBpm"].toDouble(0);

@@ -105,6 +105,11 @@ private:
     // the MCP tools/list_changed broadcast take the one existing path.
     static QJsonObject execSetFfxivMode(const QJsonObject &args,
                                         MidiPilotWidget *widget);
+    // Phase 46 pt 3 (octet finding #2): the three arrangement tools the GUI
+    // has had for years and the tool surface lacked. All CORE.
+    static QJsonObject execTransposeEvents(const QJsonObject &args, MidiFile *file);
+    static QJsonObject execSplitChordsToTracks(const QJsonObject &args, MidiFile *file);
+    static QJsonObject execCopyEventsToTrack(const QJsonObject &args, MidiFile *file);
 };
 
 #endif // TOOLDEFINITIONS_H

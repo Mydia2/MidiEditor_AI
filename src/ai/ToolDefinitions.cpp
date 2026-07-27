@@ -518,6 +518,91 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"enabled"})));
     }
 
+    // --- Phase 46 pt 3: the three arrangement tools (octet finding #2). ---
+    // The GUI has had all three for years (Transpose, Explode Chords, copy
+    // via explode's keep-original); the octet experiment had to re-insert
+    // 4248 notes by hand because the tool surface had none of them. CORE:
+    // transposing/splitting/copying is generic, not FFXIV-specific.
+
+    // transpose_events
+    {
+        QJsonObject props;
+        props["trackIndex"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Track to transpose. null = all tracks."}};
+        props["startTick"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Inclusive start tick. null = from the beginning."}};
+        props["endTick"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Inclusive end tick. null = to the end."}};
+        props["semitones"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Semitones to transpose by: positive = up, negative = down, "
+                            "12 = one octave. 0 is allowed with foldToRange=true for a "
+                            "pure range fold."}};
+        props["foldToRange"] = QJsonObject{
+            {"type", "boolean"},
+            {"description", "After transposing, fold each note by octaves into the FFXIV "
+                            "bard range C3-C6 (MIDI 48-84). Default false."}};
+        tools.append(makeTool(
+            "transpose_events",
+            "Transpose notes by semitones - a track, a tick range, or the whole file - as one "
+            "undoable step. Much cheaper than re-inserting notes: 'move the bass up an octave' "
+            "is one call instead of re-writing every event. With foldToRange=true the result "
+            "is folded octave-wise into C3-C6; notes that would leave the MIDI range 0-127 "
+            "are left unchanged and reported as skipped.",
+            makeParams(props, {"semitones"})));
+    }
+
+    // split_chords_to_tracks
+    {
+        QJsonObject props;
+        props["trackIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Track whose chords to split."}};
+        props["minNotes"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Minimum simultaneous notes to count as a chord (default 2)."}};
+        props["keepOriginal"] = QJsonObject{
+            {"type", "boolean"},
+            {"description", "true = copy the chord notes to the new tracks and keep the "
+                            "originals; false (default) = move them."}};
+        tools.append(makeTool(
+            "split_chords_to_tracks",
+            "Split a track's chords voice-wise onto NEW tracks: notes starting on the same "
+            "tick are grouped, and voice 1 (highest note) goes to the first new track, voice "
+            "2 to the second, and so on - the standard way to turn a chordal part into "
+            "monophonic FFXIV performers (each new track = one performer). Track names get "
+            "' - Voice N' suffixes; rename them to FFXIV instruments and run "
+            "setup_channel_pattern afterwards. One undoable step.",
+            makeParams(props, {"trackIndex"})));
+    }
+
+    // copy_events_to_track
+    {
+        QJsonObject props;
+        props["sourceTrackIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Track to copy notes from (they stay untouched)."}};
+        props["targetTrackIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Track the copies are assigned to."}};
+        props["startTick"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Inclusive start tick. null = from the beginning."}};
+        props["endTick"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Inclusive end tick. null = to the end."}};
+        tools.append(makeTool(
+            "copy_events_to_track",
+            "Copy notes from one track to another (optionally restricted to a tick range) as "
+            "one undoable step - e.g. double a melody onto a second performer, then transpose "
+            "the copy. Notes only; the copies keep their channel and timing and are assigned "
+            "to the target track. Use move_events_to_track to move instead.",
+            makeParams(props, {"sourceTrackIndex", "targetTrackIndex"})));
+    }
+
     // --- FFXIV tools (only when FFXIV mode is active) ---
     if (QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool()) {
 
@@ -817,6 +902,15 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     }
     if (toolName == "set_ffxiv_mode") {
         return execSetFfxivMode(args, widget);
+    }
+    if (toolName == "transpose_events") {
+        return execTransposeEvents(args, file);
+    }
+    if (toolName == "split_chords_to_tracks") {
+        return execSplitChordsToTracks(args, file);
+    }
+    if (toolName == "copy_events_to_track") {
+        return execCopyEventsToTrack(args, file);
     }
 
     // FFXIV tools
@@ -1759,6 +1853,316 @@ QJsonObject ToolDefinitions::execConvertTempoPreserveDuration(const QJsonObject 
             summary += QStringLiteral(" One undo step restores everything.");
     }
     result["summary"] = summary;
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execTransposeEvents(const QJsonObject &args, MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: transpose_events is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+
+    const int semitones = args.value("semitones").toInt();
+    const bool fold = args.value("foldToRange").toBool(false);
+    if (semitones == 0 && !fold) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("semitones is 0 and foldToRange is false - nothing to do.");
+        return result;
+    }
+
+    int trackIndex = -1;
+    if (args.contains("trackIndex") && !args.value("trackIndex").isNull()) {
+        trackIndex = args.value("trackIndex").toInt();
+        if (trackIndex < 0 || trackIndex >= file->numTracks()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("Invalid trackIndex %1 (file has %2 tracks).")
+                                  .arg(trackIndex).arg(file->numTracks());
+            return result;
+        }
+    }
+    const bool hasStart = args.contains("startTick") && !args.value("startTick").isNull();
+    const bool hasEnd = args.contains("endTick") && !args.value("endTick").isNull();
+    const int startTick = hasStart ? args.value("startTick").toInt() : INT_MIN;
+    const int endTick = hasEnd ? args.value("endTick").toInt() : INT_MAX;
+    MidiTrack *track = trackIndex >= 0 ? file->track(trackIndex) : nullptr;
+
+    // Plan first, mutate second: an empty scope must not leave an empty
+    // step in the undo history.
+    struct Target {
+        NoteOnEvent *on;
+        int newNote;
+    };
+    QList<Target> targets;
+    int skipped = 0;
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            auto *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (!on) continue;
+            if (track && on->track() != track) continue;
+            const int tick = on->midiTime();
+            if (tick < startTick || tick > endTick) continue;
+            int n = on->note() + semitones;
+            if (fold) {
+                while (n < 48) n += 12;
+                while (n > 84) n -= 12;
+            }
+            if (n < 0 || n > 127) {
+                ++skipped; // would leave the MIDI range - leave it alone
+                continue;
+            }
+            if (n != on->note()) targets.append({on, n});
+        }
+    }
+
+    if (targets.isEmpty()) {
+        result["success"] = true;
+        result["transposed"] = 0;
+        result["skipped"] = skipped;
+        result["summary"] = QStringLiteral("Nothing to transpose in scope.");
+        return result;
+    }
+
+    file->protocol()->startNewAction(QObject::tr("Transpose notes (AI)"));
+    for (const Target &t : targets) {
+        t.on->setNote(t.newNote);
+    }
+    file->protocol()->endAction();
+
+    result["success"] = true;
+    result["transposed"] = static_cast<int>(targets.size());
+    result["skipped"] = skipped;
+    result["summary"] = QStringLiteral(
+        "Transposed %1 note(s) by %2 semitone(s)%3%4. One undo step.")
+            .arg(targets.size())
+            .arg(semitones)
+            .arg(fold ? QStringLiteral(", folded into C3-C6") : QString())
+            .arg(skipped > 0 ? QStringLiteral(" (%1 skipped at the MIDI range edge)")
+                                   .arg(skipped)
+                             : QString());
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execSplitChordsToTracks(const QJsonObject &args, MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: split_chords_to_tracks is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+    const int trackIndex = args.value("trackIndex").toInt(-1);
+    if (trackIndex < 0 || trackIndex >= file->numTracks()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid trackIndex %1 (file has %2 tracks).")
+                              .arg(trackIndex).arg(file->numTracks());
+        return result;
+    }
+    MidiTrack *src = file->track(trackIndex);
+    int minNotes = 2;
+    if (args.contains("minNotes") && !args.value("minNotes").isNull())
+        minNotes = qMax(2, args.value("minNotes").toInt());
+    const bool keepOriginal = args.value("keepOriginal").toBool(false);
+
+    // Group note starts by tick - same-start grouping, like the GUI's
+    // Explode Chords with the "voices across chords" strategy.
+    QMap<int, QList<NoteOnEvent *>> groups;
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            auto *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (on && on->offEvent() && on->track() == src)
+                groups[on->midiTime()].append(on);
+        }
+    }
+    QList<QList<NoteOnEvent *>> chords;
+    for (auto it = groups.begin(); it != groups.end(); ++it) {
+        if (it.value().size() >= minNotes) chords.append(it.value());
+    }
+    if (chords.isEmpty()) {
+        result["success"] = true;
+        result["chordCount"] = 0;
+        result["summary"] = QStringLiteral(
+            "No chords (>= %1 simultaneous notes) on track %2 - nothing to split.")
+                .arg(minNotes).arg(trackIndex);
+        return result;
+    }
+
+    int maxVoices = 0;
+    for (const QList<NoteOnEvent *> &chord : chords)
+        maxVoices = qMax(maxVoices, static_cast<int>(chord.size()));
+
+    file->protocol()->startNewAction(QObject::tr("Split chords to tracks (AI)"));
+
+    const int firstNewIndex = file->numTracks();
+    QVector<MidiTrack *> voiceTracks;
+    voiceTracks.reserve(maxVoices);
+    for (int v = 0; v < maxVoices; ++v) {
+        file->addTrack();
+        MidiTrack *dst = file->tracks()->last();
+        dst->setName(src->name() + QStringLiteral(" - Voice %1").arg(v + 1));
+        voiceTracks.append(dst);
+    }
+
+    // keepOriginal copies notes; do it with ONE channel snapshot per touched
+    // channel (the documented bulk pattern) - per-note insertNote snapshots
+    // cost ~1 MB each on dense channels.
+    int processed = 0;
+    if (keepOriginal) {
+        QMap<int, QList<QPair<NoteOnEvent *, MidiTrack *>>> byChannel;
+        for (QList<NoteOnEvent *> chord : chords) {
+            std::sort(chord.begin(), chord.end(),
+                      [](NoteOnEvent *a, NoteOnEvent *b) { return a->note() > b->note(); });
+            for (int v = 0; v < chord.size(); ++v)
+                byChannel[chord[v]->channel()].append(qMakePair(chord[v], voiceTracks[v]));
+        }
+        for (auto it = byChannel.begin(); it != byChannel.end(); ++it) {
+            MidiChannel *channel = file->channel(it.key());
+            ProtocolEntry *toCopy = channel->copy();
+            for (const auto &pair : it.value()) {
+                NoteOnEvent *on = pair.first;
+                channel->insertNote(on->note(), on->midiTime(),
+                                    on->offEvent()->midiTime(), on->velocity(),
+                                    pair.second, /*toProtocol=*/false);
+                ++processed;
+            }
+            channel->protocol(toCopy, channel);
+        }
+    } else {
+        for (QList<NoteOnEvent *> chord : chords) {
+            std::sort(chord.begin(), chord.end(),
+                      [](NoteOnEvent *a, NoteOnEvent *b) { return a->note() > b->note(); });
+            for (int v = 0; v < chord.size(); ++v) {
+                chord[v]->setTrack(voiceTracks[v]);
+                chord[v]->offEvent()->setTrack(voiceTracks[v]);
+                ++processed;
+            }
+        }
+    }
+    file->protocol()->endAction();
+
+    QJsonArray newTrackIndexes;
+    for (int v = 0; v < maxVoices; ++v) newTrackIndexes.append(firstNewIndex + v);
+    result["success"] = true;
+    result["chordCount"] = static_cast<int>(chords.size());
+    result["voiceTrackCount"] = maxVoices;
+    result["newTrackIndexes"] = newTrackIndexes;
+    result["notesProcessed"] = processed;
+    result["summary"] = QStringLiteral(
+        "%1 %2 chord note(s) from %3 chord(s) onto %4 new track(s) (Voice 1 = highest; "
+        "indexes %5-%6). Rename the new tracks to FFXIV instruments and run "
+        "setup_channel_pattern LAST. One undo step.")
+            .arg(keepOriginal ? QStringLiteral("Copied") : QStringLiteral("Moved"))
+            .arg(processed)
+            .arg(chords.size())
+            .arg(maxVoices)
+            .arg(firstNewIndex)
+            .arg(firstNewIndex + maxVoices - 1);
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execCopyEventsToTrack(const QJsonObject &args, MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: copy_events_to_track is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+    const int sourceIndex = args.value("sourceTrackIndex").toInt(-1);
+    const int targetIndex = args.value("targetTrackIndex").toInt(-1);
+    if (sourceIndex < 0 || sourceIndex >= file->numTracks()
+        || targetIndex < 0 || targetIndex >= file->numTracks()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid track index (file has %1 tracks).")
+                              .arg(file->numTracks());
+        return result;
+    }
+    if (sourceIndex == targetIndex) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Source and target track are the same.");
+        return result;
+    }
+    const bool hasStart = args.contains("startTick") && !args.value("startTick").isNull();
+    const bool hasEnd = args.contains("endTick") && !args.value("endTick").isNull();
+    const int startTick = hasStart ? args.value("startTick").toInt() : INT_MIN;
+    const int endTick = hasEnd ? args.value("endTick").toInt() : INT_MAX;
+    MidiTrack *src = file->track(sourceIndex);
+    MidiTrack *dst = file->track(targetIndex);
+
+    QMap<int, QList<NoteOnEvent *>> byChannel;
+    int found = 0;
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            auto *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (!on || !on->offEvent() || on->track() != src) continue;
+            const int tick = on->midiTime();
+            if (tick < startTick || tick > endTick) continue;
+            byChannel[ch].append(on);
+            ++found;
+        }
+    }
+    if (found == 0) {
+        result["success"] = true;
+        result["copied"] = 0;
+        result["summary"] = QStringLiteral("No notes in scope on track %1.").arg(sourceIndex);
+        return result;
+    }
+
+    file->protocol()->startNewAction(QObject::tr("Copy notes to track (AI)"));
+    // ONE channel snapshot per touched channel (documented bulk pattern) -
+    // per-note insertNote snapshots cost ~1 MB each on dense channels.
+    for (auto it = byChannel.begin(); it != byChannel.end(); ++it) {
+        MidiChannel *channel = file->channel(it.key());
+        ProtocolEntry *toCopy = channel->copy();
+        for (NoteOnEvent *on : it.value()) {
+            channel->insertNote(on->note(), on->midiTime(),
+                                on->offEvent()->midiTime(), on->velocity(),
+                                dst, /*toProtocol=*/false);
+        }
+        channel->protocol(toCopy, channel);
+    }
+    file->protocol()->endAction();
+
+    result["success"] = true;
+    result["copied"] = found;
+    result["summary"] = QStringLiteral(
+        "Copied %1 note(s) from track %2 to track %3 (channels kept). One undo step.")
+            .arg(found).arg(sourceIndex).arg(targetIndex);
     return result;
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }

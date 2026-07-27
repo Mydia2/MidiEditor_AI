@@ -177,6 +177,9 @@ const QStringList kCoreToolNames = {
     QStringLiteral("move_events_to_track"),
     QStringLiteral("convert_tempo_preserve_duration"), // v2.2 #2: CORE, not FFXIV
     QStringLiteral("set_ffxiv_mode"), // Phase 46: CORE - reaches the gated bundle
+    QStringLiteral("transpose_events"),        // Phase 46 pt 3 (octet #2)
+    QStringLiteral("split_chords_to_tracks"),  // Phase 46 pt 3 (octet #2)
+    QStringLiteral("copy_events_to_track"),    // Phase 46 pt 3 (octet #2)
 };
 
 // Extra tools added when FFXIV mode is ON.
