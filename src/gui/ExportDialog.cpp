@@ -143,8 +143,11 @@ void ExportDialog::setupUi() {
     _toMeasure->setMaximum(9999);
     _toMeasure->setValue(1);
     if (_file) {
+        // measure() is 1-based (see MidiFile.h): the value for the last tick
+        // IS the number of measures. The former +1 offered one bar that does
+        // not exist and disagreed with the status bar's numbering.
         int dummy1, dummy2;
-        int totalMeasures = _file->measure(_file->endTick(), &dummy1, &dummy2) + 1;
+        int totalMeasures = _file->measure(_file->endTick(), &dummy1, &dummy2);
         _fromMeasure->setMaximum(totalMeasures);
         _toMeasure->setMaximum(totalMeasures);
         _toMeasure->setValue(totalMeasures);
@@ -418,9 +421,11 @@ void ExportDialog::setSelectionRange(int startTick, int endTick) {
 
     // Build display text for selection range
     if (_file) {
+        // measure() is 1-based already - no +1, or the label names bars the
+        // editor's status bar does not.
         int dummy1, dummy2;
-        int startMeasure = _file->measure(startTick, &dummy1, &dummy2) + 1;
-        int endMeasure = _file->measure(endTick, &dummy1, &dummy2) + 1;
+        int startMeasure = _file->measure(startTick, &dummy1, &dummy2);
+        int endMeasure = _file->measure(endTick, &dummy1, &dummy2);
         double startSec = _file->msOfTick(startTick) / 1000.0;
         double endSec = _file->msOfTick(endTick) / 1000.0;
         _selectionRadio->setText(
@@ -462,8 +467,13 @@ ExportOptions ExportDialog::exportOptions() const {
         opts.startTick = _selectionStartTick;
         opts.endTick = _selectionEndTick;
     } else if (_customRangeRadio->isChecked() && _file) {
-        int fromMeasure = _fromMeasure->value() - 1; // 0-based
-        int toMeasure = _toMeasure->value() - 1;
+        // Spinbox values and startTickOfMeasure() are BOTH 1-based. The former
+        // "-1 // 0-based" here shifted the whole range one bar early - a
+        // "measures 5-8" export rendered bars 4-7, and measure 1 asked
+        // startTickOfMeasure(0) for a NEGATIVE tick (harmless by accident:
+        // nothing sounds before tick 0).
+        int fromMeasure = _fromMeasure->value();
+        int toMeasure = _toMeasure->value();
         opts.startTick = _file->startTickOfMeasure(fromMeasure);
         opts.endTick = _file->startTickOfMeasure(toMeasure + 1);
     }
@@ -508,8 +518,10 @@ double ExportDialog::rangeDurationSec() const {
     }
 
     if (_customRangeRadio->isChecked()) {
-        int fromMeasure = _fromMeasure->value() - 1; // 0-based
-        int toMeasure = _toMeasure->value() - 1;
+        // Same 1-based convention as exportOptions() - keep the estimate in
+        // lockstep with what actually renders.
+        int fromMeasure = _fromMeasure->value();
+        int toMeasure = _toMeasure->value();
         int startTick = _file->startTickOfMeasure(fromMeasure);
         int endTick = _file->startTickOfMeasure(toMeasure + 1);
         double startMs = _file->msOfTick(startTick);

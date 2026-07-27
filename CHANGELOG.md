@@ -20,6 +20,7 @@ Releases: https://github.com/happytunesai/web/releases
 ### Bug Fixes
 * **The AI was told the wrong bar numbers** - MidiPilot and the MCP server reported the cursor's measure one too high, and the song one measure longer than it is. Bar numbers now match what the editor shows, so a request like "add a fill in the last bar" lands where you mean it.
 * **Toolbar bar display showed the wrong time signature and beat** - in Bar mode the time display read "4/2" for a song in 4/4 and counted beats as half notes, so a 4/4 bar never got past beat 2. It now shows the real time signature and counts every beat in the bar.
+* **Audio export: custom measure range was one bar early** - exporting "measures 5-8" of a WAV/FLAC/OGG/MP3 render actually produced bars 4-7, and the measure spinboxes offered one bar more than the song has. The range now matches the bar numbers the editor shows. (Full song and Selection exports were always correct.)
 
 ---
 

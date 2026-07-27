@@ -12718,10 +12718,11 @@ toolbar's bar display showed "4/2" for a 4/4 song because
 `meterAt()`'s denominator is a power-of-two exponent that was equally
 undocumented. All fixed, with a new `test_midi_measure` target (8 cases)
 pinning both conventions - neither had any test, and neither is visible by
-reading the code. The Export dialog has the same off-by-one in its custom
-range (it asks for a negative start tick at the spinbox minimum), left OPEN
-as EXPORT-MEASURE-001 because it changes shipped export output and wants its
-own verification pass.
+reading the code. The Export dialog had the same off-by-one in its custom
+range - a "measures 5-8" audio export rendered bars 4-7 - fixed as
+EXPORT-MEASURE-001 in a follow-up commit after user go (their export tests
+could not hit it: GP export does not use this dialog, SID locks the custom
+range out, and Full Song / Selection were always correct).
 
 Lesson worth keeping: a wrong doc comment on a core primitive is not a
 cosmetic defect - every caller that trusted it inherited the bug, and the
