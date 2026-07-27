@@ -12742,6 +12742,15 @@ CONTEXT (bar range, track, note count), not just open an empty chat - that is
 the difference between a menu item and a useful one. Effort: half a day incl.
 the manual line.
 
+**Design revised after first QA (2026-07-27):** the prefill-only version read
+as "nothing happened" - the expectation for a right-click action is that it
+ACTS. Now the entry sends a neutral analysis question immediately through the
+normal send path (MidiPilotWidget::submitPrompt), with the selected notes
+serialized along; specific requests work as follow-ups because the selection
+is then already in the conversation. A draft in the chat box survives the
+round trip, the ellipsis was dropped from the label (nothing to fill in any
+more), and Show-mode viewers are locked out the same way the send button is.
+
 ## #2 `convert_tempo_preserve_duration` AI tool (small)
 
 Phase 33.5, deferred since 1.6.0. The service (TempoConversionService) is

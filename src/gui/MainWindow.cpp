@@ -6815,11 +6815,15 @@ void MainWindow::askMidiPilotAboutSelection() {
     } else {
         onWhat = tr(" across %1 tracks").arg(trackNumbers.size());
     }
-    // A statement of fact plus a trailing space: the user types the actual
-    // request after it. Deliberately NOT a full question - guessing the
-    // intent ("make this quieter?") would be wrong more often than right.
-    _midiPilotWidget->prefillInput(
-        tr("About my selection of %1 note(s) in %2%3, range %4-%5: ")
+    // Sent IMMEDIATELY as a neutral analysis request - one right-click, one
+    // answer (per user feedback; the first iteration only prefilled the
+    // input and read as "nothing happened"). The question deliberately asks
+    // for observations, not edits: the selection travels along as serialized
+    // events through the normal send path, and specific requests work best
+    // as follow-ups once the context is in the conversation.
+    _midiPilotWidget->submitPrompt(
+        tr("About my selection of %1 note(s) in %2%3, range %4-%5: "
+           "what stands out, and is there anything worth improving?")
             .arg(notes.size())
             .arg(where)
             .arg(onWhat)

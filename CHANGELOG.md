@@ -14,7 +14,7 @@ Releases: https://github.com/happytunesai/web/releases
 > PLAYGROUND.md.
 
 ### New Features
-* **"Ask MidiPilot about the selection" in the note context menu** - right-click selected notes and the AI panel opens with the question already carrying what you are pointing at: how many notes, which bars, which track, and the pitch range. Nothing is sent - you complete the sentence and press Enter - and an unfinished draft in the chat box is kept and appended to rather than overwritten. The entry appears only once an AI provider is set up, so it can never lead to a panel that cannot answer.
+* **"Ask MidiPilot about the selection" in the note context menu** - right-click selected notes and the AI looks at them immediately: the question describes what you are pointing at (how many notes, which bars, which track, the pitch range), the notes themselves travel along, and the answer lands in the MidiPilot panel without any typing. For something specific, ask a follow-up - the selection is already part of the conversation. A draft you were writing in the chat box is kept, and the entry appears only once an AI provider is set up.
 * **Auto-Fit Voice Load can select instead of remove** - the tool's analysis is useful beyond deleting, so the dialog gained a **Select in editor** button: it closes and leaves the notes it found selected and unchanged, ready for any editor operation. On a dense tremolo run, set the skip slider to every 2nd note, press Select in editor and then Transpose Octave Up - and the machine-gun repeat becomes an alternating-octave arpeggio, in two undo steps without clicking a single note by hand. The same works for moving the found notes to another track or changing their velocity.
 
 ### Bug Fixes

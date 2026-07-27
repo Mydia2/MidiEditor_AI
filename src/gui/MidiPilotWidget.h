@@ -49,14 +49,16 @@ public:
     void focusInput();
 
     /**
-     * \brief Seeds the input field with `text` and puts the caret at the end,
-     *  then focuses it. Used by "Ask MidiPilot about the selection" so the
-     *  question already carries WHAT the user is pointing at (bars, track,
-     *  note count) - an empty chat box makes the user restate context the
-     *  editor already knows. Never sends; the user completes and presses
-     *  Enter. An existing draft is left alone.
+     * \brief Sends `text` as a user message through the NORMAL send path
+     *  (busy/configured guards, chat bubble, context + selection capture),
+     *  exactly as if the user had typed it and pressed Enter. Used by "Ask
+     *  MidiPilot about the selection": one right-click, one answer - the
+     *  selection itself travels along as serialized events, so the model
+     *  sees the notes, not just a summary. A half-written draft in the
+     *  input field survives the round trip. No-op for Show-mode viewers
+     *  (only the presenter may drive MidiPilot).
      */
-    void prefillInput(const QString &text);
+    void submitPrompt(const QString &text);
 
     /**
      * \brief Whether MidiPilot can actually be used, i.e. an AI provider is

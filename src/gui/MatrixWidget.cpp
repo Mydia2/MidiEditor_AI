@@ -2176,14 +2176,14 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     QAction *autoFitAct = menu.addAction(tr("Auto-Fit Voice Load (selection)..."));
     connect(autoFitAct, &QAction::triggered, mw, &MainWindow::autoFitVoiceLoadSelection);
 
-    // v2.2 — ask the AI about what is selected, with the question pre-seeded
-    // from the selection (bars, track, note count, range) so the user does not
-    // have to describe what the editor already knows. Only offered when an AI
-    // provider is actually configured: otherwise MidiPilot shows its setup
-    // prompt with a disabled input, and the entry would promise something it
-    // cannot deliver.
+    // v2.2 — ask the AI about what is selected: sends an analysis question
+    // immediately (no ellipsis - the action acts, it does not open anything
+    // to fill in), with the selected notes travelling along. Only offered
+    // when an AI provider is actually configured: otherwise MidiPilot shows
+    // its setup prompt with a disabled input, and the entry would promise
+    // something it cannot deliver.
     if (mw->isMidiPilotUsable()) {
-        QAction *askAiAct = menu.addAction(tr("Ask MidiPilot about the selection..."));
+        QAction *askAiAct = menu.addAction(tr("Ask MidiPilot about the selection"));
         connect(askAiAct, &QAction::triggered, mw, &MainWindow::askMidiPilotAboutSelection);
     }
 

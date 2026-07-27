@@ -1029,17 +1029,23 @@ void MidiPilotWidget::focusInput() {
     _inputField->setFocus();
 }
 
-void MidiPilotWidget::prefillInput(const QString &text) {
-    if (!_inputField) return;
-    // Never clobber something the user already typed - append instead, so a
-    // half-written question survives reaching for the context menu.
-    const QString existing = _inputField->toPlainText().trimmed();
-    _inputField->setPlainText(existing.isEmpty() ? text
-                                                 : existing + QLatin1Char(' ') + text);
+void MidiPilotWidget::submitPrompt(const QString &text) {
+    if (!_inputField || text.trimmed().isEmpty()) return;
+    // Same lock the send button honours: a Show-mode viewer must not be able
+    // to drive the presenter's MidiPilot through a context menu.
+    if (_showModeLocked) return;
+    // Route through the input field + onSendMessage so every guard and the
+    // whole context capture stay in ONE place. Park the user's half-written
+    // draft first: on success the field is cleared, on refusal (busy, not
+    // configured) our prompt would sit there instead - either way the draft
+    // comes back.
+    const QString draft = _inputField->toPlainText();
+    _inputField->setPlainText(text);
+    onSendMessage();
+    _inputField->setPlainText(draft);
     QTextCursor c = _inputField->textCursor();
     c.movePosition(QTextCursor::End);
     _inputField->setTextCursor(c);
-    _inputField->setFocus();
 }
 
 void MidiPilotWidget::onFileChanged(MidiFile *f) {
