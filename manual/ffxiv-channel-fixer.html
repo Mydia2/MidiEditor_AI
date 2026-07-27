@@ -325,16 +325,34 @@ FFXIV electric guitar supports 5 tonal variants that share channels via <code>pr
 
 <hr>
 
-<h2 id="validation">Validation</h2>
+<h2 id="validation">Validation - Check FFXIV Playability</h2>
 
 <p>
-After applying the fix, you can use MidiPilot's <b>validate_ffxiv</b> tool (via Agent mode with FFXIV enabled) to confirm all tracks pass FFXIV Bard Performance rules:
+<b>Tools &rarr; Check FFXIV Playability&hellip;</b> examines the file the way the game will play it
+and lists everything that would go wrong, grouped by problem type:
 </p>
 
-<div class="screenshot-single">
-<img src="screenshots/midipilot-ffxiv-validate.png" alt="FFXIV validation after channel fix" width="600">
-<div class="caption">AI validation confirms all tracks pass FFXIV Bard Performance rules</div>
-</div>
+<ul>
+<li><b>Overlapping notes</b> - a performer is monophonic; where two notes sound at once on one
+channel, the game drops notes. On guitar tracks, notes on <i>different</i> channels are variant
+switches and are not flagged - only same-channel overlaps count</li>
+<li><b>Stacked duplicates</b> - the same pitch starting twice on the same tick, the classic
+hand-arranging slip. Easy to overlook in the editor because the notes sit exactly on top of each
+other</li>
+<li><b>Notes outside C3-C6</b> - outside the bard's playable range</li>
+<li><b>Program mismatches</b> - a track whose name says one instrument while its program change
+says another plays the wrong sound in game. Re-running the channel fixer resolves these</li>
+<li><b>Track names</b> - names that match no FFXIV instrument (only tracks that contain notes
+are checked; a silent track occupies no performer)</li>
+</ul>
+
+<p>
+Click an issue to select its notes in the editor and move the cursor there, or use
+<b>Select all offending notes</b> and fix them in one go - for overlaps, <b>Delete Overlaps</b>
+on the selection is usually the fastest repair. The same check is available to the AI as the
+<b>validate_ffxiv</b> tool (Agent mode or MCP, with FFXIV enabled), so an arrangement built by
+the AI is held to exactly the same rules.
+</p>
 
 <hr>
 

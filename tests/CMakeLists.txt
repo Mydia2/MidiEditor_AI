@@ -1639,6 +1639,61 @@ target_link_libraries(test_midi_measure PRIVATE
 )
 add_test(NAME MidiMeasure COMMAND test_midi_measure)
 
+# -----------------------------------------------------------------------------
+# test_ffxiv_playability
+# -----------------------------------------------------------------------------
+# Phase 46: hard-gate tests for FfxivPlayabilityValidator - the headless
+# FFXIV playability check shared by the validate_ffxiv AI tool and the GUI
+# dialog. Same harness as test_ffxiv_fixer_resync (real midi core, GUI
+# periphery shimmed), plus the validator and the fixer it classifies with.
+add_executable(test_ffxiv_playability
+    test_ffxiv_playability.cpp
+    ../src/ai/FfxivPlayabilityValidator.cpp
+    ../src/ai/FFXIVChannelFixer.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_ffxiv_playability PRIVATE
+    ../src/ai
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_ffxiv_playability PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME FfxivPlayability COMMAND test_ffxiv_playability)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1679,6 +1734,7 @@ if(WIN32)
         DrumKitPreset
         FfxivFixerResync
         MidiMeasure
+        FfxivPlayability
         GpToNative
         MidiDiff
         PrBundle

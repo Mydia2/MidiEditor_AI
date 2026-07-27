@@ -120,6 +120,8 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 #include "SplitChannelsDialog.h"
 #include "FFXIVDrumSplitDialog.h"
 #include "AutoFitVoiceLoadDialog.h"
+#include "FfxivPlayabilityDialog.h"
+#include "../ai/FfxivPlayabilityValidator.h"
 #include "DrumKitPreset.h"
 #include "MatrixWidget.h"
 #include "OpenGLMatrixWidget.h"
@@ -6863,6 +6865,37 @@ void MainWindow::askMidiPilotAboutSelection() {
             .arg(MidiEventSerializer::noteName(hiPitch)));
 }
 
+void MainWindow::checkFfxivPlayability() {
+    if (!file) {
+        return;
+    }
+    MidiFile *checkedFile = file;
+    FfxivPlayabilityDialog dialog(FfxivPlayabilityValidator::validate(checkedFile), this);
+
+    connect(&dialog, &FfxivPlayabilityDialog::selectEventsRequested, this,
+            [this](const QList<MidiEvent *> &events) {
+                Selection::instance()->setSelection(events);
+                eventWidget()->reportSelectionChangedByTool();
+                updateAll();
+            });
+    connect(&dialog, &FfxivPlayabilityDialog::jumpToTickRequested, this,
+            [this, checkedFile](int tick) {
+                if (file != checkedFile) return;
+                checkedFile->setCursorTick(tick);
+                updateAll();
+            });
+    // The dialog is modal, but exec() spins the event loop - an MCP/agent
+    // edit can still mutate the file while it is open, which would leave the
+    // report holding stale MidiEvent pointers. Re-validate after every
+    // finished protocol action so a click can never select a freed note.
+    connect(checkedFile->protocol(), &Protocol::actionFinished, &dialog,
+            [&dialog, checkedFile]() {
+                dialog.refresh(FfxivPlayabilityValidator::validate(checkedFile));
+            });
+
+    dialog.exec();
+}
+
 void MainWindow::openAutoFitDialog(int startTick, int endTick,
                                    const QList<MidiEvent *> &selectionScope) {
     if (!file) {
@@ -9409,6 +9442,15 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     connect(ffxivDrumSplitAction, SIGNAL(triggered()), this, SLOT(ffxivDrumSplit()));
     toolsMB->addAction(ffxivDrumSplitAction);
     _actionMap["ffxiv_drum_split"] = ffxivDrumSplitAction;
+
+    // Phase 46: the monophony/overlap check used to exist only inside the
+    // AI's validate_ffxiv tool - hand arrangers found those spots by hearing
+    // notes go missing in game. Placed next to the fixer: check, fix, check.
+    QAction *ffxivPlayabilityAction = new QAction(tr("Check FFXIV Playability..."), this);
+    connect(ffxivPlayabilityAction, &QAction::triggered,
+            this, &MainWindow::checkFfxivPlayability);
+    toolsMB->addAction(ffxivPlayabilityAction);
+    _actionMap["check_ffxiv_playability"] = ffxivPlayabilityAction;
 
     QAction *autoFitVoiceAction = new QAction(tr("Auto-Fit Voice Load..."), this);
     connect(autoFitVoiceAction, SIGNAL(triggered()), this, SLOT(autoFitVoiceLoad()));

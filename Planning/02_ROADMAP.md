@@ -13022,3 +13022,30 @@ and hearing notes go missing. Wiring the existing check into the GUI (the
 voice-load lane, or an action next to the channel fixer) is small, and it is
 worth more than any of the new tools listed above. The fix side is already
 there as "Delete Overlaps"; only FFXIV-aware detection is missing.
+
+**✅ DONE 2026-07-27 (Phase 46 part 1):** the check is now
+`FfxivPlayabilityValidator` (headless, src/ai/), shared by tool and GUI:
+
+* GUI: Tools -> "Check FFXIV Playability..." next to the fixer - report
+  grouped by type, click an issue to select its notes + move the cursor,
+  "Select all offending notes" for a bulk repair. Modal, but re-validates on
+  every finished protocol action because exec() spins the event loop and an
+  MCP edit could otherwise leave the report holding freed note pointers.
+* The validator reports ALL findings (the old tool code stopped at the first
+  overlap per track), splits stacked duplicates (same pitch, same tick) from
+  overlaps, and adds the name/program-mismatch check (octet finding #5).
+  Guitar tracks: only same-channel overlaps count; program checks skipped.
+* Deliberate sharpening: only tracks WITH notes get the name/program checks -
+  a silent track occupies no performer, and the app's own default "Tempo
+  Track" must not flag every file.
+* validate_ffxiv now returns per-issue ticks, per-type counts in the summary,
+  a 100-issue cap with issuesTruncated, and legalInstruments (the canonical
+  spellings, octet finding #6) when a name was rejected. The instrument table
+  and classifiers were de-duplicated into FFXIVChannelFixer (now public +
+  instrumentNames()).
+* New test target test_ffxiv_playability (10 cases; suite 62). Manual:
+  ffxiv-channel-fixer.html Validation section rewritten around the dialog.
+
+Still open in Phase 46: transpose/chord-split/copy tools, FFXIV mode in
+get_editor_state + set_ffxiv_mode, voice-load model agreement (raw vs tail),
+auto_fit ratePercent default 0 for the AI tool, the arrangement guide.

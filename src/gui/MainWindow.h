@@ -646,6 +646,15 @@ public slots:
     void ffxivDrumSplit();
 
     /**
+     * \brief Phase 46: runs the FFXIV playability check (overlaps, stacked
+     *        duplicates, range, instrument names, program mismatches) and
+     *        shows the report dialog. The check itself is
+     *        FfxivPlayabilityValidator - the same code the AI's
+     *        validate_ffxiv tool runs; this is its first GUI surface.
+     */
+    void checkFfxivPlayability();
+
+    /**
      * \brief v2.1.0 #1: opens the Auto-Fit Voice Load confirmation dialog
      *        for the whole file (Tools menu entry).
      */

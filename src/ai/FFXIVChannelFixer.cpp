@@ -41,10 +41,11 @@ bool FFXIVChannelFixer::isGuitar(const QString &baseName) {
     return baseName.startsWith(QStringLiteral("ElectricGuitar"));
 }
 
-int FFXIVChannelFixer::programNumber(const QString &baseName) {
-    // NOTE: program numbers must match the actual presets in the FFXIV
-    // SoundFont (FF14-c3c6-fixed.sf2). Mismatches cause silent fallback to
-    // bank 0 / prog 0 (= Piano). Verified 2026-04-28 against phdr chunk.
+namespace {
+// NOTE: program numbers must match the actual presets in the FFXIV
+// SoundFont (FF14-c3c6-fixed.sf2). Mismatches cause silent fallback to
+// bank 0 / prog 0 (= Piano). Verified 2026-04-28 against phdr chunk.
+const QHash<QString, int> &instrumentProgramMap() {
     static const QHash<QString, int> map = {
         {"Piano", 0},       {"Harp", 46},       {"Fiddle", 45},
         {"Lute", 25},       {"Fife", 72},       {"Flute", 73},
@@ -59,7 +60,18 @@ int FFXIVChannelFixer::programNumber(const QString &baseName) {
         {"ElectricGuitarOverdriven", 29},  {"ElectricGuitarPowerChords", 30},
         {"ElectricGuitarSpecial", 31}
     };
-    return map.value(baseName, -1);
+    return map;
+}
+} // namespace
+
+int FFXIVChannelFixer::programNumber(const QString &baseName) {
+    return instrumentProgramMap().value(baseName, -1);
+}
+
+QStringList FFXIVChannelFixer::instrumentNames() {
+    QStringList names = instrumentProgramMap().keys();
+    names.sort();
+    return names;
 }
 
 // ---------------------------------------------------------------------------

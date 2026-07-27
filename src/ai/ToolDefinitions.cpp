@@ -4,6 +4,7 @@
 #include "../converter/AutoFitVoiceLoadService.h"
 #include "../converter/TempoConversionService.h"
 #include "../MidiEvent/TempoChangeEvent.h"
+#include "FfxivPlayabilityValidator.h"
 #endif
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "FfxivVoiceAnalyzer.h"
@@ -505,7 +506,12 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             tools.append(makeTool(
                 "validate_ffxiv",
                 "Check if the current MIDI file meets FFXIV Bard Performance constraints. "
-                "Reports issues: polyphony, out-of-range notes, invalid track names, too many tracks.",
+                "Reports ALL issues with their ticks: overlapping notes (performers are "
+                "monophonic; guitar tracks may spread notes over several channels for variant "
+                "switches, only same-channel overlaps count there), stacked duplicate notes "
+                "(same pitch, same tick), notes outside C3-C6, track names matching no FFXIV "
+                "instrument (the legal spellings are returned as legalInstruments), and "
+                "track-name/program_change mismatches that would sound as the wrong instrument.",
                 makeParams(QJsonObject(), QJsonArray())));
         }
 
@@ -949,125 +955,88 @@ QJsonObject ToolDefinitions::execWriteAction(const QString &action,
 // FFXIV tools
 // ---------------------------------------------------------------------------
 
-static const QSet<QString> FFXIV_INSTRUMENT_NAMES = {
-    "Piano", "Harp", "Fiddle", "Lute", "Fife", "Flute", "Oboe", "Panpipes",
-    "Clarinet", "Trumpet", "Saxophone", "Trombone", "Horn", "Tuba",
-    "Violin", "Viola", "Cello", "Double Bass",
-    "Timpani", "Bongo", "Bass Drum", "Snare Drum", "Cymbal",
-    "ElectricGuitarClean", "ElectricGuitarMuted", "ElectricGuitarOverdriven",
-    "ElectricGuitarPowerChords", "ElectricGuitarSpecial"
-};
-
-static bool isGuitarInstrument(const QString &name) {
-    QString base = name;
-    QRegularExpression suffixRe("[+-]\\d+$");
-    base.remove(suffixRe);
-    return base.startsWith("ElectricGuitar");
-}
+// Phase 46: the instrument table and classifiers live in FFXIVChannelFixer
+// (the canonical source); the validation logic itself moved to
+// FfxivPlayabilityValidator, shared with the GUI's playability dialog.
 
 QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(file);
     QJsonObject result;
-    if (!file) {
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: validate_ffxiv is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    const FfxivPlayabilityReport report = FfxivPlayabilityValidator::validate(file);
+    if (!report.ok) {
         result["success"] = false;
-        result["error"] = QString("No file loaded.");
+        result["error"] = report.error;
         return result;
     }
 
+    auto typeString = [](FfxivPlayabilityIssue::Type t) -> QString {
+        switch (t) {
+        case FfxivPlayabilityIssue::Type::TrackName:
+            return QStringLiteral("track_name");
+        case FfxivPlayabilityIssue::Type::OutOfRange:
+            return QStringLiteral("out_of_range");
+        case FfxivPlayabilityIssue::Type::DuplicateNote:
+            return QStringLiteral("duplicate_note");
+        case FfxivPlayabilityIssue::Type::ProgramMismatch:
+            return QStringLiteral("program_mismatch");
+        case FfxivPlayabilityIssue::Type::Overlap:
+            break;
+        }
+        // "polyphonic" kept for Overlap - the name agents have always seen.
+        return QStringLiteral("polyphonic");
+    };
+
+    // The validator reports ALL findings (the old inline code stopped at the
+    // first overlap per track); cap the JSON so a badly broken file cannot
+    // blow up the model's context.
     QJsonArray issues;
-    int trackCount = file->numTracks();
-
-    // Note: track count is informational — more than 8 tracks is fine
-    // when using guitar switches or additional instrument channels.
-
-    for (int t = 0; t < trackCount; t++) {
-        MidiTrack *track = file->track(t);
-        QString name = track->name();
-
-        // Check track name — strip +N/-N suffix for validation
-        QString baseName = name;
-        QRegularExpression suffixRe("[+-]\\d+$");
-        baseName.remove(suffixRe);
-        if (!baseName.isEmpty() && !FFXIV_INSTRUMENT_NAMES.contains(baseName)) {
-            QJsonObject issue;
-            issue["track"] = t;
-            issue["issue"] = QString("track_name");
-            issue["details"] = QString("Track name '%1' doesn't match any FFXIV instrument").arg(name);
-            issues.append(issue);
-        }
-
-        // Collect NoteOn events on this track to check range and polyphony
-        struct NoteInfo { int tick; int note; int endTick; int channel; };
-        QList<NoteInfo> notes;
-        bool trackIsGuitar = isGuitarInstrument(name);
-
-        for (int ch = 0; ch < 16; ch++) {
-            MidiChannel *channel = file->channel(ch);
-            if (!channel) continue;
-            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-            for (auto it = map->begin(); it != map->end(); ++it) {
-                MidiEvent *ev = it.value();
-                if (ev->track() != track) continue;
-                auto *noteOn = dynamic_cast<NoteOnEvent *>(ev);
-                if (!noteOn) continue;
-
-                int note = noteOn->note();
-                int tick = noteOn->midiTime();
-
-                // Check range (C3-C6 = MIDI 48-84)
-                if (note < 48 || note > 84) {
-                    static const char *noteNames[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-                    QString noteName = QString("%1%2").arg(noteNames[note % 12]).arg(note / 12 - 1);
-                    QJsonObject issue;
-                    issue["track"] = t;
-                    issue["issue"] = QString("out_of_range");
-                    issue["details"] = QString("Note %1 (%2) outside C3-C6 (MIDI 48-84) at tick %3")
-                                           .arg(noteName).arg(note).arg(tick);
-                    issues.append(issue);
-                }
-
-                // Find end tick for polyphony check
-                int endTick = tick;
-                MidiEvent *offEv = noteOn->offEvent();
-                if (offEv) endTick = offEv->midiTime();
-                notes.append({tick, note, endTick, ch});
-            }
-        }
-
-        // Check polyphony (overlapping notes)
-        // Sort by tick so the first overlap found is chronologically first (AI-006)
-        std::sort(notes.begin(), notes.end(),
-                  [](const NoteInfo &a, const NoteInfo &b) { return a.tick < b.tick; });
-        // For guitar tracks: only flag overlaps on the SAME channel (different
-        // channels are intentional guitar switches)
-        for (int i = 0; i < notes.size(); i++) {
-            for (int j = i + 1; j < notes.size(); j++) {
-                // Notes are sorted by tick — if next note starts after this one ends, skip rest
-                if (notes[j].tick >= notes[i].endTick)
-                    break;
-                if (trackIsGuitar && notes[i].channel != notes[j].channel)
-                    continue; // different guitar switch channels — OK
-                if (notes[i].endTick > notes[j].tick && notes[j].endTick > notes[i].tick) {
-                    QJsonObject issue;
-                    issue["track"] = t;
-                    issue["issue"] = QString("polyphonic");
-                    issue["details"] = QString("Overlapping notes at tick %1 and %2")
-                                           .arg(notes[i].tick).arg(notes[j].tick);
-                    issues.append(issue);
-                    // Only report first overlap per track to avoid flooding
-                    goto nextTrack;
-                }
-            }
-        }
-        nextTrack:;
+    const int cap = 100;
+    bool hasNameIssue = false;
+    for (const FfxivPlayabilityIssue &i : report.issues) {
+        if (i.type == FfxivPlayabilityIssue::Type::TrackName)
+            hasNameIssue = true;
+        if (issues.size() >= cap)
+            continue;
+        QJsonObject issue;
+        issue["track"] = i.track;
+        issue["issue"] = typeString(i.type);
+        issue["tick"] = i.tick;
+        issue["details"] = i.details;
+        issues.append(issue);
     }
 
     result["success"] = true;
-    result["valid"] = issues.isEmpty();
+    result["valid"] = report.issues.isEmpty();
     result["issues"] = issues;
-    result["summary"] = issues.isEmpty()
-        ? QString("File is FFXIV-compliant")
-        : QString("%1 issue(s) found").arg(issues.size());
+    if (report.issues.size() > cap)
+        result["issuesTruncated"] = report.issues.size() - cap;
+    // Octet finding #6: a rejected track name used to leave the agent
+    // guessing spellings. Quote the canonical list when a name failed.
+    if (hasNameIssue)
+        result["legalInstruments"] =
+            QJsonArray::fromStringList(FFXIVChannelFixer::instrumentNames());
+
+    if (report.issues.isEmpty()) {
+        result["summary"] = QStringLiteral("File is FFXIV-compliant");
+    } else {
+        result["summary"] = QStringLiteral(
+            "%1 issue(s): %2 overlap(s), %3 stacked duplicate(s), %4 out of "
+            "range, %5 track name(s), %6 program mismatch(es)")
+            .arg(report.issues.size())
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::Overlap))
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::DuplicateNote))
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::OutOfRange))
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::TrackName))
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::ProgramMismatch));
+    }
     return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
 QJsonObject ToolDefinitions::execConvertDrumsFFXIV(const QJsonObject &args,
