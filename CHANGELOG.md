@@ -14,8 +14,12 @@ Releases: https://github.com/happytunesai/web/releases
 > PLAYGROUND.md.
 
 ### New Features
-* **"Ask MidiPilot about the selection" in the note context menu** - right-click selected notes and the AI panel opens with the question already carrying what you are pointing at: how many notes, which bars, which track, and the pitch range. Nothing is sent - you complete the sentence and press Enter - and an unfinished draft in the chat box is kept and appended to rather than overwritten.
+* **"Ask MidiPilot about the selection" in the note context menu** - right-click selected notes and the AI panel opens with the question already carrying what you are pointing at: how many notes, which bars, which track, and the pitch range. Nothing is sent - you complete the sentence and press Enter - and an unfinished draft in the chat box is kept and appended to rather than overwritten. The entry appears only once an AI provider is set up, so it can never lead to a panel that cannot answer.
 * **Auto-Fit Voice Load can select instead of remove** - the tool's analysis is useful beyond deleting, so the dialog gained a **Select in editor** button: it closes and leaves the notes it found selected and unchanged, ready for any editor operation. On a dense tremolo run, set the skip slider to every 2nd note, press Select in editor and then Transpose Octave Up - and the machine-gun repeat becomes an alternating-octave arpeggio, in two undo steps without clicking a single note by hand. The same works for moving the found notes to another track or changing their velocity.
+
+### Bug Fixes
+* **The AI was told the wrong bar numbers** - MidiPilot and the MCP server reported the cursor's measure one too high, and the song one measure longer than it is. Bar numbers now match what the editor shows, so a request like "add a fill in the last bar" lands where you mean it.
+* **Toolbar bar display showed the wrong time signature and beat** - in Bar mode the time display read "4/2" for a song in 4/4 and counted beats as half notes, so a 4/4 bar never got past beat 2. It now shows the real time signature and counts every beat in the bar.
 
 ---
 

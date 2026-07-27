@@ -2178,9 +2178,14 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
 
     // v2.2 — ask the AI about what is selected, with the question pre-seeded
     // from the selection (bars, track, note count, range) so the user does not
-    // have to describe what the editor already knows.
-    QAction *askAiAct = menu.addAction(tr("Ask MidiPilot about the selection..."));
-    connect(askAiAct, &QAction::triggered, mw, &MainWindow::askMidiPilotAboutSelection);
+    // have to describe what the editor already knows. Only offered when an AI
+    // provider is actually configured: otherwise MidiPilot shows its setup
+    // prompt with a disabled input, and the entry would promise something it
+    // cannot deliver.
+    if (mw->isMidiPilotUsable()) {
+        QAction *askAiAct = menu.addAction(tr("Ask MidiPilot about the selection..."));
+        connect(askAiAct, &QAction::triggered, mw, &MainWindow::askMidiPilotAboutSelection);
+    }
 
     menu.addSeparator();
 

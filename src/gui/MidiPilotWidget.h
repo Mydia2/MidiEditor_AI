@@ -57,6 +57,17 @@ public:
      *  Enter. An existing draft is left alone.
      */
     void prefillInput(const QString &text);
+
+    /**
+     * \brief Whether MidiPilot can actually be used, i.e. an AI provider is
+     *  configured (an API key is stored, or the provider is local and needs
+     *  none). When false the panel shows the setup prompt instead of a chat
+     *  and the input field is disabled, so seeding a question would silently
+     *  do nothing - callers that offer such an action (context menus) must
+     *  not show it at all.
+     */
+    bool isConfigured() const;
+
     /**
      * \\brief Returns the current mode: \"simple\" or \"agent\".
      */

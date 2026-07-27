@@ -673,6 +673,14 @@ public slots:
      */
     void askMidiPilotAboutSelection();
 
+    /**
+     * \brief v2.2: whether the MidiPilot panel exists AND has a configured
+     *        AI provider. Context menus gate their "Ask MidiPilot" entry on
+     *        this - without a provider the chat input is disabled, so the
+     *        entry would look available and then do nothing.
+     */
+    bool isMidiPilotUsable() const;
+
     // v2.0 #3: per-track context-menu operations, called directly from the
     // Tracks/Channels panel context menus (each captures the right-clicked
     // MidiTrack* and resolves its document via track->file()). The MidiTrack*

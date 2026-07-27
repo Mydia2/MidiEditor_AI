@@ -155,9 +155,14 @@ public:
     /**
      * \brief Gets measure information for a given tick position.
      * \param startTick The tick position to query
-     * \param startTickOfMeasure Pointer to receive measure start tick
-     * \param endTickOfMeasure Pointer to receive measure end tick
-     * \return The measure number (0-based)
+     * \param startTickOfMeasure Pointer to receive measure start tick.
+     *        MUST NOT be null - it is dereferenced unconditionally.
+     * \param endTickOfMeasure Pointer to receive measure end tick.
+     *        MUST NOT be null - it is dereferenced unconditionally.
+     * \return The measure number, 1-BASED: tick 0 is in measure 1. This is
+     *         the number the status bar, the time display and the measure
+     *         tool show, so it is what the user sees - never add 1 to it.
+     *         Matches startTickOfMeasure(), which is 1-based as well.
      */
     int measure(int startTick, int *startTickOfMeasure, int *endTickOfMeasure);
 
@@ -451,7 +456,9 @@ public:
      * \brief Gets the time signature at a specific tick.
      * \param tick The tick position to query
      * \param num Pointer to receive the numerator
-     * \param denum Pointer to receive the denominator
+     * \param denum Pointer to receive the denominator as the SMF POWER-OF-TWO
+     *        EXPONENT, not the printed number: 2 means /4, 3 means /8. To show
+     *        or divide by it, use `1 << *denum`.
      * \param lastTimeSigEvent Optional pointer to receive the time signature event
      */
     void meterAt(int tick, int *num, int *denum, TimeSignatureEvent **lastTimeSigEvent = 0);

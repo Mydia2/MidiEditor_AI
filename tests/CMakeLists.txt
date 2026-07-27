@@ -1587,6 +1587,58 @@ target_link_libraries(test_ffxiv_fixer_resync PRIVATE
 )
 add_test(NAME FfxivFixerResync COMMAND test_ffxiv_fixer_resync)
 
+# -----------------------------------------------------------------------------
+# test_midi_measure
+# -----------------------------------------------------------------------------
+# Pins the 1-BASED bar-numbering contract of MidiFile::measure() and
+# startTickOfMeasure(). The header used to claim "0-based", so callers added 1
+# and reported bars one too high (the AI context shipped that way). Same
+# harness as test_ffxiv_fixer_resync, minus the fixer.
+add_executable(test_midi_measure
+    test_midi_measure.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_midi_measure PRIVATE
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_midi_measure PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME MidiMeasure COMMAND test_midi_measure)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1626,6 +1678,7 @@ if(WIN32)
         ThreeMleParser
         DrumKitPreset
         FfxivFixerResync
+        MidiMeasure
         GpToNative
         MidiDiff
         PrBundle

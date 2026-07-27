@@ -6748,12 +6748,26 @@ void MainWindow::autoFitVoiceLoadSelection() {
     openAutoFitDialog(-1, -1, notes);
 }
 
+bool MainWindow::isMidiPilotUsable() const {
+    return _midiPilotWidget && _midiPilotWidget->isConfigured();
+}
+
 void MainWindow::askMidiPilotAboutSelection() {
     if (_midiPilotDock) {
         _midiPilotDock->setVisible(true);
         _midiPilotDock->raise();
     }
     if (!_midiPilotWidget) {
+        return;
+    }
+    // Callers hide the action when no provider is configured, but keep the
+    // guard: the panel then shows the setup prompt with a DISABLED input, so
+    // seeding a question would leave the user with an unanswerable draft.
+    // Revealing the dock above already puts the setup prompt in front of them.
+    if (!_midiPilotWidget->isConfigured()) {
+        statusBar()->showMessage(
+            tr("MidiPilot has no AI provider yet - use \"Open Settings\" in the "
+               "panel to set one up."), 8000);
         return;
     }
     // Describe WHAT the user is pointing at, so the question does not start
@@ -6780,9 +6794,13 @@ void MainWindow::askMidiPilotAboutSelection() {
         hiPitch = qMax(hiPitch, on->note());
         if (on->track()) trackNumbers.insert(on->track()->number());
     }
-    // measure() is 0-based; users count bars from 1.
-    const int firstBar = file->measure(firstTick, nullptr, nullptr) + 1;
-    const int lastBar = file->measure(lastTick, nullptr, nullptr) + 1;
+    // MidiFile::measure() dereferences BOTH out-params unconditionally
+    // (MidiFile.cpp:817-818) - passing nullptr crashes with an access
+    // violation. Always hand it real sinks.
+    int measureStart = 0;
+    int measureEnd = 0;
+    const int firstBar = file->measure(firstTick, &measureStart, &measureEnd);
+    const int lastBar = file->measure(lastTick, &measureStart, &measureEnd);
 
     QString where = (firstBar == lastBar)
         ? tr("bar %1").arg(firstBar)

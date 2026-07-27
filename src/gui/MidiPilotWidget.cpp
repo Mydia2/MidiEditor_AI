@@ -829,6 +829,10 @@ void MidiPilotWidget::setupUi() {
     setupSetupPrompt();
 }
 
+bool MidiPilotWidget::isConfigured() const {
+    return _client && _client->isConfigured();
+}
+
 void MidiPilotWidget::setupSetupPrompt() {
     bool configured = _client->isConfigured();
     _setupWidget->setVisible(!configured);

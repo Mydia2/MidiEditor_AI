@@ -1994,8 +1994,12 @@ void MidiFile::meterAt(int tick, int *num, int *denum, TimeSignatureEvent **last
     }
 
     if (!event) {
+        // 4/4 default. denum is the power-of-two EXPONENT, so /4 is 2 - the
+        // former 4 here meant /16 to every caller that converted correctly.
+        // Unreachable in practice (a time signature at tick 0 is guaranteed),
+        // but it must not contradict the documented convention.
         *num = 4;
-        *denum = 4;
+        *denum = 2;
     } else {
         *num = event->num();
         *denum = event->denom();

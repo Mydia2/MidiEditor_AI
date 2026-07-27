@@ -12703,6 +12703,30 @@ Four items picked from the 2.2 candidates. Deliberately mixed: two small wins,
 one measurement task, one technical-debt block. Order is by risk, smallest
 first, so the release can be cut after ANY of them if the cycle gets short.
 
+## #0 Bar-numbering family (unplanned, ✅ DONE 2026-07-27)
+
+Came out of a crash in #1 that a user hit immediately: selecting notes and
+choosing "Ask MidiPilot about the selection..." killed the app. Suspected
+cause was a missing API key; the real one was `MidiFile::measure()`
+dereferencing both out-params unconditionally while the new code passed
+`nullptr` because it only wanted the bar number.
+
+Chasing that turned up a whole family with ONE origin - the declaration
+documented the return value as "0-based" when the implementation is 1-based:
+the AI was told the cursor bar and the total bar count one too high, and the
+toolbar's bar display showed "4/2" for a 4/4 song because
+`meterAt()`'s denominator is a power-of-two exponent that was equally
+undocumented. All fixed, with a new `test_midi_measure` target (8 cases)
+pinning both conventions - neither had any test, and neither is visible by
+reading the code. The Export dialog has the same off-by-one in its custom
+range (it asks for a negative start tick at the spinbox minimum), left OPEN
+as EXPORT-MEASURE-001 because it changes shipped export output and wants its
+own verification pass.
+
+Lesson worth keeping: a wrong doc comment on a core primitive is not a
+cosmetic defect - every caller that trusted it inherited the bug, and the
+ones that got it right did so by reading the implementation instead.
+
 ## #1 "Ask MidiPilot..." in the note context menu (small)
 
 Open since Phase 2 (roadmap line ~169) and now trivial: the matrix selection

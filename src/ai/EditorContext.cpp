@@ -52,7 +52,10 @@ QJsonObject EditorContext::captureState(MidiFile *file, MatrixWidget *matrix)
     int measureStart = 0, measureEnd = 0;
     int measureNum = file->measure(cursorTick, &measureStart, &measureEnd);
     QJsonObject measureObj;
-    measureObj[QStringLiteral("number")] = measureNum + 1; // 1-based for user display
+    // measure() is ALREADY 1-based (tick 0 -> measure 1) and is what the
+    // status bar shows. The former +1 here reported every bar one too high,
+    // so the AI's bar numbers disagreed with the editor the user was reading.
+    measureObj[QStringLiteral("number")] = measureNum;
     measureObj[QStringLiteral("startTick")] = measureStart;
     measureObj[QStringLiteral("endTick")] = measureEnd;
     state[QStringLiteral("currentMeasure")] = measureObj;
@@ -116,10 +119,12 @@ QJsonObject EditorContext::captureFileInfo(MidiFile *file)
     info[QStringLiteral("endTick")] = file->endTick();
     info[QStringLiteral("modified")] = !file->saved();
 
-    // Total measures (1-based)
+    // Total measures = the 1-based number of the measure the last tick falls
+    // in. measure() is already 1-based, so the former +1 claimed one measure
+    // more than the song has - an AI asked to work "in the last bar" aimed
+    // past the end.
     int ms = 0, me = 0;
-    int lastMeasure = file->measure(file->endTick(), &ms, &me);
-    info[QStringLiteral("totalMeasures")] = lastMeasure + 1;
+    info[QStringLiteral("totalMeasures")] = file->measure(file->endTick(), &ms, &me);
 
     return info;
 }
