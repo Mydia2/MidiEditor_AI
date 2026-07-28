@@ -12952,6 +12952,16 @@ exact step counts), drop-oldest with a pinned head (the open-file sentinel
 step) and a synthetic marker step. Explicitly NOT doing: a cap based on a
 guessed number.
 
+Documented-not-fixed until (c) lands (v2.2 review COUNTER-UNDOCHURN-001 /
+TABCLOSE-COUNTER-001, decision 2026-07-28): the status-bar MB figure does
+not drop on Undo (undone steps stay retained for Redo), and a closed tab's
+history stays allocated (~MidiFile deliberately leaks the protocol) but
+LEAVES the figure - only open tabs are summed, so the label under-reports
+after closes. Both are consequences of "nothing is ever freed today"; the
+label tooltip states this openly. The cap work is the ONE place that gets
+to change reclaim semantics - no interim point-fixes to make the counter
+"look better", they would mask the numbers (b) was measured against.
+
 ## #4 Phase 45 AppPaths - issue #13 + portable INI (technical debt)
 
 See Phase 45 above for the full design. For 2.2 the split matters: steps 1-3

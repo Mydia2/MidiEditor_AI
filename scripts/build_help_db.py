@@ -83,6 +83,11 @@ class SectionExtractor(HTMLParser):
         if tag in ("p", "tr", "ul", "table", "h3"):
             if self.sections:
                 self.sections[-1]["parts"].append("\n")
+        elif tag in ("td", "th"):
+            # HELPDB-TABLES-001: without a cell separator adjacent cells
+            # glue into one word ("Tool AccessNone") and poison the index.
+            if self.sections:
+                self.sections[-1]["parts"].append(" | ")
 
     def handle_data(self, data):
         if self._ignore_depth or not self.sections:
@@ -96,6 +101,7 @@ class SectionExtractor(HTMLParser):
 def clean(text):
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r" ?\n ?", "\n", text)
+    text = re.sub(r"(?: ?\| ?)+\n", "\n", text)  # drop row-trailing cell separators
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 

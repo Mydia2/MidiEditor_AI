@@ -111,7 +111,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 15 MIDI manipulation tools (12 base + 3 FFXIV)
+│   ├── ToolDefinitions   → 27 MIDI manipulation tools (22 core + 5 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Collaboration        → Live multi-peer co-editing + async PR workflow
 │   ├── LanLiveSession    → LAN host/joiner state machine + heartbeat + ghost-peer dedup
