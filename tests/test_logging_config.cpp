@@ -2,14 +2,22 @@
 // overrides + collab-verbose flag, persisted via QSettings (Phase 9.6f).
 //
 // LoggingConfig is pure Qt (QLoggingCategory + QSettings) with no MidiFile /
-// MidiEvent / network deps. The test sandboxes QSettings via
-// QStandardPaths::setTestModeEnabled(true) so the developer's real
-// Logging/* and Collab/verboseLogging keys are never touched.
+// MidiEvent / network deps. Settings are sandboxed via the central
+// AppPaths::setSettingsScopeForTests seam (Phase 45). The previous
+// QStandardPaths::setTestModeEnabled claim was FALSE on Windows: the
+// explicit ("MidiEditor","NONE") scope is the REGISTRY, which test mode
+// does not cover - so wipeKeys() deleted the developer's real Logging/*
+// keys on every run. Proven live during the v2.2 undo-memory measurement:
+// the armed Logging/perCategory override kept vanishing because every
+// ctest run wiped it. Third instance of this defect class (after the two
+// FFXIV service tests found by the v2.1.0 round-2 review and
+// test_tool_definitions' ffxiv_mode toggling).
 //
 // Run from a build configured with -DBUILD_TESTING=ON:
 //     ctest --test-dir build -V -R LoggingConfig
 
 #include "LoggingConfig.h"
+#include "AppPaths.h"
 
 #include <QCoreApplication>
 #include <QSettings>
@@ -58,19 +66,21 @@ private slots:
 
 private:
     static void wipeKeys() {
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        s.remove(QStringLiteral("Logging/level"));
-        s.remove(QStringLiteral("Logging/perCategory"));
-        s.remove(QStringLiteral("Collab/verboseLogging"));
-        s.sync();
+        auto s = AppPaths::settings(); // the TEST scope - never the registry
+        s->remove(QStringLiteral("Logging/level"));
+        s->remove(QStringLiteral("Logging/perCategory"));
+        s->remove(QStringLiteral("Collab/verboseLogging"));
+        s->sync();
     }
 };
 
 void TestLoggingConfig::initTestCase() {
-    // Sandbox QSettings so the developer's real config isn't touched.
+    // Sandbox settings via the CENTRAL seam - LoggingConfig reads/writes
+    // through AppPaths::settings(), so this one redirect covers everything.
+    // (QStandardPaths test mode alone does NOT cover the Windows registry.)
     QStandardPaths::setTestModeEnabled(true);
-    QCoreApplication::setOrganizationName(QStringLiteral("MidiEditor"));
-    QCoreApplication::setApplicationName(QStringLiteral("NONE"));
+    AppPaths::setSettingsScopeForTests(QStringLiteral("MidiEditorTest"),
+                                       QStringLiteral("LoggingConfigTest"));
 }
 
 void TestLoggingConfig::init() {
@@ -262,9 +272,9 @@ void TestLoggingConfig::applyAndPersist_emptyPerCategoryRemovesTheKey() {
     QCOMPARE(LoggingConfig::loadPerCategory(), QString());
 
     // And the actual key is removed (not just blanked) — important for
-    // tools that scan the .ini for known keys.
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    QVERIFY(!s.contains(QStringLiteral("Logging/perCategory")));
+    // tools that scan the .ini for known keys. Probe through the same
+    // seam LoggingConfig writes through.
+    QVERIFY(!AppPaths::settings()->contains(QStringLiteral("Logging/perCategory")));
 }
 
 // Whitespace-only per-category is treated identically to empty — the key
@@ -275,8 +285,7 @@ void TestLoggingConfig::applyAndPersist_whitespacePerCategoryRemovesTheKey() {
     LoggingConfig::applyAndPersist(LoggingConfig::Level::Warnings,
                                    QStringLiteral("   \n\t  "));
     QCOMPARE(LoggingConfig::loadPerCategory(), QString());
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    QVERIFY(!s.contains(QStringLiteral("Logging/perCategory")));
+    QVERIFY(!AppPaths::settings()->contains(QStringLiteral("Logging/perCategory")));
 }
 
 // ---------------------------------------------------------------------
@@ -288,16 +297,14 @@ void TestLoggingConfig::setCollabVerbose_persistsTrueAndClearsOnFalse() {
     LoggingConfig::setCollabVerbose(true);
     QVERIFY(LoggingConfig::loadCollabVerbose());
 
-    // The key should exist now
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    QVERIFY(s.contains(QStringLiteral("Collab/verboseLogging")));
+    // The key should exist now (probe through the seam)
+    QVERIFY(AppPaths::settings()->contains(QStringLiteral("Collab/verboseLogging")));
 
     // Turning it off removes the key (not just sets it false) so default
     // detection (key-absent => false) works after a user toggle-pair.
     LoggingConfig::setCollabVerbose(false);
     QVERIFY(!LoggingConfig::loadCollabVerbose());
-    QSettings s2(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    QVERIFY(!s2.contains(QStringLiteral("Collab/verboseLogging")));
+    QVERIFY(!AppPaths::settings()->contains(QStringLiteral("Collab/verboseLogging")));
 }
 
 void TestLoggingConfig::loadCollabVerbose_defaultsToFalse() {
