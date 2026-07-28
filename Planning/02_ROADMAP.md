@@ -12912,21 +12912,45 @@ full design with a virtual estimator on ProtocolEntry was rejected as
   document's numbers until the next edit. setActiveDocument() now refreshes
   explicitly.
 
-**(b) measurement session - still open, needs a real >100k-event
-arrangement (none in the repo) and one hour of scripted editing with the
-category enabled.** Watch two phases especially: plain note draw/erase on a
-dense channel (the dominant cost per the corrected model) and undo-then-edit
-churn (where the estimator and PrivateUsage DIVERGE - that divergence is the
-invisible-leak term, and it decides whether a cap on the live stack helps at
-all).
+**(b) measurement session ✅ RUN 2026-07-28** - scripted over MCP against a
+live 18-track file (agent-driven, 8 phases, ~4400 note touches, 1 Hz
+sampler). MEASURED RESULTS:
 
-**(c) cap policy - only after (b), and gated on an ownership fix first:**
-ProtocolItem has no destructor, so dropping a step today would free ~50-80 B
-of shells and leak the ~1 MB map - depth would drop, RAM would not. Shape
-when it comes: byte budget (not steps - autosave appends zero-byte steps),
-default OFF opt-in (AiClient max_tokens precedent; tests assert exact step
-counts), drop-oldest with a pinned head (the open-file sentinel step) and a
-synthetic marker step. Explicitly NOT doing: a cap based on a guessed number.
+| op class | cost | undo-relevant behaviour |
+|---|---|---|
+| value edit (transpose) | ~44 B/note | flat - the cheap path, as modelled |
+| bulk copy (1 snapshot/channel) | ~0.13 KiB/note | flat - the bulk idiom works |
+| per-note insert | 45 KiB/note avg | **QUADRATIC**: 370 -> 1570 nodes/note across four 200-note batches (every note snapshots a GROWING channel) |
+| per-note delete | 83-166 KiB/note | most expensive class, same quadratic driver |
+| bounded churn (insert+delete rounds) | ~14 KiB/note | FLAT when the channel resets - growth, not repetition, is the cost |
+
+Headline numbers: 46 undo steps -> 185 MiB structural, 262 MiB
+PrivateUsage. **Divergence 77 MiB = 29.5% of committed memory is invisible
+to the stack-walk estimator** (worst in track removal at 51% explained and
+churn at 62%). Session-wide the estimator explains 70.5%.
+
+**Conclusions for (c), now data-backed:**
+1. Budget on priv-margined numbers: structural needs a ~40% uplift to
+   reflect committed reality.
+2. A flat per-event byte cap would badly underestimate bulk ops - the true
+   cost driver is CHANNEL SIZE AT SNAPSHOT TIME, not event count. The
+   highest-value fix remains converting the ~10 per-event snapshot loops to
+   the bulk idiom (copy proved it: 0.13 vs 45 KiB/note = ~350x) - bigger
+   win than any cap, exactly as the design review predicted.
+3. A live-stack cap alone cannot reach the ~30% invisible share (leaked
+   snapshots, orphaned events, allocator overhead).
+Not yet measured: GUI draw/erase (same code path as per-note insert, so
+expect the quadratic), undo/redo churn (no MCP tool), tab-close effects,
+denser channels (steeper quadratic expected).
+
+**(c) cap policy - now unblocked by (b), still gated on an ownership fix
+first:** ProtocolItem has no destructor, so dropping a step today would free
+~50-80 B of shells and leak the ~1 MB map - depth would drop, RAM would not.
+Shape when it comes: byte budget (not steps - autosave appends zero-byte
+steps), default OFF opt-in (AiClient max_tokens precedent; tests assert
+exact step counts), drop-oldest with a pinned head (the open-file sentinel
+step) and a synthetic marker step. Explicitly NOT doing: a cap based on a
+guessed number.
 
 ## #4 Phase 45 AppPaths - issue #13 + portable INI (technical debt)
 
