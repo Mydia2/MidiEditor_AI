@@ -1,4 +1,6 @@
 #include "Appearance.h"
+
+#include "../AppPaths.h"
 #include <QStyleFactory>
 #include <QStyleHints>
 #include <QTimer>
@@ -1007,8 +1009,13 @@ bool Appearance::useHardwareAcceleration() {
 }
 
 void Appearance::loadEarlySettings() {
-    // Load only the settings needed before QApplication is created
-    QSettings settings(QString("MidiEditor"), QString("NONE"));
+    // Load only the settings needed before QApplication is created. Through
+    // AppPaths (PORTABLE-SPLIT-001): main() calls AppPaths::initSettings
+    // BEFORE this, so portable installs read the INI here - previously this
+    // read the registry while the settings dialog wrote the INI, and the
+    // rendering toggles never took effect on portable sticks.
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     _ignoreSystemScaling = settings.value("ignore_system_scaling", false).toBool();
     _ignoreFontScaling = settings.value("ignore_font_scaling", false).toBool();
     _useRoundedScaling = settings.value("use_rounded_scaling", false).toBool();
@@ -1065,7 +1072,11 @@ void Appearance::setToolbarEnabledActions(const QStringList &enabled) {
 }
 
 void Appearance::flushToolbarSettings() {
-    QSettings settings(QString("MidiEditor"), QString("NONE"));
+    // Through AppPaths: this crash-safety flush must land in the SAME store
+    // startup reads, or a portable user's toolbar customization survives
+    // only clean shutdowns (TOOLBAR-FLUSH-001).
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     settings.setValue("toolbar_icon_size", _toolbarIconSize);
     settings.setValue("toolbar_two_row_mode", _toolbarTwoRowMode);
     settings.setValue("toolbar_customize_enabled", _toolbarCustomizeEnabled);

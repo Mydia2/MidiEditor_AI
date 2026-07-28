@@ -10,6 +10,8 @@
 
 #include "RtcRendezvousClient.h"
 
+#include "../AppPaths.h"
+
 #ifdef MIDIEDITOR_WEBRTC_ENABLED
 
 #include <QElapsedTimer>
@@ -65,14 +67,16 @@ QString RtcRendezvousClient::defaultUrl() {
 }
 
 QString RtcRendezvousClient::configuredUrl() {
-    QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     QString raw = settings.value(QString::fromLatin1(kSettingsKey)).toString().trimmed();
     if (raw.isEmpty()) raw = defaultUrl();
     return trimTrailingSlashes(raw);
 }
 
 void RtcRendezvousClient::setConfiguredUrl(const QString &url) {
-    QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     settings.setValue(QString::fromLatin1(kSettingsKey), url.trimmed());
 }
 

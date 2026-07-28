@@ -75,13 +75,14 @@ add_test(NAME MidiHash COMMAND test_midi_hash)
 # test_collab_identity
 # -----------------------------------------------------------------------------
 # Validates CollabIdentity (display name + machine UUID) in
-# src/collab/CollabIdentity. Sandboxes QSettings via
-# QStandardPaths::setTestModeEnabled(true) so the developer's real
-# Collab/identity/* keys are never touched. Pure Qt - no MidiFile, no
-# network deps.
+# src/collab/CollabIdentity. Sandboxed via the AppPaths settings seam
+# (setSettingsScopeForTests) so the developer's real Collab/identity/*
+# keys are never touched - QStandardPaths test mode does NOT cover the
+# Windows registry. Pure Qt - no MidiFile, no network deps.
 add_executable(test_collab_identity
     test_collab_identity.cpp
     ../src/collab/CollabIdentity.cpp
+    ../src/AppPaths.cpp # v2.2 review: CollabIdentity routes through the seam
 )
 target_include_directories(test_collab_identity PRIVATE
     ../src/collab
@@ -120,12 +121,13 @@ add_test(NAME HistoryReconciliation COMMAND test_history_reconciliation)
 # Validates IceConfig (STUN/TURN URI list I/O via QSettings) in
 # src/collab/IceConfig. The IceConfig header gates its declarations on
 # MIDIEDITOR_WEBRTC_ENABLED, so the test target defines it. No
-# libdatachannel symbols are referenced from IceConfig.cpp, so the test
-# stays a single-cpp build with just Qt6::Core. Sandboxed via
-# QStandardPaths::setTestModeEnabled.
+# libdatachannel symbols are referenced from IceConfig.cpp. Sandboxed via
+# the AppPaths settings seam (QStandardPaths test mode does NOT cover the
+# Windows registry).
 add_executable(test_ice_config
     test_ice_config.cpp
     ../src/collab/IceConfig.cpp
+    ../src/AppPaths.cpp # v2.2 review: IceConfig routes through the seam
 )
 target_include_directories(test_ice_config PRIVATE
     ../src/collab
@@ -732,6 +734,7 @@ add_test(NAME AgentToolPolicy COMMAND test_agent_tool_policy)
 add_executable(test_model_favorites
     test_model_favorites.cpp
     ../src/ai/ModelFavorites.cpp
+    ../src/AppPaths.cpp # v2.2 review: ModelFavorites routes through the seam
 )
 target_include_directories(test_model_favorites PRIVATE ../src/ai)
 target_link_libraries(test_model_favorites PRIVATE
@@ -822,6 +825,7 @@ endif()
 add_executable(test_prompt_profiles
     test_prompt_profiles.cpp
     ../src/ai/PromptProfileStore.cpp
+    ../src/AppPaths.cpp # v2.2 review: PromptProfileStore routes through the seam
 )
 target_include_directories(test_prompt_profiles PRIVATE ../src/ai)
 target_link_libraries(test_prompt_profiles PRIVATE

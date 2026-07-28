@@ -7,6 +7,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QSettings>
+#include <memory>
 #include <QHash>
 #include <QSet>
 
@@ -455,7 +456,12 @@ private slots:
 private:
     QNetworkAccessManager *_manager;
     QNetworkReply *_currentReply;
-    QSettings _settings;
+    // Phase 45 / PORTABLE-SPLIT-001: the store is decided by AppPaths at
+    // construction (native scope normally, portable INI with the marker).
+    // The old value member hard-wired the registry - in portable mode the
+    // settings dialog then wrote API keys to the INI while requests kept
+    // reading the stale registry key.
+    std::unique_ptr<QSettings> _settings;
     QString _model;
     QString _apiBaseUrl;
     QString _provider;

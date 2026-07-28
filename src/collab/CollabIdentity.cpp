@@ -4,6 +4,8 @@
 
 #include "CollabIdentity.h"
 
+#include "../AppPaths.h"
+
 #include <QSettings>
 #include <QString>
 #include <QUuid>
@@ -24,7 +26,8 @@ QString sanitizeUuid(const QUuid &id) {
 }
 
 QString CollabIdentity::displayName() {
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     QString name = settings.value("Collab/identity/displayName").toString();
     if (name.isEmpty()) {
         name = readOsUserName();
@@ -34,7 +37,8 @@ QString CollabIdentity::displayName() {
 }
 
 void CollabIdentity::setDisplayName(const QString &name) {
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     QString trimmed = name.trimmed();
     if (trimmed.isEmpty()) {
         settings.remove("Collab/identity/displayName");
@@ -44,7 +48,8 @@ void CollabIdentity::setDisplayName(const QString &name) {
 }
 
 QString CollabIdentity::machineId() {
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     QString id = settings.value("Collab/identity/machineId").toString();
     if (id.isEmpty()) {
         id = sanitizeUuid(QUuid::createUuid());
@@ -54,7 +59,8 @@ QString CollabIdentity::machineId() {
 }
 
 void CollabIdentity::regenerateMachineId() {
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     settings.setValue("Collab/identity/machineId", sanitizeUuid(QUuid::createUuid()));
 }
 

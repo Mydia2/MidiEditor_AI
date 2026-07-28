@@ -47,11 +47,14 @@ QString dataFilePath(const QString &fileName);
  *  the executable or the app was started with `--portable`. Decided once. */
 bool isPortable();
 
-/** Call ONCE early in main(), before the first QSettings use. In portable
- *  mode this redirects default-constructed QSettings to an INI under
- *  <dataDir()>/config and migrates the native scope (registry) into the
- *  INI on first use - a USB-stick copy finally carries its settings. */
-void initSettings();
+/** Call FIRST THING in main(), BEFORE QApplication and before the first
+ *  QSettings use anywhere (Appearance::loadEarlySettings reads rendering
+ *  flags pre-QApplication - the review's PORTABLE-SPLIT-001). Resolves the
+ *  exe directory from argv[0], detects portable mode, and in portable mode
+ *  redirects settings to an INI under <exeDir>/config with a one-time
+ *  migration from the native scope. Needs no QApplication - QSettings
+ *  path/format redirection is process-global static state. */
+void initSettings(int argc, char *argv[]);
 
 /** THE settings accessor - the one place that knows where settings live.
  *  Portable: the INI scope initSettings() set up; tests: the scope

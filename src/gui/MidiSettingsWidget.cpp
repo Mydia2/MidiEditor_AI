@@ -17,6 +17,7 @@
  */
 
 #include "MidiSettingsWidget.h"
+#include "../AppPaths.h"
 #include "Appearance.h"
 #include "../ai/FfxivVoiceAnalyzer.h"
 
@@ -380,7 +381,8 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
         "Always On: always analyse, even with normal SoundFonts.\n"
         "Always Off: hide the gauge entirely."));
     {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         QString cur = s.value("FFXIV/voiceLimiter/userOverride").toString();
         int idx = 0;
         if (cur == "on")  idx = 1;
@@ -425,7 +427,8 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
                "the original tune; a plain MIDI can only use the SoundFont."));
     }
     {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         const QString mode = s.value("C64/playbackMode", "soundfont").toString();
         if (mode == "emulation" && _c64EmulationRadio->isEnabled())
             _c64EmulationRadio->setChecked(true);
@@ -458,14 +461,17 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
         tr("SID tunes loop forever; when automatic loop detection fails the\n"
            "importer captures this many seconds (still overridable per import)."));
     {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         _c64ImportSecondsBox->setValue(s.value("C64/defaultImportSeconds", 240).toInt());
     }
     c64ImportRow->addWidget(_c64ImportSecondsBox);
     c64ImportRow->addStretch();
     c64Layout->addLayout(c64ImportRow);
     connect(_c64ImportSecondsBox, &QSpinBox::valueChanged, this, [](int v) {
-        QSettings s("MidiEditor", "NONE"); s.setValue("C64/defaultImportSeconds", v);
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
+        s.setValue("C64/defaultImportSeconds", v);
     });
 
     layout->addWidget(c64Group, 4, 0, 1, 6);
@@ -724,7 +730,8 @@ void MidiSettingsWidget::onFfxivVoiceLimiterModeChanged(int /*index*/) {
     if (!_ffxivVoiceLimiterCombo)
         return;
     QString mode = _ffxivVoiceLimiterCombo->currentData().toString();
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     if (mode == "auto")
         s.remove("FFXIV/voiceLimiter/userOverride");
     else

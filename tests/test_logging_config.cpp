@@ -222,14 +222,22 @@ void TestLoggingConfig::loadLevel_defaultsToWarningsWhenUnset() {
 // version downgrade left a higher value) must NOT crash or honour the
 // invalid value — clamp to Warnings instead.
 void TestLoggingConfig::loadLevel_outOfRangeValuesClampedToDefault() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    s.setValue(QStringLiteral("Logging/level"), 99);
-    s.sync();
+    // Through the seam - the direct ("MidiEditor","NONE") construction this
+    // test used until 2026-07-28 wrote Logging/level=-5 into the REAL
+    // registry on every run (the one site c617c21 missed).
+    {
+        auto s = AppPaths::settings();
+        s->setValue(QStringLiteral("Logging/level"), 99);
+        s->sync();
+    }
     QCOMPARE(static_cast<int>(LoggingConfig::loadLevel()),
              static_cast<int>(LoggingConfig::Level::Warnings));
 
-    s.setValue(QStringLiteral("Logging/level"), -5);
-    s.sync();
+    {
+        auto s = AppPaths::settings();
+        s->setValue(QStringLiteral("Logging/level"), -5);
+        s->sync();
+    }
     QCOMPARE(static_cast<int>(LoggingConfig::loadLevel()),
              static_cast<int>(LoggingConfig::Level::Warnings));
 }

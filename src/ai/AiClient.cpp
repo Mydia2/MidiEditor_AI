@@ -94,7 +94,7 @@ AiClient::AiClient(QObject *parent)
     : QObject(parent),
       _manager(new QNetworkAccessManager(this)),
       _currentReply(nullptr),
-      _settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE")),
+      _settings(AppPaths::settings()),
       _isTestRequest(false),
       _useResponsesApi(false),
       _thinkingEnabled(false),
@@ -107,13 +107,13 @@ AiClient::AiClient(QObject *parent)
       _streamGeminiCallCounter(0),
       _retryCount(0)
 {
-    _model = _settings.value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
-    _thinkingEnabled = _settings.value(SETTINGS_KEY_THINKING, true).toBool();
-    _reasoningEffort = _settings.value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
-    _apiBaseUrl = _settings.value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
-    _provider = _settings.value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
-    _maxTokensEnabled = _settings.value(QStringLiteral("AI/max_token_enabled"), false).toBool();
-    _maxTokensLimit = _settings.value(QStringLiteral("AI/max_token_limit"), 16384).toInt();
+    _model = _settings->value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
+    _thinkingEnabled = _settings->value(SETTINGS_KEY_THINKING, true).toBool();
+    _reasoningEffort = _settings->value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
+    _apiBaseUrl = _settings->value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
+    _provider = _settings->value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
+    _maxTokensEnabled = _settings->value(QStringLiteral("AI/max_token_enabled"), false).toBool();
+    _maxTokensLimit = _settings->value(QStringLiteral("AI/max_token_limit"), 16384).toInt();
     connect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished);
 }
 
@@ -214,17 +214,17 @@ QString AiClient::model() const
 void AiClient::setModel(const QString &model)
 {
     _model = model;
-    _settings.setValue(SETTINGS_KEY_MODEL, model);
+    _settings->setValue(SETTINGS_KEY_MODEL, model);
 }
 
 QString AiClient::apiKey() const
 {
-    return _settings.value(SETTINGS_KEY_API_KEY).toString();
+    return _settings->value(SETTINGS_KEY_API_KEY).toString();
 }
 
 void AiClient::setApiKey(const QString &key)
 {
-    _settings.setValue(SETTINGS_KEY_API_KEY, key);
+    _settings->setValue(SETTINGS_KEY_API_KEY, key);
 }
 
 QString AiClient::apiBaseUrl() const
@@ -235,7 +235,7 @@ QString AiClient::apiBaseUrl() const
 void AiClient::setApiBaseUrl(const QString &url)
 {
     _apiBaseUrl = url;
-    _settings.setValue(SETTINGS_KEY_API_BASE_URL, url);
+    _settings->setValue(SETTINGS_KEY_API_BASE_URL, url);
 }
 
 QString AiClient::provider() const
@@ -246,7 +246,7 @@ QString AiClient::provider() const
 void AiClient::setProvider(const QString &provider)
 {
     _provider = provider;
-    _settings.setValue(SETTINGS_KEY_PROVIDER, provider);
+    _settings->setValue(SETTINGS_KEY_PROVIDER, provider);
 }
 
 bool AiClient::thinkingEnabled() const
@@ -257,7 +257,7 @@ bool AiClient::thinkingEnabled() const
 void AiClient::setThinkingEnabled(bool enabled)
 {
     _thinkingEnabled = enabled;
-    _settings.setValue(SETTINGS_KEY_THINKING, enabled);
+    _settings->setValue(SETTINGS_KEY_THINKING, enabled);
 }
 
 QString AiClient::reasoningEffort() const
@@ -268,7 +268,7 @@ QString AiClient::reasoningEffort() const
 void AiClient::setReasoningEffort(const QString &effort)
 {
     _reasoningEffort = effort;
-    _settings.setValue(SETTINGS_KEY_REASONING_EFFORT, effort);
+    _settings->setValue(SETTINGS_KEY_REASONING_EFFORT, effort);
 }
 
 void AiClient::setNextRequestPolicyOverride(bool forceSequentialTools,
@@ -280,13 +280,13 @@ void AiClient::setNextRequestPolicyOverride(bool forceSequentialTools,
 
 void AiClient::reloadSettings()
 {
-    _model = _settings.value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
-    _thinkingEnabled = _settings.value(SETTINGS_KEY_THINKING, true).toBool();
-    _reasoningEffort = _settings.value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
-    _apiBaseUrl = _settings.value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
-    _provider = _settings.value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
-    _maxTokensEnabled = _settings.value(QStringLiteral("AI/max_token_enabled"), false).toBool();
-    _maxTokensLimit = _settings.value(QStringLiteral("AI/max_token_limit"), 16384).toInt();
+    _model = _settings->value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
+    _thinkingEnabled = _settings->value(SETTINGS_KEY_THINKING, true).toBool();
+    _reasoningEffort = _settings->value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
+    _apiBaseUrl = _settings->value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
+    _provider = _settings->value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
+    _maxTokensEnabled = _settings->value(QStringLiteral("AI/max_token_enabled"), false).toBool();
+    _maxTokensLimit = _settings->value(QStringLiteral("AI/max_token_limit"), 16384).toInt();
 }
 
 bool AiClient::maxTokensEnabled() const
@@ -1282,7 +1282,7 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
 
 bool AiClient::agentStreamingEnabled() const
 {
-    return _settings.value(QStringLiteral("AI/streaming_mode"), QStringLiteral("on")).toString()
+    return _settings->value(QStringLiteral("AI/streaming_mode"), QStringLiteral("on")).toString()
            != QStringLiteral("off");
 }
 
@@ -1406,27 +1406,27 @@ void AiClient::clearStreamingBlocklist(const QString &provider,
 
         // Remove persisted legacy entries from builds that stored the
         // streaming fallback blocklist in QSettings.
-        _settings.beginGroup(QStringLiteral("AI/streaming_blocklist_v2"));
-        const QStringList keys = _settings.childKeys();
-        for (const QString &k : keys) _settings.remove(k);
-        _settings.endGroup();
+        _settings->beginGroup(QStringLiteral("AI/streaming_blocklist_v2"));
+        const QStringList keys = _settings->childKeys();
+        for (const QString &k : keys) _settings->remove(k);
+        _settings->endGroup();
 
         // Also remove legacy v1 entries so users can fully reset the
         // fallback cache after streaming parser fixes or provider changes.
-        _settings.beginGroup(QStringLiteral("AI/streaming_blocklist"));
-        const QStringList legacyKeys = _settings.childKeys();
-        for (const QString &k : legacyKeys) _settings.remove(k);
-        _settings.endGroup();
+        _settings->beginGroup(QStringLiteral("AI/streaming_blocklist"));
+        const QStringList legacyKeys = _settings->childKeys();
+        for (const QString &k : legacyKeys) _settings->remove(k);
+        _settings->endGroup();
         return;
     }
     clearStreamingBlockForSession(provider, model);
 
     // Remove persisted legacy entries from builds that stored the streaming
     // fallback blocklist in QSettings.
-    _settings.remove(streamingBlocklistKey(provider, model));
+    _settings->remove(streamingBlocklistKey(provider, model));
 
     QString p = provider.isEmpty() ? QStringLiteral("openai") : provider;
-    _settings.remove(QStringLiteral("AI/streaming_blocklist/") + p + QStringLiteral(":") + model);
+    _settings->remove(QStringLiteral("AI/streaming_blocklist/") + p + QStringLiteral(":") + model);
 }
 
 // === Tool-incapable model flag (Phase 28.2) ===
@@ -1440,13 +1440,13 @@ static QString toolsIncapableKey(const QString &provider, const QString &model)
 bool AiClient::toolsIncapableForCurrentModel() const
 {
     if (_model.isEmpty()) return false;
-    return _settings.value(toolsIncapableKey(_provider, _model), false).toBool();
+    return _settings->value(toolsIncapableKey(_provider, _model), false).toBool();
 }
 
 void AiClient::markToolsIncapableForCurrentModel(const QString &reason)
 {
     if (_model.isEmpty()) return;
-    _settings.setValue(toolsIncapableKey(_provider, _model), true);
+    _settings->setValue(toolsIncapableKey(_provider, _model), true);
     logApi(QStringLiteral("[TOOLS-INCAPABLE] flagging %1:%2 (%3)")
            .arg(_provider, _model, reason));
 }
@@ -1455,13 +1455,13 @@ void AiClient::clearToolsIncapableFlag(const QString &provider,
                                         const QString &model)
 {
     if (provider.isEmpty() && model.isEmpty()) {
-        _settings.beginGroup(QStringLiteral("AI/incapable_tools"));
-        const QStringList keys = _settings.childKeys();
-        for (const QString &k : keys) _settings.remove(k);
-        _settings.endGroup();
+        _settings->beginGroup(QStringLiteral("AI/incapable_tools"));
+        const QStringList keys = _settings->childKeys();
+        for (const QString &k : keys) _settings->remove(k);
+        _settings->endGroup();
         return;
     }
-    _settings.remove(toolsIncapableKey(provider, model));
+    _settings->remove(toolsIncapableKey(provider, model));
 }
 
 bool AiClient::errorIndicatesNoToolSupport(const QString &error)

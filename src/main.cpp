@@ -240,6 +240,13 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
 int main(int argc, char *argv[]) {
 #endif
 
+    // Phase 45 / PORTABLE-SPLIT-001: settings routing MUST be decided before
+    // the FIRST QSettings use - and loadEarlySettings below is exactly that,
+    // running even before QApplication. initSettings works pre-app: exe dir
+    // from argv[0], --portable scanned from argv, QSettings redirection is
+    // process-global static state.
+    AppPaths::initSettings(argc, argv);
+
     // Load high DPI scaling settings before creating QApplication
     // These must be set before QApplication is created
     Appearance::loadEarlySettings();
@@ -305,13 +312,6 @@ int main(int argc, char *argv[]) {
     }
 
     QApplication a(argc, argv);
-
-    // Phase 45 step 4: MUST run before the first QSettings use anywhere.
-    // In portable mode (portable.txt next to the exe, or --portable) this
-    // redirects settings to <exe>/config/MidiEditor/NONE.ini and migrates
-    // the registry scope once - a copied folder finally carries its
-    // settings, not only its soundfonts and logs.
-    AppPaths::initSettings();
 
     // Additional font scaling control after QApplication creation
     if (ignoreFontScaling) {

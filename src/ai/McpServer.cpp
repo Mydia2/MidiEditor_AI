@@ -1,4 +1,5 @@
 #include "McpServer.h"
+#include "../AppPaths.h"
 #include "ToolDefinitions.h"
 #include "EditorContext.h"
 
@@ -908,8 +909,7 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject &params, Session &s
         content["mimeType"] = QString("application/json");
 
         QJsonObject config;
-        QSettings settings("MidiEditor", "NONE");
-        config["ffxivMode"] = settings.value("AI/ffxiv_mode", false).toBool();
+        config["ffxivMode"] = AppPaths::settings()->value("AI/ffxiv_mode", false).toBool();
         config["filePath"] = target ? target->path() : QString();
         config["ticksPerBeat"] = target ? target->ticksPerQuarter() : 480;
         // Tempo is part of the state, but provide a quick reference

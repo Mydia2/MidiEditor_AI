@@ -3,30 +3,47 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
 
 namespace {
 QString s_testOrg;
 QString s_testApp;
-int s_portable = -1; // -1 = undecided (needs QCoreApplication for arguments())
+QString s_exeDir;    // cached by initSettings (argv[0]); works pre-QApplication
+int s_portable = -1; // -1 = undecided
+
+QString exeDir() {
+    if (!s_exeDir.isEmpty()) {
+        return s_exeDir;
+    }
+    return QCoreApplication::applicationDirPath();
+}
 } // namespace
 
 namespace AppPaths {
 
 QString dataDir() {
+    // Portable mode: next to the exe on EVERY platform - that is what
+    // "portable" means (the stick carries config, logs and soundfonts as
+    // one folder). APPPATHS-NAME-001: this also sidesteps the
+    // applicationName-dependent AppData path, which is not even set yet
+    // when initSettings runs.
+    if (isPortable()) {
+        return exeDir();
+    }
 #ifdef Q_OS_WIN
     // The portable promise: everything lives next to the exe, exactly as it
     // always has. test_app_paths guards this - a copied folder must keep
     // carrying its soundfonts, logs and prompt files.
-    return QCoreApplication::applicationDirPath();
+    return exeDir();
 #else
     // Issue #13: a signed .app bundle cannot write next to itself. Standard
     // per-user data location instead (e.g. ~/Library/Application Support/...
     // on macOS), created on demand.
     QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (dir.isEmpty()) {
-        dir = QCoreApplication::applicationDirPath(); // last resort
+        dir = exeDir(); // last resort
     }
     QDir().mkpath(dir);
     return dir;
@@ -47,16 +64,31 @@ QString dataFilePath(const QString &fileName) {
 
 bool isPortable() {
     if (s_portable < 0) {
-        const bool marker = QFile::exists(
-            QCoreApplication::applicationDirPath() + QStringLiteral("/portable.txt"));
-        const bool flag = QCoreApplication::arguments()
-                              .contains(QStringLiteral("--portable"));
-        s_portable = (marker || flag) ? 1 : 0;
+        // Fallback when initSettings was not called (tests): marker only.
+        s_portable = QFile::exists(exeDir() + QStringLiteral("/portable.txt"))
+                         ? 1 : 0;
     }
     return s_portable == 1;
 }
 
-void initSettings() {
+void initSettings(int argc, char *argv[]) {
+    // Pre-QApplication: resolve the exe dir from argv[0] and scan argv for
+    // --portable ourselves (QCoreApplication::arguments() needs an app
+    // instance that deliberately does not exist yet).
+    if (argc > 0 && argv && argv[0]) {
+        const QFileInfo exe(QString::fromLocal8Bit(argv[0]));
+        s_exeDir = exe.absolutePath();
+    }
+    bool flag = false;
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i] && qstrcmp(argv[i], "--portable") == 0) {
+            flag = true;
+        }
+    }
+    const bool marker =
+        QFile::exists(exeDir() + QStringLiteral("/portable.txt"));
+    s_portable = (marker || flag) ? 1 : 0;
+
     if (!isPortable()) {
         return;
     }

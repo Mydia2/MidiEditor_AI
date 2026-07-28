@@ -1,5 +1,7 @@
 #include "PromptProfileStore.h"
 
+#include "../AppPaths.h"
+
 #include <QSettings>
 #include <QStringList>
 #include <QUuid>
@@ -12,10 +14,12 @@ constexpr const char *kBuiltinVersion = "AI/prompt_profiles/builtins_version";
 constexpr const char *kCurrentBuiltinVersion = "2026-04-25.gpt55-toolargs-v3";
 constexpr const char *kBuiltinIdGpt55 = "builtin.gpt55_decisive";
 
-QSettings *settings()
+// Phase 45 / PORTABLE-SPLIT-001: through AppPaths (the old function-static
+// hard-wired the registry, so portable installs forked profiles per machine).
+// Callers hold the unique_ptr for their statement's lifetime.
+std::unique_ptr<QSettings> settings()
 {
-    static QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    return &s;
+    return AppPaths::settings();
 }
 
 QString gpt55DecisiveBody()
@@ -132,7 +136,7 @@ void PromptProfileStore::saveProfile(const PromptProfile &p) const
 
 void PromptProfileStore::ensureBuiltinsSeeded(bool force)
 {
-    QSettings *s = settings();
+    auto s = settings();
     const bool seeded = s->value(QString::fromLatin1(kBuiltinSeeded), false).toBool();
     const QString version = s->value(QString::fromLatin1(kBuiltinVersion)).toString();
     if (!force && seeded && version == QString::fromLatin1(kCurrentBuiltinVersion))
@@ -161,7 +165,7 @@ QList<PromptProfile> PromptProfileStore::profiles() const
 
     // Discover any ids that have at least a name key but aren't in order
     // (e.g. legacy / hand-written entries). Walk the prefix keys.
-    QSettings *s = settings();
+    auto s = settings();
     s->beginGroup(QStringLiteral("AI/prompt_profiles"));
     const QStringList groups = s->childGroups();
     s->endGroup();
@@ -254,7 +258,7 @@ bool PromptProfileStore::remove(const QString &id)
     if (existing.builtin)
         return false;
 
-    QSettings *s = settings();
+    auto s = settings();
     s->beginGroup(QString::fromLatin1(kRoot) + id);
     s->remove(QString());
     s->endGroup();
@@ -268,7 +272,7 @@ bool PromptProfileStore::remove(const QString &id)
 void PromptProfileStore::setOrder(const QStringList &orderedIds)
 {
     QStringList valid;
-    QSettings *s = settings();
+    auto s = settings();
     s->beginGroup(QStringLiteral("AI/prompt_profiles"));
     const QStringList groups = s->childGroups();
     s->endGroup();

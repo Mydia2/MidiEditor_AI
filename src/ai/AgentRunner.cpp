@@ -382,7 +382,8 @@ void AgentRunner::run(const QString &systemPrompt,
     }
 
     // Read configurable step limit from settings
-    QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     _maxSteps = settings.value("AI/agent_max_steps", 50).toInt();
     if (_maxSteps < 5) _maxSteps = 5;
     if (_maxSteps > 100) _maxSteps = 100;

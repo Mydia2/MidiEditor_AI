@@ -24,6 +24,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QRegularExpression>
 #include <QSettings>
 
 #include "../src/AppPaths.h"
@@ -97,6 +98,47 @@ private slots:
                  qPrintable(QStringLiteral(
                      "applicationDirPath() outside AppPaths - route these "
                      "through AppPaths or extend the whitelist consciously: %1")
+                                .arg(offenders.join(QStringLiteral(", ")))));
+    }
+
+    // PORTABLE-SPLIT-001 (v2.2 review): explicit QSettings("MidiEditor", ...)
+    // constructions bypass AppPaths::settings() - in portable mode they write
+    // the registry while the rest of the app writes the portable ini, silently
+    // forking the config. AppPaths.cpp is the only file allowed to construct
+    // that scope. (Default-ctor QSettings() sites are a separate pre-existing
+    // scope and are not matched here.)
+    void noStrayMidiEditorSettingsConstructions() {
+        const QString srcRoot = QStringLiteral(APPPATHS_REPO_ROOT "/src");
+        QVERIFY(QDir(srcRoot).exists());
+
+        static const QRegularExpression ctor(QStringLiteral(
+            "QSettings\\s*\\(\\s*(?:QStringLiteral\\s*\\(\\s*)?\"MidiEditor\""));
+
+        QStringList offenders;
+        QDirIterator it(srcRoot, {QStringLiteral("*.cpp"), QStringLiteral("*.h")},
+                        QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString path = it.next();
+            const QString name = QFileInfo(path).fileName();
+            if (name == QStringLiteral("AppPaths.cpp")) continue; // the owner
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            const QStringList lines =
+                QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+            for (int i = 0; i < lines.size(); ++i) {
+                const QString trimmed = lines.at(i).trimmed();
+                // Prose in comments may legitimately spell the old pattern out.
+                if (trimmed.startsWith(QStringLiteral("//"))
+                    || trimmed.startsWith(QLatin1Char('*'))) continue;
+                if (ctor.match(trimmed).hasMatch()) {
+                    offenders.append(QStringLiteral("%1:%2").arg(name).arg(i + 1));
+                }
+            }
+        }
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "Direct QSettings(\"MidiEditor\", ...) outside AppPaths - "
+                     "use AppPaths::settings() instead: %1")
                                 .arg(offenders.join(QStringLiteral(", ")))));
     }
 };

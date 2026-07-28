@@ -4,6 +4,8 @@
 
 #include "TimeDisplayWidget.h"
 
+#include "../AppPaths.h"
+
 #include "../midi/MidiFile.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/TempoChangeEvent.h"
@@ -90,7 +92,8 @@ TimeDisplayWidget::TimeDisplayWidget(QWidget *parent)
                   "Left-click: cycle readout (position, length, remaining, BPM, bar).\n"
                   "Right-click: cycle colour theme."));
 
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     _mode = TimeDisplay::modeFromInt(s.value("View/timeDisplayMode", 0).toInt());
     _colorTheme = s.value("View/timeDisplayTheme", 1).toInt(); // 1 = Blue (default)
     if (_colorTheme < 0 || _colorTheme >= kClockThemeCount)
@@ -421,7 +424,8 @@ void TimeDisplayWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         // Left-click cycles the readout (position / length / remaining / BPM / bar).
         _mode = TimeDisplay::nextMode(_mode);
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.setValue("View/timeDisplayMode", static_cast<int>(_mode));
         update();
         event->accept();
@@ -430,7 +434,8 @@ void TimeDisplayWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::RightButton) {
         // Right-click cycles the LED colour theme.
         _colorTheme = (_colorTheme + 1) % kClockThemeCount;
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.setValue("View/timeDisplayTheme", _colorTheme);
         update();
         event->accept();
