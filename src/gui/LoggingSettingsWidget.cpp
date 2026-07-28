@@ -4,6 +4,8 @@
 
 #include "LoggingSettingsWidget.h"
 
+#include "../AppPaths.h"
+
 #include <QButtonGroup>
 #include <QCoreApplication>
 #include <QDesktopServices>
@@ -150,8 +152,7 @@ LoggingSettingsWidget::LoggingSettingsWidget(QWidget *parent)
     _openFileButton->setToolTip(
         tr("Open midieditor_ai.log in your default text editor / file viewer."));
     connect(_openFileButton, &QPushButton::clicked, this, []() {
-        QString primary = QCoreApplication::applicationDirPath()
-                          + QStringLiteral("/midieditor_ai.log");
+        QString primary = AppPaths::dataFilePath(QStringLiteral("midieditor_ai.log"));
         QString fallback;
         QString dataDir = QStandardPaths::writableLocation(
             QStandardPaths::AppLocalDataLocation);

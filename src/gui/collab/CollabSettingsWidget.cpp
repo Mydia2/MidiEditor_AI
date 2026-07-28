@@ -4,6 +4,8 @@
 
 #include "CollabSettingsWidget.h"
 
+#include "../../AppPaths.h"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -389,8 +391,7 @@ CollabSettingsWidget::CollabSettingsWidget(QSettings *settings, QWidget *parent)
     _logOpenFileButton->setToolTip(
         tr("Open midieditor_ai.log in your default text editor or file viewer."));
     connect(_logOpenFileButton, &QPushButton::clicked, this, []() {
-        QString primary = QCoreApplication::applicationDirPath()
-                          + QStringLiteral("/midieditor_ai.log");
+        QString primary = AppPaths::dataFilePath(QStringLiteral("midieditor_ai.log"));
         QString fallback;
         QString dataDir = QStandardPaths::writableLocation(
             QStandardPaths::AppLocalDataLocation);

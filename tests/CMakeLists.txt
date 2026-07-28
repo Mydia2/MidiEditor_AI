@@ -848,6 +848,7 @@ add_executable(test_agent_runner_state
     ../src/ai/AiClient.h
     ../src/ai/AgentRunner.cpp
     ../src/ai/AgentToolPolicy.cpp
+    ../src/AppPaths.cpp # Phase 45: AgentRunner's API-log path
 )
 target_include_directories(test_agent_runner_state PRIVATE ../src/ai)
 target_link_libraries(test_agent_runner_state PRIVATE
@@ -875,6 +876,7 @@ add_executable(test_provider_matrix
     test_provider_matrix.cpp
     ../src/ai/AiClient.cpp
     ../src/ai/ModelListCache.cpp
+    ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
 )
 target_include_directories(test_provider_matrix PRIVATE ../src/ai)
 target_link_libraries(test_provider_matrix PRIVATE
@@ -903,6 +905,7 @@ add_executable(test_streaming_fallback
     test_streaming_fallback.cpp
     ../src/ai/AiClient.cpp
     ../src/ai/ModelListCache.cpp
+    ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
 )
 target_include_directories(test_streaming_fallback PRIVATE ../src/ai)
 target_link_libraries(test_streaming_fallback PRIVATE
@@ -1719,6 +1722,29 @@ target_link_libraries(test_help_database PRIVATE
 )
 add_test(NAME HelpDatabase COMMAND test_help_database)
 
+# -----------------------------------------------------------------------------
+# test_app_paths
+# -----------------------------------------------------------------------------
+# Phase 45 (issue #13): pins the Windows portable promise (dataDir == exe
+# dir, byte-identical to history) and the routing guard (no .cpp outside
+# the whitelist uses applicationDirPath - new data paths must go through
+# AppPaths or the macOS build regresses).
+add_executable(test_app_paths
+    test_app_paths.cpp
+    ../src/AppPaths.cpp
+)
+target_include_directories(test_app_paths PRIVATE
+    ../src
+)
+target_compile_definitions(test_app_paths PRIVATE
+    APPPATHS_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(test_app_paths PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME AppPaths COMMAND test_app_paths)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1761,6 +1787,7 @@ if(WIN32)
         MidiMeasure
         FfxivPlayability
         HelpDatabase
+        AppPaths
         GpToNative
         MidiDiff
         PrBundle

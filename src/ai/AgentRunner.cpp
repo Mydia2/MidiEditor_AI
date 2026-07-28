@@ -2,6 +2,7 @@
 
 #include "AiClient.h"
 #include "ToolDefinitions.h"
+#include "../AppPaths.h"
 #include "../gui/MidiPilotWidget.h"
 #include "../midi/MidiFile.h"
 
@@ -20,7 +21,7 @@
 namespace {
 QString agentLogFilePath()
 {
-    return QCoreApplication::applicationDirPath() + QStringLiteral("/midipilot_api.log");
+    return AppPaths::dataFilePath(QStringLiteral("midipilot_api.log"));
 }
 
 void logAgentToolResult(int step, const QString &toolName, const QJsonObject &result)

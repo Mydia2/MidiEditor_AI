@@ -10,6 +10,8 @@
 
 #include "FfxivSoundFontHelper.h"
 
+#include "../AppPaths.h"
+
 #include "DownloadSoundFontDialog.h"
 
 #ifdef FLUIDSYNTH_SUPPORT
@@ -30,13 +32,7 @@ namespace {
 const char *kSnapshotKey = "FFXIV/savedEnabledSoundFonts";
 
 QString soundFontsDir() {
-    QString appDir = QCoreApplication::applicationDirPath();
-    QDir dir(appDir);
-    if (!dir.exists("soundfonts")) {
-        dir.mkpath("soundfonts");
-    }
-    dir.cd("soundfonts");
-    return dir.absolutePath();
+    return AppPaths::soundFontsDir();
 }
 
 QString preferredMicrosoftSynthPort() {

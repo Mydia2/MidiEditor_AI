@@ -4,6 +4,8 @@
 
 #include "C64SoundFontHelper.h"
 
+#include "../AppPaths.h"
+
 #ifdef FLUIDSYNTH_SUPPORT
 #include "../midi/FluidSynthEngine.h"
 #include "DownloadSoundFontDialog.h"
@@ -25,11 +27,7 @@ namespace {
 const char *kSnapshotKey = "C64/savedEnabledSoundFonts";
 
 QString soundFontsDir() {
-    QDir dir(QCoreApplication::applicationDirPath());
-    if (!dir.exists("soundfonts"))
-        dir.mkpath("soundfonts");
-    dir.cd("soundfonts");
-    return dir.absolutePath();
+    return AppPaths::soundFontsDir();
 }
 
 QString preferredMicrosoftSynthPort() {

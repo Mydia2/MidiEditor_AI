@@ -30,6 +30,7 @@
 #include "midi/MidiOutput.h"
 #include "ai/EditorContext.h"
 #include "LoggingConfig.h"
+#include "AppPaths.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -147,8 +148,10 @@ LONG WINAPI midiEditorCrashHandler(EXCEPTION_POINTERS *info) {
 #endif
 
 void installFileLogHandler() {
-    // Primary: next to the executable. Easy to find, no env-var hunting.
-    QString primary = QCoreApplication::applicationDirPath() + QStringLiteral("/midieditor_ai.log");
+    // Primary: AppPaths::dataDir() - on Windows that IS the exe directory
+    // (easy to find, no env-var hunting); on macOS/Linux the per-user data
+    // location a signed bundle can actually write to (Phase 45 / issue #13).
+    QString primary = AppPaths::dataFilePath(QStringLiteral("midieditor_ai.log"));
     // Fallback: %LocalAppData%/MidiEditor AI/midieditor_ai.log if exe-dir
     // isn't writable (rare — Program Files install with read-only perms).
     QString fallback;
@@ -407,7 +410,7 @@ int main(int argc, char *argv[]) {
     AutoUpdater::cleanupOldBackups();
 
     // Load custom system prompts if present
-    QString promptsPath = QCoreApplication::applicationDirPath() + "/system_prompts.json";
+    QString promptsPath = AppPaths::dataFilePath(QStringLiteral("system_prompts.json"));
     if (QFile::exists(promptsPath)) {
         if (!EditorContext::loadCustomPrompts(promptsPath)) {
             qWarning() << "Invalid system_prompts.json — using defaults";

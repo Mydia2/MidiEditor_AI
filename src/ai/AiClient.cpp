@@ -1,5 +1,6 @@
 #include "AiClient.h"
 #include "ModelListCache.h"
+#include "../AppPaths.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -118,7 +119,7 @@ AiClient::AiClient(QObject *parent)
 
 static QString logFilePath()
 {
-    return QCoreApplication::applicationDirPath() + QStringLiteral("/midipilot_api.log");
+    return AppPaths::dataFilePath(QStringLiteral("midipilot_api.log"));
 }
 
 static void logApi(const QString &entry)

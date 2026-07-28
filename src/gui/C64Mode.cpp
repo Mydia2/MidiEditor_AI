@@ -3,6 +3,8 @@
  */
 #include "C64Mode.h"
 
+#include "../AppPaths.h"
+
 #include "C64SoundFontHelper.h"
 #include "../midi/SidAudioPlayer.h"
 #ifdef FLUIDSYNTH_SUPPORT
@@ -152,10 +154,7 @@ void prefetchSoundFont() {
     if (!C64SoundFontHelper::findLocalC64SoundFont().isEmpty())
         return;
 
-    QDir dir(QCoreApplication::applicationDirPath());
-    if (!dir.exists("soundfonts"))
-        dir.mkpath("soundfonts");
-    dir.cd("soundfonts");
+    QDir dir(AppPaths::soundFontsDir());
     const QString dest = dir.absoluteFilePath("Commodore_64.sf2");
     if (QFileInfo::exists(dest))
         return;
