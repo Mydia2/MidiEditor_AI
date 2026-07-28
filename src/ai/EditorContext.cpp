@@ -1,5 +1,6 @@
 #include "EditorContext.h"
 #include "MidiEventSerializer.h"
+#include "../AppPaths.h"
 
 #include <cmath>
 
@@ -49,8 +50,8 @@ QJsonObject EditorContext::captureState(MidiFile *file, MatrixWidget *matrix)
     // neither see nor request it - now it reads the flag here and toggles
     // it with set_ffxiv_mode.
     state[QStringLiteral("ffxivMode")] =
-        QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"))
-            .value(QStringLiteral("AI/ffxiv_mode"), false).toBool();
+        AppPaths::settings()
+            ->value(QStringLiteral("AI/ffxiv_mode"), false).toBool();
 
     // Cursor position
     int cursorTick = file->cursorTick();

@@ -306,6 +306,13 @@ int main(int argc, char *argv[]) {
 
     QApplication a(argc, argv);
 
+    // Phase 45 step 4: MUST run before the first QSettings use anywhere.
+    // In portable mode (portable.txt next to the exe, or --portable) this
+    // redirects settings to <exe>/config/MidiEditor/NONE.ini and migrates
+    // the registry scope once - a copied folder finally carries its
+    // settings, not only its soundfonts and logs.
+    AppPaths::initSettings();
+
     // Additional font scaling control after QApplication creation
     if (ignoreFontScaling) {
         // Force the application to use 96 DPI for all font calculations

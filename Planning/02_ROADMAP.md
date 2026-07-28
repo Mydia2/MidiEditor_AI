@@ -12672,7 +12672,40 @@ existing chat IS the UI.
 
 ---
 
-## Phase 45: AppPaths - one storage layer (issue #13 + Portable Mode) - 2.2 candidate
+## Phase 45: AppPaths - one storage layer (issue #13 + Portable Mode) — ✅ SHIPPED 2026-07-28 (v2.2)
+
+**As-built record (two commits, steps 1-3 then step 4):**
+
+* `src/AppPaths.{h,cpp}`: dataDir()/soundFontsDir()/dataFilePath() +
+  isPortable()/initSettings()/settings()/setSettingsScopeForTests().
+  Windows byte-identical (exe-relative, pinned by test); macOS/Linux
+  AppDataLocation. All 12 data sites routed; AutoUpdater exe paths and
+  MainWindow's restart working dir deliberately stay exe-relative.
+  AutoUpdater gated to Q_OS_WIN (elsewhere: releases page).
+* Portable Mode: portable.txt or --portable -> ALL settings under
+  <exe>/config/*.ini with one-time copy migration; registry left intact
+  so switching back works. initSettings() runs first thing in main().
+* DISCOVERY, deliberately not unified: the soundfont helpers'
+  default-constructed QSettings() are a SEPARATE pre-existing scope (no
+  organizationName is ever set - their keys like out_port live under an
+  app-name-derived scope). In portable mode both scopes land inside
+  config/, so portability holds; merging them is its own migration
+  project with its own risks. Documented here so the next reader does
+  not "fix" it casually.
+* The per-service test seams (FfxivEqualizerService, FfxivDrumKitStore)
+  are gone - AppPaths::setSettingsScopeForTests is the ONE seam, as this
+  phase's design promised. Bonus fix of the same class:
+  test_tool_definitions had toggled and finally REMOVED the developer's
+  REAL AI/ffxiv_mode registry key on every run; it now runs against the
+  test scope.
+* test_app_paths (suite 64): Windows portable promise, seam round-trip,
+  and a source-grep ROUTING GUARD - applicationDirPath() outside the
+  whitelist (AppPaths/AutoUpdater/MainWindow-restart) fails the build's
+  tests with the offending file named.
+* Still out of scope (unchanged from the design): signing, notarization,
+  macOS packaging - Tier-1 build-from-source policy stays.
+
+Original design (implemented as written):
 
 Two long-standing items are the SAME problem seen from two sides, so they get
 one design, one review, one phase:

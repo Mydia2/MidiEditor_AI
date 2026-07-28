@@ -514,6 +514,7 @@ add_test(NAME FfxivVoiceAnalyzer COMMAND test_ffxiv_voice_analyzer)
 add_executable(test_ffxiv_equalizer_service
     test_ffxiv_equalizer_service.cpp
     ../src/midi/FfxivEqualizerService.cpp
+    ../src/AppPaths.cpp # Phase 45: central settings scope + test seam
 )
 target_include_directories(test_ffxiv_equalizer_service PRIVATE
     ../src/midi
@@ -534,6 +535,7 @@ add_executable(test_ffxiv_drum_kit_store
     test_ffxiv_drum_kit_store.cpp
     ../src/gui/FfxivDrumKitStore.cpp
     ../src/gui/DrumKitPreset.cpp
+    ../src/AppPaths.cpp # Phase 45: central settings scope + test seam
 )
 target_include_directories(test_ffxiv_drum_kit_store PRIVATE
     ../src/gui
@@ -686,6 +688,8 @@ add_executable(test_tool_definitions
     # Phase 44: ToolDefinitions references HelpDatabase unconditionally
     # (pure QtCore, no shims needed).
     ../src/ai/HelpDatabase.cpp
+    # Phase 45: ... and AppPaths for the central settings scope.
+    ../src/AppPaths.cpp
 )
 target_include_directories(test_tool_definitions PRIVATE
     ../src/ai
@@ -1509,6 +1513,7 @@ add_test(NAME CollabHistoryFile COMMAND test_collab_history_file)
 add_executable(test_logging_config
     test_logging_config.cpp
     ../src/LoggingConfig.cpp
+    ../src/AppPaths.cpp # Phase 45: central settings scope
 )
 target_include_directories(test_logging_config PRIVATE
     ../src

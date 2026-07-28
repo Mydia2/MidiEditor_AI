@@ -24,6 +24,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QSettings>
 
 #include "../src/AppPaths.h"
 
@@ -54,7 +55,19 @@ private slots:
                  AppPaths::dataDir() + QStringLiteral("/x.log"));
     }
 
-    // --- 2. the routing guard ---------------------------------------------
+    // --- 2. the central settings seam --------------------------------------
+    void settingsSeamRedirects() {
+        AppPaths::setSettingsScopeForTests(QStringLiteral("MidiEditorTest"),
+                                           QStringLiteral("AppPathsTest"));
+        AppPaths::settings()->setValue(QStringLiteral("probe"), 42);
+        QCOMPARE(AppPaths::settings()->value(QStringLiteral("probe")).toInt(), 42);
+        QSettings(QStringLiteral("MidiEditorTest"),
+                  QStringLiteral("AppPathsTest")).clear();
+        // Empty scope = seam off; later tests see the normal behaviour.
+        AppPaths::setSettingsScopeForTests(QString(), QString());
+    }
+
+    // --- 3. the routing guard ---------------------------------------------
     void noStrayApplicationDirPathUses() {
         const QString srcRoot = QStringLiteral(APPPATHS_REPO_ROOT "/src");
         QVERIFY(QDir(srcRoot).exists());

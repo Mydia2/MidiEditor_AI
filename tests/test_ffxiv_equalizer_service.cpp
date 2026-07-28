@@ -15,6 +15,7 @@
 #include <QtTest/QtTest>
 
 #include "../src/midi/FfxivEqualizerService.h"
+#include "../src/AppPaths.h"
 
 class TestFfxivEqualizerService : public QObject {
     Q_OBJECT
@@ -30,7 +31,9 @@ private slots:
         // REGISTRY, which QStandardPaths test mode does not cover, so every
         // test run silently wiped the user's actual app configuration (a
         // latent defect since 1.6.1, found by the v2.1.0 pre-release review).
-        FfxivEqualizerService::setSettingsScopeForTests(
+        // Phase 45: the seam is central now - one redirect covers every
+        // AppPaths::settings() user, not just this service.
+        AppPaths::setSettingsScopeForTests(
             QStringLiteral("MidiEditorTest"), QStringLiteral("EqualizerTest"));
         QSettings().clear();
         QSettings(QStringLiteral("MidiEditorTest"),

@@ -7,6 +7,7 @@
 #include "FfxivPlayabilityValidator.h"
 #endif
 #include "HelpDatabase.h" // pure QtCore - fine in the schema-test stub build too
+#include "../AppPaths.h"  // Phase 45: settings scope decided in ONE place
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "FfxivVoiceAnalyzer.h"
 #endif
@@ -644,7 +645,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
     }
 
     // --- FFXIV tools (only when FFXIV mode is active) ---
-    if (QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool()) {
+    if (AppPaths::settings()->value("AI/ffxiv_mode", false).toBool()) {
 
         // validate_ffxiv (no parameters)
         {
@@ -1401,7 +1402,7 @@ QJsonObject ToolDefinitions::execSetFfxivMode(const QJsonObject &args,
         // tools/list_changed broadcast.
         widget->setFfxivMode(enabled);
     } else {
-        QSettings("MidiEditor", "NONE").setValue("AI/ffxiv_mode", enabled);
+        AppPaths::settings()->setValue("AI/ffxiv_mode", enabled);
     }
     QJsonObject result;
     result["success"] = true;

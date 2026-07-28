@@ -179,8 +179,8 @@ AgentRunner::AgentWorkingState AgentRunner::initialWorkingState(const QString &u
     // Phase 32.6: surface FFXIV game limits whenever FFXIV mode is active so
     // the model is reminded every turn (and gets the analyze_voice_load tool
     // listed in its toolset).
-    if (QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"))
-            .value(QStringLiteral("AI/ffxiv_mode"), false).toBool()) {
+    if (AppPaths::settings()
+            ->value(QStringLiteral("AI/ffxiv_mode"), false).toBool()) {
         state.activeConstraints += QStringLiteral(
             " FFXIV Bard Performance: <=16 simultaneous voices, "
             "<=14 notes/sec per channel, range C3..C6. Call analyze_voice_load "

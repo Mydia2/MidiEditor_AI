@@ -141,6 +141,8 @@ MidiEditor AI
 2. Extract the zip file
 3. Run **MidiEditorAI.exe**
 
+> **Portable Mode:** create an empty `portable.txt` next to `MidiEditorAI.exe` (or start with `--portable`) and all settings live in a `config/` folder beside the exe instead of the registry - existing settings are copied over on first portable start. The whole folder then travels on a USB stick with everything included.
+
 ### 2. Configure AI
 
 1. Open **Settings** (gear icon) and go to the **AI** tab

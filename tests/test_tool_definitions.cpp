@@ -155,6 +155,7 @@ Selection *Selection::forFile(MidiFile *) { return nullptr; }
 QList<MidiEvent *> Selection::selectedEvents() { return QList<MidiEvent *>(); }
 
 #include "../src/ai/ToolDefinitions.h"
+#include "../src/AppPaths.h"
 
 namespace {
 
@@ -227,16 +228,22 @@ bool hasOnlyValidTypes(const QJsonValue &v) {
     return true;
 }
 
+// Phase 45: through AppPaths::settings(), which initTestCase redirects to a
+// throwaway scope. The previous code wrote QSettings("MidiEditor","NONE")
+// DIRECTLY - on Windows that is the user's real registry key (test mode
+// does not cover the registry), so every run toggled and finally REMOVED
+// the developer's actual FFXIV-mode setting. Same defect class the v2.1.0
+// round-2 review found in the service tests.
 void setFfxivMode(bool on) {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    s.setValue(QStringLiteral("AI/ffxiv_mode"), on);
-    s.sync();
+    auto s = AppPaths::settings();
+    s->setValue(QStringLiteral("AI/ffxiv_mode"), on);
+    s->sync();
 }
 
 void clearFfxivMode() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    s.remove(QStringLiteral("AI/ffxiv_mode"));
-    s.sync();
+    auto s = AppPaths::settings();
+    s->remove(QStringLiteral("AI/ffxiv_mode"));
+    s->sync();
 }
 
 } // namespace
@@ -247,9 +254,13 @@ class TestToolDefinitions : public QObject {
 private slots:
 
     void initTestCase() {
-        // Redirect QSettings to a private path so we never modify the
-        // developer's real MidiEditor settings on this machine.
+        // Redirect BOTH mechanisms away from the developer's real config:
+        // QStandardPaths test mode for file-based scopes, and the central
+        // AppPaths seam for the explicit scope (= the Windows registry,
+        // which test mode does NOT cover).
         QStandardPaths::setTestModeEnabled(true);
+        AppPaths::setSettingsScopeForTests(QStringLiteral("MidiEditorTest"),
+                                           QStringLiteral("ToolDefinitionsTest"));
         clearFfxivMode();
     }
 

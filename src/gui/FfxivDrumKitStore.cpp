@@ -1,5 +1,7 @@
 #include "FfxivDrumKitStore.h"
 
+#include "../AppPaths.h"
+
 #include <QCoreApplication>
 #include <QSet>
 #include <QSettings>
@@ -8,28 +10,18 @@
 
 namespace {
 
-// Same settings scope as the rest of the app (see FfxivEqualizerService's
-// note): the app never calls setOrganizationName, so the default QSettings
-// constructor would land writes somewhere else entirely. The two statics are
-// the test seam - unit tests redirect to their own scope because on Windows
-// this is the registry and NOT covered by QStandardPaths test mode.
-QString g_settingsOrg = QStringLiteral("MidiEditor");
-QString g_settingsApp = QStringLiteral("NONE");
-
-inline QSettings drumKitSettings() {
-    return QSettings(g_settingsOrg, g_settingsApp);
+// Phase 45 step 4: the scope decision (and the test seam - on Windows this
+// is the registry, which QStandardPaths test mode does not cover) lives in
+// AppPaths now. Tests redirect via AppPaths::setSettingsScopeForTests, the
+// ONE central seam, instead of a per-service copy.
+inline std::unique_ptr<QSettings> drumKitSettings() {
+    return AppPaths::settings();
 }
 
 const QString kIndexKey = QStringLiteral("FFXIV/drumKitIndex");
 const QString kKitsGroup = QStringLiteral("FFXIV/drumKits");
 
 } // namespace
-
-void FfxivDrumKitStore::setSettingsScopeForTests(const QString &organization,
-                                                 const QString &application) {
-    g_settingsOrg = organization;
-    g_settingsApp = application;
-}
 
 FfxivDrumKitStore *FfxivDrumKitStore::instance() {
     static FfxivDrumKitStore store;
@@ -70,7 +62,8 @@ QString FfxivDrumKitStore::existingUserKitName(const QString &name) const {
 }
 
 QStringList FfxivDrumKitStore::userKitNames() const {
-    QSettings settings = drumKitSettings();
+    auto settingsPtr = drumKitSettings();
+    QSettings &settings = *settingsPtr;
     QStringList names = settings.value(kIndexKey).toStringList();
     // Safety net for kits written by a build whose index went missing:
     // fold in whatever the child-group scan can see (see header note).
@@ -94,7 +87,8 @@ QStringList FfxivDrumKitStore::userKitNames() const {
 
 QList<FfxivDrumMapPreset> FfxivDrumKitStore::allKits() const {
     QList<FfxivDrumMapPreset> kits = FfxivDrumMapPreset::presets();
-    QSettings settings = drumKitSettings();
+    auto settingsPtr = drumKitSettings();
+    QSettings &settings = *settingsPtr;
     for (const QString &name : userKitNames()) {
         FfxivDrumMapPreset kit;
         kit.name = name;
@@ -215,7 +209,8 @@ bool FfxivDrumKitStore::saveKit(const FfxivDrumMapPreset &kit, QString *error) {
         return false;
     }
 
-    QSettings settings = drumKitSettings();
+    auto settingsPtr = drumKitSettings();
+    QSettings &settings = *settingsPtr;
     // Explicit beginGroup so Qt registers the kit as a real child group; a
     // path-style setValue() writes fine but is not always enumerable.
     settings.beginGroup(kKitsGroup);
@@ -244,7 +239,8 @@ bool FfxivDrumKitStore::deleteKit(const QString &name, QString *error) {
         }
         return false;
     }
-    QSettings settings = drumKitSettings();
+    auto settingsPtr = drumKitSettings();
+    QSettings &settings = *settingsPtr;
     settings.beginGroup(kKitsGroup);
     settings.remove(name);
     settings.endGroup();
@@ -260,7 +256,8 @@ bool FfxivDrumKitStore::deleteKit(const QString &name, QString *error) {
 }
 
 void FfxivDrumKitStore::clearUserKits() {
-    QSettings settings = drumKitSettings();
+    auto settingsPtr = drumKitSettings();
+    QSettings &settings = *settingsPtr;
     settings.remove(kKitsGroup);
     settings.remove(kIndexKey);
     settings.sync();

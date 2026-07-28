@@ -124,6 +124,7 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 #include "FfxivPlayabilityDialog.h"
 #include "../ai/FfxivPlayabilityValidator.h"
 #include "../converter/AutoFitVoiceLoadService.h"
+#include "../AppPaths.h"
 #include "DrumKitPreset.h"
 #include "MatrixWidget.h"
 #include "OpenGLMatrixWidget.h"
@@ -245,7 +246,9 @@ MainWindow::MainWindow(QString initFile)
     : QMainWindow()
       , _initFile(initFile) {
     file = 0;
-    _settings = new QSettings(QString("MidiEditor"), QString("NONE"));
+    // Phase 45 step 4: AppPaths decides where settings live (native scope
+    // normally, INI next to the exe in portable mode).
+    _settings = AppPaths::settings().release();
 
     _moveSelectedEventsToChannelMenu = 0;
     _moveSelectedEventsToTrackMenu = 0;

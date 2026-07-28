@@ -5,6 +5,8 @@
 
 #include "FfxivEqualizerService.h"
 
+#include "../AppPaths.h"
+
 #include <QReadWriteLock>
 #include <QSettings>
 #include <QStringList>
@@ -19,21 +21,13 @@
 // unspecified location on Windows and silently desyncs from the rest of the
 // codebase. Centralise the scope here so every read and write agrees.
 namespace {
-// The two statics are the test seam: on Windows this scope is the registry,
-// which QStandardPaths test mode does not cover - unit tests redirect here
-// so their clear()/preset CRUD cannot touch the user's real configuration.
-QString g_eqSettingsOrg = QStringLiteral("MidiEditor");
-QString g_eqSettingsApp = QStringLiteral("NONE");
-
-inline QSettings ffxivEqSettings() {
-    return QSettings(g_eqSettingsOrg, g_eqSettingsApp);
+// Phase 45 step 4: the scope decision (and the test seam - on Windows this
+// is the registry, which QStandardPaths test mode does not cover) lives in
+// AppPaths now. Tests redirect via AppPaths::setSettingsScopeForTests, the
+// ONE central seam, instead of a per-service copy.
+inline std::unique_ptr<QSettings> ffxivEqSettings() {
+    return AppPaths::settings();
 }
-}
-
-void FfxivEqualizerService::setSettingsScopeForTests(const QString &organization,
-                                                     const QString &application) {
-    g_eqSettingsOrg = organization;
-    g_eqSettingsApp = application;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +224,8 @@ FfxivEqualizerService::currentSlotsSnapshot() const {
 // Preset management
 // ---------------------------------------------------------------------------
 QStringList FfxivEqualizerService::allPresetNames() const {
-    QSettings settings = ffxivEqSettings();
+    auto settingsPtr = ffxivEqSettings();
+    QSettings &settings = *settingsPtr;
     // Authoritative: explicit QStringList index. Avoids the QSettings
     // childGroups() visibility quirk where path-style setValue() writes
     // do not always expose intermediate components as child groups.
@@ -258,7 +253,8 @@ QStringList FfxivEqualizerService::allPresetNames() const {
 }
 
 void FfxivEqualizerService::setActivePreset(const QString &name) {
-    QSettings settings = ffxivEqSettings();
+    auto settingsPtr = ffxivEqSettings();
+    QSettings &settings = *settingsPtr;
     if (name == builtinPresetName()) {
         applyPresetData(builtinDefaultSlots(), 1.0f);
     } else {
@@ -316,7 +312,8 @@ void FfxivEqualizerService::setActivePreset(const QString &name) {
 bool FfxivEqualizerService::savePresetAs(const QString &name) {
     if (name.isEmpty()) return false;
     if (name == builtinPresetName()) return false;
-    QSettings settings = ffxivEqSettings();
+    auto settingsPtr = ffxivEqSettings();
+    QSettings &settings = *settingsPtr;
     // Use explicit beginGroup so Qt registers the preset as a proper child
     // group, making it visible via childGroups() in allPresetNames().
     // setValue("a/b/c") writes correctly but does not reliably expose
@@ -355,7 +352,8 @@ bool FfxivEqualizerService::savePresetAs(const QString &name) {
 
 bool FfxivEqualizerService::deletePreset(const QString &name) {
     if (name == builtinPresetName()) return false;
-    QSettings settings = ffxivEqSettings();
+    auto settingsPtr = ffxivEqSettings();
+    QSettings &settings = *settingsPtr;
     QStringList index =
         settings.value(QStringLiteral("FFXIV/equalizerPresetIndex"))
                 .toStringList();
@@ -399,6 +397,7 @@ void FfxivEqualizerService::saveToSettings(QSettings *settings) const {
 }
 
 void FfxivEqualizerService::initialize() {
-    QSettings s = ffxivEqSettings();
+    auto sPtr = ffxivEqSettings();
+    QSettings &s = *sPtr;
     loadFromSettings(&s);
 }

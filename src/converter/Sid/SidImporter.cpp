@@ -4,6 +4,8 @@
 
 #include "SidImporter.h"
 
+#include "../../AppPaths.h"
+
 #include "SidFile.h"
 #include "SidCapture.h"
 #include "SidReconstruct.h"
@@ -69,7 +71,7 @@ MidiFile *SidImporter::loadFile(QString path, bool *ok, QWidget *parent,
 
     // User-configurable default length (MIDI I/O settings -> Commodore 64 / SID).
     const int defaultSeconds =
-        QSettings("MidiEditor", "NONE").value("C64/defaultImportSeconds", kDefaultSeconds).toInt();
+        AppPaths::settings()->value("C64/defaultImportSeconds", kDefaultSeconds).toInt();
 
     sid::CaptureResult cap;
     const bool viaLib = (sf.playAddress == 0);

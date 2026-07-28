@@ -1,5 +1,7 @@
 #include "MidiPilotWidget.h"
 
+#include "../AppPaths.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -741,9 +743,9 @@ void MidiPilotWidget::setupUi() {
     _ffxivCheck->setToolTip("Enable FFXIV Bard Performance mode — constrains output to game rules\n"
                             "(C3-C6 range, monophonic, max 8 tracks, FFXIV instrument names)");
     _ffxivCheck->setStyleSheet("font-size: 11px;");
-    _ffxivCheck->setChecked(QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool());
+    _ffxivCheck->setChecked(AppPaths::settings()->value("AI/ffxiv_mode", false).toBool());
     connect(_ffxivCheck, &QCheckBox::toggled, this, [this](bool checked) {
-        QSettings("MidiEditor", "NONE").setValue("AI/ffxiv_mode", checked);
+        AppPaths::settings()->setValue("AI/ffxiv_mode", checked);
         // Phase 46: the FFXIV tool bundle appears/disappears with the mode -
         // whoever exposes tools (the MCP server) must be able to tell its
         // clients (notifications/tools/list_changed). MainWindow wires this
@@ -870,7 +872,7 @@ void MidiPilotWidget::setupSetupPrompt() {
         int effortIdx = _effortCombo->findData(_client->reasoningEffort());
         if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
         // Sync FFXIV checkbox with settings
-        _ffxivCheck->setChecked(QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool());
+        _ffxivCheck->setChecked(AppPaths::settings()->value("AI/ffxiv_mode", false).toBool());
     } else {
         setStatus("Not configured", "orange");
     }
