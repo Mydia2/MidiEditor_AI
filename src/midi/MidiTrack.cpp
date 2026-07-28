@@ -121,7 +121,9 @@ void MidiTrack::setHidden(bool hidden) {
 }
 
 bool MidiTrack::hidden() {
-    return _hidden;
+    // The focus overlay (workbench focus mode) hides on top of the
+    // document state - view-only, never part of any undo snapshot.
+    return _hidden || _focusHidden;
 }
 
 void MidiTrack::setMuted(bool muted) {

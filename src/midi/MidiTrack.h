@@ -159,9 +159,22 @@ public:
 
     /**
      * \brief Gets the hidden state of the track.
-     * \return True if the track is hidden, false if visible
+     * \return True if the track is hidden, false if visible - INCLUDING the
+     *         temporary focus overlay (see setFocusHidden).
      */
     bool hidden();
+
+    /**
+     * \brief FOCUS-UNDO-001 (v2.2 review): temporary VIEW-state hiding for
+     *  the playability workbench's focus mode. Unlike _hidden this flag is
+     *  NOT copied by the copy ctor and NOT restored by reloadState - it can
+     *  therefore never be baked into an undo snapshot while focus is active
+     *  and later resurface on Ctrl+Z. hidden() ORs it in, so every renderer
+     *  honours it without knowing about focus mode. Same pattern as
+     *  MidiChannel's snapshot counters.
+     */
+    void setFocusHidden(bool focusHidden) { _focusHidden = focusHidden; }
+    bool focusHidden() const { return _focusHidden; }
 
     /**
      * \brief Sets the muted state of the track.
@@ -222,6 +235,10 @@ private:
 
     /** \brief Track visibility and mute state */
     bool _hidden, _muted;
+
+    /** \brief FOCUS-UNDO-001: focus-mode overlay - deliberately NOT copied
+     *  by the copy ctor, NOT touched by reloadState. See setFocusHidden. */
+    bool _focusHidden = false;
 
     /** \brief Default MIDI channel assignment */
     int _assignedChannel;

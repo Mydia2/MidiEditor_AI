@@ -57,8 +57,12 @@ public:
      *  sees the notes, not just a summary. A half-written draft in the
      *  input field survives the round trip. No-op for Show-mode viewers
      *  (only the presenter may drive MidiPilot).
+     * \return true if the message was actually accepted and sent; false when
+     *  a guard refused it (busy, agent running, not configured, Show-mode
+     *  lock). Callers that wait for assistantReplied (the playability
+     *  workbench) must not latch on a refusal - nothing will ever arrive.
      */
-    void submitPrompt(const QString &text);
+    bool submitPrompt(const QString &text);
 
     /**
      * \brief Whether MidiPilot can actually be used, i.e. an AI provider is

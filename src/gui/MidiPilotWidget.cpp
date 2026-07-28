@@ -569,7 +569,8 @@ void MidiPilotWidget::setupUi() {
     _modeCombo->setToolTip("Simple: single-shot edits\n"
                            "Agent: multi-step autonomous editing");
     _modeCombo->setFixedHeight(28);
-    QSettings modeSettings("MidiEditor", "NONE");
+    auto modeSettingsPtr = AppPaths::settings();
+    QSettings &modeSettings = *modeSettingsPtr;
     int modeIdx = _modeCombo->findData(modeSettings.value("AI/mode", "simple").toString());
     if (modeIdx >= 0) _modeCombo->setCurrentIndex(modeIdx);
     connect(_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -1036,23 +1037,27 @@ void MidiPilotWidget::focusInput() {
     _inputField->setFocus();
 }
 
-void MidiPilotWidget::submitPrompt(const QString &text) {
-    if (!_inputField || text.trimmed().isEmpty()) return;
+bool MidiPilotWidget::submitPrompt(const QString &text) {
+    if (!_inputField || text.trimmed().isEmpty()) return false;
     // Same lock the send button honours: a Show-mode viewer must not be able
     // to drive the presenter's MidiPilot through a context menu.
-    if (_showModeLocked) return;
+    if (_showModeLocked) return false;
     // Route through the input field + onSendMessage so every guard and the
     // whole context capture stay in ONE place. Park the user's half-written
     // draft first: on success the field is cleared, on refusal (busy, not
     // configured) our prompt would sit there instead - either way the draft
-    // comes back.
+    // comes back. ANALYZE-LATCH-001: that empty-on-success behaviour is the
+    // accept signal callers latch on - every refusal path in onSendMessage
+    // returns BEFORE the clear().
     const QString draft = _inputField->toPlainText();
     _inputField->setPlainText(text);
     onSendMessage();
+    const bool accepted = _inputField->toPlainText().trimmed().isEmpty();
     _inputField->setPlainText(draft);
     QTextCursor c = _inputField->textCursor();
     c.movePosition(QTextCursor::End);
     _inputField->setTextCursor(c);
+    return accepted;
 }
 
 void MidiPilotWidget::onFileChanged(MidiFile *f) {
@@ -1213,6 +1218,18 @@ void MidiPilotWidget::onSendMessage() {
         return;
     }
 
+    // SUBMIT-REENTRY-001: during a multi-step agent run the CLIENT is
+    // momentarily not busy between steps (AgentRunner spins processEvents
+    // while executing tools), so isBusy() alone lets a submit through
+    // mid-run - which appends a stray user message, orphans the live steps
+    // widget and, via the refused second run's error path, unlocks the
+    // input while the real run continues. Ask the RUNNER, not the flag:
+    // _isAgentRunning can be stale, isRunning() cannot.
+    if (_agentRunner && _agentRunner->isRunning()) {
+        setStatus("Agent running...", "orange");
+        return;
+    }
+
     _inputField->clear();
 
     // Add user bubble
@@ -1230,7 +1247,8 @@ void MidiPilotWidget::onSendMessage() {
         }
 
         // Capture surrounding events (±N measures)
-        QSettings settings("MidiEditor", "NONE");
+        auto settingsPtr = AppPaths::settings();
+        QSettings &settings = *settingsPtr;
         int contextMeasures = settings.value("AI/context_measures", 5).toInt();
         if (contextMeasures > 0) {
             surroundingEvents = EditorContext::captureSurroundingEvents(
@@ -1449,7 +1467,8 @@ void MidiPilotWidget::onSendMessage() {
         _lastSimpleHistory = historyForApi;
         _lastSimpleMessage = fullMessage;
         _simpleRetryCount = 0;
-        QSettings _retrySettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto _retrySettingsPtr = AppPaths::settings();
+        QSettings &_retrySettings = *_retrySettingsPtr;
         _simpleMaxRetries = _retrySettings.value(QStringLiteral("AI/simple_max_retries"), 3).toInt();
         if (_simpleMaxRetries < 0) _simpleMaxRetries = 0;
         if (_simpleMaxRetries > 10) _simpleMaxRetries = 10;
@@ -1839,6 +1858,10 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     if (_simpleRetryCount > 0)
         surfaced = QStringLiteral("%1 (after %2 retry attempts)").arg(errorMessage).arg(_simpleRetryCount);
     addChatBubble("system", "Error: " + surfaced);
+    // ANALYZE-LATCH-001: listeners waiting for the turn's outcome (the
+    // playability workbench) must hear the terminal error too, or they wait
+    // forever and mis-attribute the NEXT unrelated reply as theirs.
+    emit assistantReplied(tr("MidiPilot request failed: %1").arg(surfaced));
     _simpleRetryCount = 0;
     _lastSimpleMessage.clear();
     // Phase 28: release the request-origin pin symmetrically with the other
@@ -1951,7 +1974,8 @@ QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
 
 void MidiPilotWidget::onModeChanged(int index) {
     Q_UNUSED(index);
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     settings.setValue("AI/mode", currentMode());
 
     // If there's an active conversation, start a new chat
@@ -1999,7 +2023,8 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
     // Save current API key for the old provider
     QString oldProvider = _client->provider();
     if (!oldProvider.isEmpty() && oldProvider != provider) {
-        QSettings settings("MidiEditor", "NONE");
+        auto settingsPtr = AppPaths::settings();
+        QSettings &settings = *settingsPtr;
         QString currentKey = settings.value("AI/api_key").toString();
         if (!currentKey.isEmpty())
             settings.setValue(QString("AI/api_key/%1").arg(oldProvider), currentKey);
@@ -2027,7 +2052,8 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
     }
 
     // Load API key for the new provider
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     QString newKey = settings.value(QString("AI/api_key/%1").arg(provider)).toString();
     settings.setValue("AI/api_key", newKey);
 
@@ -2308,6 +2334,8 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     _sendButton->setEnabled(!_showModeLocked);
 
     addChatBubble("system", "Agent error: " + error);
+    // ANALYZE-LATCH-001: same terminal-outcome contract as onErrorOccurred.
+    emit assistantReplied(tr("MidiPilot request failed: %1").arg(error));
 
     finalizeTurn(error, QStringLiteral("error"));
     scheduleSave();

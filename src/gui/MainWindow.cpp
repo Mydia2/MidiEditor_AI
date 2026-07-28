@@ -1297,9 +1297,19 @@ MainWindow::MainWindow(QString initFile)
     // repaint it hundreds of times). Plain text, no colour thresholds: the
     // measurement phase decides bands, not a guess.
     _statusUndoLabel = new QLabel(this);
+    // COUNTER-UNDOCHURN-001 + TABCLOSE-COUNTER-001 (documented, not fixed):
+    // pressing Undo does NOT shrink the MB figure (undone snapshots stay
+    // retained for Redo), and a closed tab's history stays allocated for the
+    // session but leaves the figure (only open tabs are summed) - the label
+    // under-reports after closes. Reclaim semantics belong to the future
+    // history-cap work; see the roadmap's cap-policy section.
     _statusUndoLabel->setToolTip(tr("Undo history of the active document and the "
-                                    "session-wide undo-snapshot memory (structural "
-                                    "estimate; Task Manager shows more)"));
+                                    "undo-snapshot memory of all open tabs "
+                                    "(structural estimate; Task Manager shows more).\n"
+                                    "The figure does not drop on Undo - undone steps "
+                                    "stay in memory so Redo can restore them. Closed "
+                                    "tabs leave the figure, but their history stays "
+                                    "in memory until the app closes."));
     statusBar()->addPermanentWidget(_statusUndoLabel);
     _memorySampler = new QTimer(this);
     _memorySampler->setInterval(1000);
@@ -2086,11 +2096,6 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     channelWidget->setFile(newFile);
     _trackWidget->setFile(newFile);
     eventWidget()->setFile(newFile);
-    // v2.2 #3 (found during the undo-memory investigation): updateStatusBar()
-    // exists only as a connect target of the per-file actionFinished, so after
-    // a tab switch the cursor/selection/chord labels kept showing the PREVIOUS
-    // document's numbers until the next edit. Refresh explicitly.
-    updateStatusBar();
 
     Tool::setFile(newFile);
     _midiPilotWidget->onFileChanged(newFile);
@@ -2115,6 +2120,13 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
 #endif
 
     this->file = newFile;
+    // v2.2 #3 (found during the undo-memory investigation): updateStatusBar()
+    // exists only as a connect target of the per-file actionFinished, so after
+    // a tab switch the cursor/selection/chord labels kept showing the PREVIOUS
+    // document's numbers until the next edit. Refresh explicitly - AFTER the
+    // member rebind above, which is what updateStatusBar() reads
+    // (STATUSBAR-ORDER-001: it used to run before and fixed nothing).
+    updateStatusBar();
     if (newFile) {
         setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
         // Phase 28 (editor groups): the "[*]" modified marker is window-global, so
@@ -5188,7 +5200,8 @@ void MainWindow::openFfxivEqualizer() {
 void MainWindow::updateVoiceLaneVisibility() {
     if (!_voiceLaneArea) return;
 
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     bool alwaysShow = s.value("View/showVoiceLane", false).toBool();
     bool autoFollow = s.value("View/voiceLaneAutoFollowFfxiv", true).toBool();
 
@@ -6904,6 +6917,14 @@ static FfxivPlayabilityReport buildPlayabilityReport(MidiFile *f,
         issue.type = FfxivPlayabilityIssue::Type::VoiceCeiling;
         issue.track = -1;
         issue.events = rawR.victims; // what Auto-Fit would thin - clickable
+        // VOICE-TICK-001: without a tick the double-click jump lands at 0;
+        // aim at the earliest note Auto-Fit would thin.
+        issue.tick = -1;
+        for (MidiEvent *v : rawR.victims) {
+            if (v && (issue.tick < 0 || v->midiTime() < issue.tick))
+                issue.tick = v->midiTime();
+        }
+        if (issue.tick < 0) issue.tick = 0;
         issue.details = QObject::tr(
             "Raw peak %1/16 voices in %2 overflow range(s) - more notes "
             "sound at once than the game mixes; Auto-Fit can thin them")
@@ -6952,6 +6973,10 @@ void MainWindow::checkFfxivPlayability() {
 
     auto rerun = [this, dialog, checkedFile]() {
         if (file != checkedFile) return;
+        // ANALYZE-AVAIL-001: MidiPilot may have been configured (or its key
+        // removed) since the dialog opened - re-evaluate on every re-check
+        // so the analyze button doesn't stay stuck in its opening state.
+        dialog->setMidiPilotAvailable(isMidiPilotUsable());
         dialog->refresh(buildPlayabilityReport(checkedFile, dialog));
     };
 
@@ -6980,39 +7005,36 @@ void MainWindow::checkFfxivPlayability() {
                 }
             });
     // Double-click focus mode: show ONLY the affected track, so the finding
-    // is not buried under seven other tracks' notes. setHiddenSilent, NOT
-    // setHidden: visibility here is temporary view state and must not land
-    // in the undo history. The pre-focus visibility is snapshotted once and
-    // restored when the dialog closes.
-    auto savedVisibility = std::make_shared<QHash<MidiTrack *, bool>>();
+    // is not buried under seven other tracks' notes. FOCUS-UNDO-001: this
+    // uses the _focusHidden overlay, not _hidden - the overlay is never part
+    // of an undo snapshot, so Ctrl+Z while focused can neither bake the
+    // focus state into history nor resurface it later. It also fixes
+    // FOCUS-NEWTRACK-001: close() clears the overlay on whatever tracks
+    // exist THEN, so a track added mid-focus cannot stay stuck hidden.
+    auto focusActive = std::make_shared<bool>(false);
     connect(dialog, &FfxivPlayabilityDialog::focusTrackRequested, this,
-            [this, checkedFile, savedVisibility](int trackNumber) {
+            [this, checkedFile, focusActive](int trackNumber) {
                 if (file != checkedFile) return;
                 if (trackNumber < 0 || trackNumber >= checkedFile->numTracks())
                     return;
-                if (savedVisibility->isEmpty()) {
-                    for (int i = 0; i < checkedFile->numTracks(); ++i) {
-                        if (MidiTrack *t = checkedFile->track(i))
-                            savedVisibility->insert(t, t->hidden());
-                    }
-                }
                 for (int i = 0; i < checkedFile->numTracks(); ++i) {
                     if (MidiTrack *t = checkedFile->track(i))
-                        t->setHiddenSilent(i != trackNumber);
+                        t->setFocusHidden(i != trackNumber);
                 }
+                *focusActive = true;
                 updateAll();
             });
     // finished() fires SYNCHRONOUSLY inside close() - setActiveDocument
     // closes this dialog before any document teardown, so the tracks are
     // still alive here (destroyed() would arrive via deleteLater, too late).
     connect(dialog, &QDialog::finished, this,
-            [this, savedVisibility](int) {
-                if (savedVisibility->isEmpty()) return;
-                for (auto it = savedVisibility->constBegin();
-                     it != savedVisibility->constEnd(); ++it) {
-                    it.key()->setHiddenSilent(it.value());
+            [this, checkedFile, focusActive](int) {
+                if (!*focusActive) return;
+                *focusActive = false;
+                for (int i = 0; i < checkedFile->numTracks(); ++i) {
+                    if (MidiTrack *t = checkedFile->track(i))
+                        t->setFocusHidden(false);
                 }
-                savedVisibility->clear();
                 updateAll();
             });
     // One-click collision repair (second QA: the button must DELETE, not
@@ -7064,12 +7086,23 @@ void MainWindow::checkFfxivPlayability() {
     // AI assessment: through the normal chat path; the reply is mirrored
     // back while the dialog is waiting for one (unrelated chat stays out).
     connect(dialog, &FfxivPlayabilityDialog::analyzeRequested, this,
-            [this](const QString &prompt) {
+            [this, dialog](const QString &prompt) {
                 if (_midiPilotDock) {
                     _midiPilotDock->setVisible(true);
                     _midiPilotDock->raise();
                 }
-                if (_midiPilotWidget) _midiPilotWidget->submitPrompt(prompt);
+                // ANALYZE-LATCH-001: the dialog latches "waiting" BEFORE this
+                // signal fires. If the send is refused (busy, agent running,
+                // not configured) no reply will ever arrive - un-latch NOW,
+                // or the button stays dead and the next unrelated chat reply
+                // would be mis-shown as the analysis.
+                const bool accepted =
+                    _midiPilotWidget && _midiPilotWidget->submitPrompt(prompt);
+                if (!accepted) {
+                    dialog->showAnalysis(tr(
+                        "MidiPilot could not take the request right now "
+                        "(busy or not configured). Try again in a moment."));
+                }
             });
     connect(_midiPilotWidget, &MidiPilotWidget::assistantReplied, dialog,
             [dialog](const QString &text) {
@@ -8318,7 +8351,8 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     // workflow keeps editing the original directly). Returns false if
     // the user wanted a copy but the save / open failed — caller bails.
     auto prepareHostFile = [this](const QString &flowName) -> bool {
-        QSettings probe(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto probePtr = AppPaths::settings();
+        QSettings &probe = *probePtr;
         // Default ON: no one has shipped a session against this build
         // yet (Plan §11.10n revision 2026-05-07), so the safer default
         // doesn't break anyone's existing workflow. Users who want the
@@ -10091,7 +10125,8 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     // state on existing installs cannot re-tint the piano roll.
     if (mw_matrixWidget) mw_matrixWidget->setShowVoiceLoadOverlay(false);
     {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.remove("View/showVoiceLoad");
     }
 
@@ -10106,14 +10141,16 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     _toggleVoiceLaneAction = new QAction(tr("Show FFXIV Voice Lane"), this);
     _toggleVoiceLaneAction->setCheckable(true);
     {
-        QSettings _vlSettings("MidiEditor", "NONE");
+        auto _vlSettingsPtr = AppPaths::settings();
+        QSettings &_vlSettings = *_vlSettingsPtr;
         _toggleVoiceLaneAction->setChecked(_vlSettings.value("View/showVoiceLane", false).toBool());
     }
     _toggleVoiceLaneAction->setToolTip(tr(
         "Always show the voice-load graph beneath the piano roll.\n"
         "Plots the simultaneous voice count vs the FFXIV 16-voice ceiling."));
     connect(_toggleVoiceLaneAction, &QAction::toggled, this, [this](bool checked) {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.setValue("View/showVoiceLane", checked);
         updateVoiceLaneVisibility();
     });
@@ -10124,7 +10161,8 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     _voiceLaneAutoFollowAction = new QAction(tr("Auto-show FFXIV Voice Lane with FFXIV SoundFont Mode"), this);
     _voiceLaneAutoFollowAction->setCheckable(true);
     {
-        QSettings _vlSettings("MidiEditor", "NONE");
+        auto _vlSettingsPtr = AppPaths::settings();
+        QSettings &_vlSettings = *_vlSettingsPtr;
         _voiceLaneAutoFollowAction->setChecked(_vlSettings.value("View/voiceLaneAutoFollowFfxiv", true).toBool());
     }
     _voiceLaneAutoFollowAction->setToolTip(tr(
@@ -10132,7 +10170,8 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
         "FFXIV SoundFont Mode is on and hides again when you turn it off.\n"
         "Independent of the explicit \"Show FFXIV Voice Lane\" toggle above."));
     connect(_voiceLaneAutoFollowAction, &QAction::toggled, this, [this](bool checked) {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.setValue("View/voiceLaneAutoFollowFfxiv", checked);
         updateVoiceLaneVisibility();
     });
@@ -12254,6 +12293,15 @@ void MainWindow::convertTempoForSelection() {
         for (MidiEvent *ev : sel) {
             if (ev) {
                 hint.selectedEventPtrs.insert(reinterpret_cast<quintptr>(ev));
+                // TEMPO-OFFEVENT-001: selections never contain OffEvents -
+                // carry each note's linked off along, or the conversion
+                // rescales note-ons while their ends keep the old ticks.
+                if (auto *on = dynamic_cast<OnEvent *>(ev)) {
+                    if (on->offEvent()) {
+                        hint.selectedEventPtrs.insert(
+                            reinterpret_cast<quintptr>(on->offEvent()));
+                    }
+                }
             }
         }
     }

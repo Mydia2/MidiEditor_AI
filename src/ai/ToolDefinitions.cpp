@@ -1141,7 +1141,16 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
     return result;
 #else
     QJsonObject result;
-    const FfxivPlayabilityReport report = FfxivPlayabilityValidator::validate(file);
+    // VALIDATE-TYPES-001: the tool's contract is IN-GAME playability - the
+    // editor-playback (channelSpread) and informational (emptyTracks) checks
+    // are workbench-only. Running them here mislabeled their findings as
+    // "polyphonic" and flipped `valid` to false on healthy files, sending
+    // agents off to "fix" chords that never existed.
+    FfxivPlayabilityChecks toolChecks;
+    toolChecks.channelSpread = false;
+    toolChecks.emptyTracks = false;
+    const FfxivPlayabilityReport report =
+        FfxivPlayabilityValidator::validate(file, toolChecks);
     if (!report.ok) {
         result["success"] = false;
         result["error"] = report.error;
@@ -1833,8 +1842,20 @@ QJsonObject ToolDefinitions::execConvertTempoPreserveDuration(const QJsonObject 
         // switched tabs, and instance() would read the wrong document.
         Selection *sel = Selection::forFile(file);
         const QList<MidiEvent *> events = sel ? sel->selectedEvents() : QList<MidiEvent *>();
-        for (MidiEvent *ev : events)
+        for (MidiEvent *ev : events) {
             opts.selectedEventPtrs.insert(reinterpret_cast<quintptr>(ev));
+            // TEMPO-OFFEVENT-001: selections never contain OffEvents (the
+            // editor refuses to select them) and the service matches exact
+            // pointers - without the linked note-off every rescaled note
+            // KEEPS its old end tick and can end before it starts. Always
+            // carry the off event along.
+            if (auto *on = dynamic_cast<OnEvent *>(ev)) {
+                if (on->offEvent()) {
+                    opts.selectedEventPtrs.insert(
+                        reinterpret_cast<quintptr>(on->offEvent()));
+                }
+            }
+        }
         if (opts.selectedEventPtrs.isEmpty()) {
             result["success"] = false;
             result["error"] = QStringLiteral("scope=selected_events, but nothing is selected in "
