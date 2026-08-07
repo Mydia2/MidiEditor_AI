@@ -5,6 +5,13 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [2.1.1] - 2026-08-07 - Hotfix: GPU acceleration
+
+### Bug Fixes
+* **GPU acceleration left the editor area empty** - with "Enable GPU acceleration for MIDI events" switched on, the piano roll and the tab strip above it stayed blank for the whole session while the panels around them drew normally. The editor view was painted once before it had become visible, which collapsed it to zero width permanently. Such an early frame is now postponed until the view is ready instead of being drawn too soon and lost.
+
+---
+
 ## [2.1.0] - 2026-07-26 - Precision Tools
 
 ### Summary
