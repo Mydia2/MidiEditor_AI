@@ -190,7 +190,7 @@ public:
     bool isEnabled() const { return enabled; }
 
     /**
-     * rief GLBLANK-001: the rule deciding whether a frame may be painted
+     * \brief GLBLANK-001: the rule deciding whether a frame may be painted
      *  right now. Factored out of paintGL() so it can be unit-tested without
      *  an OpenGL context (tests/test_opengl_paint_guard.cpp).
      * \param alreadyPainting True while an outer paintGL() still owns the
@@ -286,15 +286,15 @@ protected:
     /** \brief Cached paint size to avoid unnecessary GPU reallocations */
     QSize _lastPaintSize;
 
-    /** rief GLBLANK-001: true while paintGL() holds a QPainter on
+    /** \brief GLBLANK-001: true while paintGL() holds a QPainter on
      *  _paintDevice. See canPaintNow(). */
     bool _inPaintGL = false;
 
-    /** rief GLBLANK-001: a deferred frame is already queued. */
+    /** \brief GLBLANK-001: a deferred frame is already queued. */
     bool _repaintPending = false;
 
     /**
-     * rief Queues exactly one repaint to run after the current paint has
+     * \brief Queues exactly one repaint to run after the current paint has
      *  finished. Without it a deferred frame would never come back and the
      *  widget would keep its previous (usually empty) framebuffer forever.
      */

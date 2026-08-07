@@ -1,7 +1,7 @@
 # Changelog - MidiEditor AI
 
 All notable changes to MidiEditor AI are documented here.
-Releases: https://github.com/happytunesai/web/releases
+Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
