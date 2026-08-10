@@ -325,6 +325,74 @@ public:
      */
     static bool errorIndicatesNoToolSupport(const QString &error);
 
+    /**
+     * \brief TIMEOUT-LOCAL-001: transfer timeout for one completion request.
+     * \param longThinking True for reasoning / thinking models.
+     * \return 10 minutes for reasoning models AND for local providers (a local
+     *  14B needs minutes per turn on consumer hardware and does not report
+     *  reasoning=true), 3 minutes otherwise.
+     */
+    int requestTimeoutMs(bool longThinking) const;
+
+private:
+    /**
+     * \brief STREAMSILENT-001: surface a streaming transfer timeout.
+     *
+     * The four streaming finished-handlers used to log a CANCEL line and
+     * return without emitting anything, so a stalled stream left the UI
+     * spinning forever with no error and no retry. Reaching those handlers
+     * ALWAYS means a genuine timeout: cancelRequest() disconnects the reply
+     * before aborting it, so a user Stop never gets there. The _userCancelled
+     * guard is kept as a belt-and-braces check.
+     */
+    void emitStreamTransferTimeout();
+
+public:
+
+    /**
+     * \brief TOOLJSON-500: returns true if `message` is a server complaining
+     *        that it could not parse the tool call the model produced.
+     *
+     * Local servers (llama.cpp, Ollama) answer HTTP 500 for this, which reads
+     * exactly like a transient outage but is NOT one: the same prompt
+     * reproduces it byte for byte. It happens when a single tool call tries to
+     * write so much that generation runs out of context and the arguments JSON
+     * is cut off mid-object. Blindly re-sending the identical request cannot
+     * succeed - only a corrective retry that tells the model to write smaller
+     * chunks can. (Timing from the reported session, so nobody over-dramatises
+     * it later: the generation itself took ~22 min ONCE; the 17 repeat
+     * failures then arrived inside 34 s with no further generation. The cost
+     * is a wrong diagnosis and a wasted run, not hours of waiting.)
+     *
+     * Matches on the two ideas rather than one server's phrasing: it is about
+     * a TOOL CALL, and the payload did not parse.
+     *
+     * Defined INLINE on purpose: AgentRunner's retry classifier needs it, and
+     * the AgentRunner unit test shims AiClient's out-of-line members in its own
+     * TU. A header definition keeps the one real implementation reachable from
+     * both without dragging AiClient.cpp into that link.
+     */
+    static bool errorIndicatesUnparsableToolCall(const QString &message)
+    {
+        if (message.isEmpty())
+            return false;
+        const QString l = message.toLower();
+
+        // llama.cpp says: "Failed to parse tool call arguments as JSON:
+        // [json.exception.parse_error.101] parse error at line 1, column 59246:
+        // syntax error while parsing value - unexpected end of input".
+        // Ollama and others word it differently, so match on the SUBSTANCE:
+        // the complaint is about a tool/function call, and about it not parsing.
+        const bool aboutAToolCall = l.contains(QStringLiteral("tool call"))
+                                    || l.contains(QStringLiteral("tool_call"))
+                                    || l.contains(QStringLiteral("function call"))
+                                    || l.contains(QStringLiteral("function_call"));
+        const bool aboutParsing = l.contains(QStringLiteral("parse"))
+                                  || l.contains(QStringLiteral("unexpected end of input"))
+                                  || l.contains(QStringLiteral("invalid json"));
+        return aboutAToolCall && aboutParsing;
+    }
+
 private:
     /**
      * \brief Internal: streams the agent loop against Google's native

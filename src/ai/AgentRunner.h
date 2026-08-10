@@ -134,11 +134,16 @@ private:
     static QString buildStepLabel(const QString &toolName, const QJsonObject &args);
     void cleanup();
 
+public:
     // Retry helpers — classify a raw API error string into a recoverable
     // category and craft a corrective message to feed back to the model.
-    enum class RetryKind { None, Malformed, MaxTokens, Empty, Network };
+    // Pure and free of network/editor state; public so the classification can
+    // be unit-tested directly (tests/test_agent_runner_state.cpp).
+    enum class RetryKind { None, Malformed, MaxTokens, Empty, Network, ToolCallCutOff };
     static RetryKind classifyError(const QString &error);
     static QString hintForRetry(RetryKind kind, const QString &rawError);
+
+private:
     AiClient *_client;
     MidiFile *_file;
     MidiPilotWidget *_widget;

@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "2.1.1",
+    "softwareVersion": "2.1.2",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -243,7 +243,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v2.1.1 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v2.1.2 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -255,7 +255,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v2.1.1
+            &#x2B07; Download v2.1.2
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -657,10 +657,13 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v2.1.1 - August 2026</h3>
+        <h3>v2.1.2 - August 2026</h3>
         <p class="whats-new-subtitle">Hotfix</p>
         <ul>
-            <li><strong>GPU acceleration left the editor area empty</strong> - with &ldquo;Enable GPU acceleration for MIDI events&rdquo; switched on, the piano roll and the tab strip above it stayed blank for the whole session, while the panels around them drew normally. The editor view was being painted before it was ready; that frame now waits until the view has appeared.</li>
+            <li><strong>FFXIV mode did not work on OpenAI models</strong> - with the FFXIV checkbox on, every request failed instantly and no tool ran, because one FFXIV tool declared its parameters in a way OpenAI rejects - and a single rejected tool takes the whole request down with it. This hit every gpt-5 model including the shipped default; other providers were unaffected.</li>
+            <li><strong>A failed step no longer just says &ldquo;failed&rdquo;</strong> - when MidiPilot refused a tool call, the reason went back to the AI but was never shown to you. It now appears in the chat, so a stalled run is readable.</li>
+            <li><strong>MidiPilot blamed the server when a local model wrote too much at once</strong> - if a local server (Ollama, llama.cpp) refused an oversized tool call, MidiPilot reported &ldquo;busy or temporarily unavailable&rdquo; and re-sent the identical request, which could never succeed. It now names the real cause and asks the model for smaller steps, so the next attempt can finish.</li>
+            <li><strong>Local models were cut off after three minutes</strong> - a local server (Ollama, llama.cpp) sends nothing at all until an answer is finished, so an ordinary turn on a model running on your own GPU ran out of time and ended in &ldquo;Request timed out&rdquo;, however healthy the setup was. Local models now get the same generous limit as reasoning models.</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -719,7 +722,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v2.1.1
+            &#x2B07; Download MidiEditor AI v2.1.2
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

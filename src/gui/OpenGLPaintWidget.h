@@ -196,8 +196,7 @@ public:
      * \param alreadyPainting True while an outer paintGL() still owns the
      *  paint device - a layout pass inside paintContent() can re-enter.
      * \param widgetVisible The widget's QWidget::isVisible().
-     * 
-eturn True only when painting is safe. When false the caller MUST
+     * \return True only when painting is safe. When false the caller MUST
      *  defer the frame (requestDeferredRepaint), never drop it.
      */
     static bool canPaintNow(bool alreadyPainting, bool widgetVisible) {

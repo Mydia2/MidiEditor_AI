@@ -1706,6 +1706,13 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     // Recoverable categories: malformed/empty/MAX_TOKENS/network. We retry
     // by replaying the stashed request with exponential backoff.
     auto isRetriable = [](const QString &err) {
+        // TOOLJSON-500: simple mode has no corrective-hint machinery, so a
+        // deterministic "could not parse the tool call" error can only be
+        // replayed unchanged - which reproduces it and costs another full
+        // generation. Surface it instead; the message already tells the user
+        // what to ask for.
+        if (AiClient::errorIndicatesUnparsableToolCall(err))
+            return false;
         QString l = err.toLower();
         return l.contains(QStringLiteral("malformed"))
             || l.contains(QStringLiteral("max_tokens"))
@@ -2066,7 +2073,6 @@ void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
 }
 
 void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, const QJsonObject &result) {
-    Q_UNUSED(toolName);
     bool success = result["success"].toBool(true);
     bool recoverable = result["recoverable"].toBool(false);
     // Color-code the footer status to match the step outcome:
@@ -2086,6 +2092,26 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
         color = QStringLiteral("red");
     }
     setStatus(QString("Step %1: %2").arg(step).arg(label), color);
+
+    // TOOLFAIL-SILENT-001: until now a rejected tool call told the MODEL why it
+    // failed (the result's error/guidance fields) but told the USER only
+    // "failed" in red. Watching an agent burn steps on "Insert events - Track 1
+    // (1 events) - failed" three times with no reason on screen is the single
+    // most common "MidiPilot is broken" report - the reason was always right
+    // there in the result, just never shown. Surface it once per failed step,
+    // short: the error line is for the user, the guidance stays model-facing.
+    if (!success) {
+        const QString reason = result.value(QStringLiteral("error")).toString().trimmed();
+        if (!reason.isEmpty()) {
+            QString line = QStringLiteral("\u26A0 Step %1 (%2): %3")
+                               .arg(step)
+                               .arg(toolName.isEmpty() ? QStringLiteral("tool") : toolName,
+                                    reason.left(300));
+            if (recoverable)
+                line += QStringLiteral(" - retrying with corrected instructions.");
+            addChatBubble(QStringLiteral("system"), line);
+        }
+    }
 
     // For a successful step, the green flash is informational — if the
     // agent loop is still in flight, return to the orange "Thinking…"

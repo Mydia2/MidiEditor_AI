@@ -141,6 +141,78 @@ private slots:
         QCOMPARE(state.repeatedFailureCount, 1);
         QVERIFY(state.nextStepHint.contains(QStringLiteral("Do not repeat")));
     }
+
+    // --- TOOLJSON-500 -----------------------------------------------------
+    // A local server (llama.cpp / Ollama) answers HTTP 500 when the model
+    // emitted a tool call it cannot parse - in the field, one song-length
+    // insert_events call whose arguments JSON was cut off after 27,919
+    // generated tokens. That reads like an outage but is deterministic, so it
+    // used to be classified as Network, whose hint is empty - the model was
+    // asked again with nothing changed and failed identically every time.
+
+    void unparsableToolCall_isRecognisedRegardlessOfServerWording()
+    {
+        // llama.cpp's exact wording from the reported session.
+        QVERIFY(AiClient::errorIndicatesUnparsableToolCall(QStringLiteral(
+            "Failed to parse tool call arguments as JSON: "
+            "[json.exception.parse_error.101] parse error at line 1, column 59246: "
+            "syntax error while parsing value - unexpected end of input")));
+        // Other servers word it differently - the substance is what matters.
+        QVERIFY(AiClient::errorIndicatesUnparsableToolCall(
+            QStringLiteral("invalid json in function call arguments")));
+        QVERIFY(AiClient::errorIndicatesUnparsableToolCall(
+            QStringLiteral("could not parse tool_call payload")));
+    }
+
+    void unparsableToolCall_doesNotSwallowOrdinaryOutages()
+    {
+        QVERIFY(!AiClient::errorIndicatesUnparsableToolCall(QString()));
+        QVERIFY(!AiClient::errorIndicatesUnparsableToolCall(
+            QStringLiteral("Ollama is busy or temporarily unavailable (HTTP 503)")));
+        // Mentions a tool call but is a capability problem, not a parse failure.
+        QVERIFY(!AiClient::errorIndicatesUnparsableToolCall(
+            QStringLiteral("This model does not support tool call usage")));
+        // Mentions parsing but is not about a tool call.
+        QVERIFY(!AiClient::errorIndicatesUnparsableToolCall(
+            QStringLiteral("failed to parse the response body")));
+    }
+
+    void cutOffToolCall_classifiesAwayFromTheSilentNetworkRetry()
+    {
+        // The string MUST carry an HTTP-5xx token, otherwise it could never
+        // have classified as Network in the first place and the ordering this
+        // test claims to pin would be untested. This is the real shape: the
+        // provider error arrives wrapped with its status code.
+        const QString err = QStringLiteral(
+            "Streaming error (HTTP 500): The model produced a tool call that Ollama "
+            "could not parse - usually because one call tried to write too much and "
+            "ran out of context. Server said: Failed to parse tool call arguments "
+            "as JSON: unexpected end of input");
+        const AgentRunner::RetryKind kind = AgentRunner::classifyError(err);
+        QCOMPARE(kind, AgentRunner::RetryKind::ToolCallCutOff);
+        QVERIFY2(kind != AgentRunner::RetryKind::Network,
+                 "a deterministic parse failure must not be retried silently");
+
+        // The whole point: this kind carries a hint, and it tells the model the
+        // concrete rule that avoids the failure.
+        const QString hint = AgentRunner::hintForRetry(kind, err);
+        QVERIFY(!hint.isEmpty());
+        // And the Network hint - the one that used to fire - is still empty, so
+        // a regression that re-routes this error would be caught by the emptiness.
+        QVERIFY(AgentRunner::hintForRetry(AgentRunner::RetryKind::Network, err).isEmpty());
+        QVERIFY(hint.contains(QStringLiteral("Do not repeat")));
+        QVERIFY(hint.contains(QStringLiteral("ONE track per call")));
+        QVERIFY(hint.contains(QStringLiteral("30 events")));
+    }
+
+    void genuineOutageStillRetriesSilently()
+    {
+        const AgentRunner::RetryKind kind = AgentRunner::classifyError(
+            QStringLiteral("Ollama is busy or temporarily unavailable (HTTP 503). "
+                           "Please try again in a moment."));
+        QCOMPARE(kind, AgentRunner::RetryKind::Network);
+        QVERIFY(AgentRunner::hintForRetry(kind, QString()).isEmpty());
+    }
 };
 
 QTEST_MAIN(TestAgentRunnerState)

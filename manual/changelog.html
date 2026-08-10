@@ -221,12 +221,29 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="2.1.1">
+<article class="cl-version latest" data-version="2.1.2">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v2.1.2" target="_blank" rel="noopener noreferrer">v2.1.2</a></h2>
+<span class="cl-date">2026-08-10</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Hotfix: AI reliability and error reporting</div>
+<ul class="cl-summary">
+<li><strong>FFXIV mode did not work at all on OpenAI models</strong> - with the FFXIV checkbox on, every request failed immediately and no tool ran. One of the FFXIV tools declared its parameters in a way OpenAI rejects outright, and a single rejected tool takes the whole request down with it - so the other nineteen tools never got a chance. This hit every gpt-5 model, the shipped default included, because they all switch to OpenAI&#x27;s stricter transport as soon as tools are in play. Fixed for all of them; providers other than OpenAI were unaffected.</li>
+<li><strong>A stalled request left MidiPilot spinning forever</strong> - when a streaming answer stopped arriving, all four streaming paths logged the timeout and returned without telling anyone: no error, no retry, just a spinner that never stopped. The timeout is now surfaced like any other failure, so the agent can react to it instead of hanging. Most visible with local models, where a stall is far more likely than on a cloud endpoint.</li>
+<li><strong>A timed-out connection test hung the Settings page</strong> - if the server did not answer, &quot;Test connection&quot; never reported anything: the page stayed on &quot;Testing connection...&quot; with the button greyed out until you closed it. It now reports the timeout, and it allows for a local model that still has to load into memory before it can answer.</li>
+<li><strong>The unit tests deleted your FFXIV setting (dev/from-source builds)</strong> - running <code class="hl">ctest</code> removed the app&#x27;s FFXIV mode from the real configuration, because the sandboxing the tests believed in does not cover the Windows registry. The tests now put back exactly what they found.</li>
+<li><strong>A failed step no longer just says &quot;failed&quot;</strong> - when MidiPilot refused a tool call (for example because the model tried to write placeholder pitch-bend events instead of notes), the reason was sent back to the AI but never shown to you: the panel showed a red &quot;failed&quot; and nothing else. The reason now appears in the chat, so a run that stalls is readable instead of mysterious.</li>
+<li><strong>Local models were cut off after three minutes</strong> - a request to a local server (Ollama, llama.cpp) was given the same three-minute limit as a cloud model. That limit counts time with no data arriving, and a local server sends nothing at all until the whole answer is finished - so on a 14B running on your own GPU, an ordinary turn ran out of time and ended in &quot;Request timed out&quot;, however healthy the setup was. Local models now get the same generous limit as reasoning models, and the connection test allows for a model that still has to load into memory instead of giving up after fifteen seconds.</li>
+<li><strong>MidiPilot blamed the server when a local model wrote too much at once</strong> - if a local server (Ollama, llama.cpp) refused an oversized tool call, MidiPilot reported it as &quot;busy or temporarily unavailable&quot; and quietly re-sent the identical request several times, which could never succeed. The message now names the real cause - the model produced a tool call that could not be parsed, almost always because one call tried to write a whole arrangement at once - and suggests asking for a smaller step or giving the model a larger context window. In Agent mode the retry now tells the model to write one track and only a few bars per call, so the next attempt has a real chance of finishing instead of repeating the same oversized call. Genuine outages are unaffected and still retry on their own.</li>
+</ul>
+</article>
+<article class="cl-version" data-version="2.1.1">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v2.1.1" target="_blank" rel="noopener noreferrer">v2.1.1</a></h2>
 <span class="cl-date">2026-08-07</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">Hotfix: GPU acceleration</div>
 <ul class="cl-summary">
