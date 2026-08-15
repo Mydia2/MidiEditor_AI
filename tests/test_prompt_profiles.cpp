@@ -267,6 +267,85 @@ private slots:
         QVERIFY(!found->builtin);
     }
 
+    // Phase 47: the per-model "no pitch_bend in the tool schema" opt-in must
+    // survive a store round-trip, and must default to false for every profile
+    // written before the flag existed (a missing key must not read as true).
+    void disallowPitchBend_roundTripsThroughStore()
+    {
+        wipeAllProfilesFromSettings();
+
+        QString onId;
+        QString offId;
+        {
+            PromptProfileStore store;
+
+            PromptProfile on = makeProfile(
+                tag(QStringLiteral("NoBend")),
+                {QStringLiteral("ollama:qwen3*")},
+                QStringLiteral("LOCAL RULES"),
+                /*append=*/true);
+            on.disallowPitchBend = true;
+            onId = on.id;
+            store.upsert(on);
+
+            // Same profile shape, flag left at its default.
+            PromptProfile off = makeProfile(
+                tag(QStringLiteral("BendOk")),
+                {QStringLiteral("openai:gpt-4o*")},
+                QStringLiteral("CLOUD RULES"),
+                /*append=*/true);
+            QVERIFY2(!off.disallowPitchBend, "default must be false");
+            offId = off.id;
+            store.upsert(off);
+        }
+
+        PromptProfileStore store2;
+        const QList<PromptProfile> all = store2.profiles();
+        const PromptProfile *loadedOn = nullptr;
+        const PromptProfile *loadedOff = nullptr;
+        for (const PromptProfile &x : all) {
+            if (x.id == onId) loadedOn = &x;
+            if (x.id == offId) loadedOff = &x;
+        }
+        QVERIFY(loadedOn != nullptr);
+        QVERIFY(loadedOff != nullptr);
+        QVERIFY2(loadedOn->disallowPitchBend, "flag=true did not round-trip");
+        QVERIFY2(!loadedOff->disallowPitchBend, "flag=false did not round-trip");
+
+        // resolveForModel must carry the flag too — that is the path
+        // MidiPilotWidget reads before every agent run.
+        QVERIFY(store2.resolveForModel(QStringLiteral("ollama"),
+                                        QStringLiteral("qwen3-14b")).disallowPitchBend);
+        QVERIFY(!store2.resolveForModel(QStringLiteral("openai"),
+                                         QStringLiteral("gpt-4o-mini")).disallowPitchBend);
+    }
+
+    // A profile persisted before Phase 47 has no `disallowPitchBend` key at
+    // all; loading it must yield false, never a stray true.
+    void disallowPitchBend_defaultsToFalseForLegacyProfiles()
+    {
+        wipeAllProfilesFromSettings();
+
+        const QString id = QStringLiteral("legacy-") + _suffix;
+        {
+            QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+            const QString root = QStringLiteral("AI/prompt_profiles/") + id;
+            s.setValue(root + QStringLiteral("/name"), tag(QStringLiteral("Legacy")));
+            s.setValue(root + QStringLiteral("/system"), QStringLiteral("OLD"));
+            s.setValue(root + QStringLiteral("/append_to_default"), true);
+            s.setValue(root + QStringLiteral("/enabled"), true);
+            s.setValue(root + QStringLiteral("/models"),
+                       QStringList{QStringLiteral("openai:gpt-4o*")});
+            s.sync();
+        }
+
+        PromptProfileStore store;
+        const PromptProfile p = store.resolveForModel(
+            QStringLiteral("openai"), QStringLiteral("gpt-4o-mini"));
+        QCOMPARE(p.id, id);
+        QVERIFY(!p.disallowPitchBend);
+    }
+
     // ----------------------------------------------------------- built-in --
     void builtin_isSeededOnFirstConstruction()
     {

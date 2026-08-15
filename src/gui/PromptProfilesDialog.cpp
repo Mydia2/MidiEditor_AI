@@ -99,6 +99,19 @@ PromptProfilesDialog::PromptProfilesDialog(PromptProfileStore *store,
         "replaces the default — use with care."));
     rightLay->addWidget(_appendCheck);
 
+    _pitchBendCheck = new QCheckBox(
+        tr("Hide pitch-bend events from this model (schema-level)"), rightWrap);
+    _pitchBendCheck->setToolTip(tr(
+        "Removes the pitch_bend event type from the tool schema in Agent\n"
+        "mode for the models this profile is bound to, so a model that\n"
+        "writes a placeholder bend instead of the notes it planned cannot\n"
+        "do so any more.\n"
+        "Has no effect in Simple mode (there is no tool schema there) and\n"
+        "no effect on MCP clients, which always receive the full schema.\n"
+        "Turn it off if you want this model to write real pitch bends or\n"
+        "vibrato."));
+    rightLay->addWidget(_pitchBendCheck);
+
     auto *editSplitter = new QSplitter(Qt::Vertical, rightWrap);
 
     auto *promptWrap = new QWidget(editSplitter);
@@ -177,6 +190,8 @@ PromptProfilesDialog::PromptProfilesDialog(PromptProfileStore *store,
             &PromptProfilesDialog::onNameEdited);
     connect(_appendCheck, &QCheckBox::toggled, this,
             &PromptProfilesDialog::onAppendToggled);
+    connect(_pitchBendCheck, &QCheckBox::toggled, this,
+            &PromptProfilesDialog::onPitchBendToggled);
     connect(_systemEdit, &QPlainTextEdit::textChanged, this,
             &PromptProfilesDialog::onSystemEdited);
     connect(_modelTree, &QTreeWidget::itemChanged, this,
@@ -319,6 +334,7 @@ void PromptProfilesDialog::onProfileSelected()
 
     _nameEdit->setEnabled(editable);
     _appendCheck->setEnabled(editable);
+    _pitchBendCheck->setEnabled(editable);
     _systemEdit->setReadOnly(!editable);
     // Built-in profiles are read-only, but the model list still needs to
     // be navigable. Disabling the whole tree also disables scrolling and
@@ -331,10 +347,12 @@ void PromptProfilesDialog::onProfileSelected()
     if (cur) {
         _nameEdit->setText(cur->name);
         _appendCheck->setChecked(cur->appendToDefault);
+        _pitchBendCheck->setChecked(cur->disallowPitchBend);
         _systemEdit->setPlainText(cur->system);
     } else {
         _nameEdit->clear();
         _appendCheck->setChecked(true);
+        _pitchBendCheck->setChecked(false);
         _systemEdit->clear();
     }
     _suppressEditSignals = false;
@@ -363,6 +381,14 @@ void PromptProfilesDialog::onAppendToggled(bool checked)
     PromptProfile *cur = currentProfile();
     if (!cur || cur->builtin) return;
     cur->appendToDefault = checked;
+}
+
+void PromptProfilesDialog::onPitchBendToggled(bool checked)
+{
+    if (_suppressEditSignals) return;
+    PromptProfile *cur = currentProfile();
+    if (!cur || cur->builtin) return;
+    cur->disallowPitchBend = checked;
 }
 
 void PromptProfilesDialog::onSystemEdited()
@@ -408,6 +434,7 @@ void PromptProfilesDialog::onAddProfile()
     p.appendToDefault = true;
     p.builtin = false;
     p.enabled = true;
+    p.disallowPitchBend = false;
     _profiles.append(p);
     rebuildList(p.id);
     _nameEdit->setFocus();

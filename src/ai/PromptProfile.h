@@ -24,6 +24,15 @@ struct PromptProfile {
     bool appendToDefault = true;///< true → append, false → replace.
     bool builtin = false;       ///< Read-only shipped profile.
     bool enabled = true;        ///< Resolution skips disabled profiles.
+    /// Phase 47: when true, the `pitch_bend` branch is removed from the
+    /// `events.anyOf` tool schema for every model matched by this profile.
+    /// Agent mode only (Simple mode sends no tool schema, and the MCP server
+    /// always serves the full schema). It exists because `pitch_bend` is the
+    /// cheapest branch of the event schema - three required fields where a
+    /// note needs six - so a weak model under schema pressure emits a lone
+    /// placeholder bend instead of the notes it just planned. Taking the
+    /// branch away is the only mitigation the model cannot ignore.
+    bool disallowPitchBend = false;
     QStringList models;         ///< "<provider>:<modelId>" or "<provider>:<prefix>*".
 };
 

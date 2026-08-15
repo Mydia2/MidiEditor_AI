@@ -56,6 +56,11 @@ PromptProfile makeGpt55Decisive()
     p.appendToDefault = true;
     p.builtin = true;
     p.enabled = true;
+    // Explicitly OFF: gpt-5.5* already loses the pitch_bend branch through
+    // AgentToolPolicy::buildPolicyFor() for composition/edit tasks. Setting
+    // it here too would strip the branch for analysis/repair tasks as well,
+    // i.e. change what this built-in means.
+    p.disallowPitchBend = false;
     p.models = QStringList{
         QStringLiteral("openai:gpt-5.5*"),
         QStringLiteral("openrouter:openai/gpt-5.5*"),
@@ -118,6 +123,8 @@ PromptProfile PromptProfileStore::loadProfile(const QString &id) const
         settings()->value(idKey(id, QStringLiteral("builtin")), false).toBool();
     p.enabled =
         settings()->value(idKey(id, QStringLiteral("enabled")), true).toBool();
+    p.disallowPitchBend =
+        settings()->value(idKey(id, QStringLiteral("disallowPitchBend")), false).toBool();
     p.models =
         settings()->value(idKey(id, QStringLiteral("models"))).toStringList();
     return p;
@@ -131,6 +138,8 @@ void PromptProfileStore::saveProfile(const PromptProfile &p) const
                           p.appendToDefault);
     settings()->setValue(idKey(p.id, QStringLiteral("builtin")), p.builtin);
     settings()->setValue(idKey(p.id, QStringLiteral("enabled")), p.enabled);
+    settings()->setValue(idKey(p.id, QStringLiteral("disallowPitchBend")),
+                          p.disallowPitchBend);
     settings()->setValue(idKey(p.id, QStringLiteral("models")), p.models);
 }
 
@@ -239,6 +248,7 @@ void PromptProfileStore::upsert(const PromptProfile &p)
         toWrite.name = existing.name;
         toWrite.system = existing.system;
         toWrite.appendToDefault = existing.appendToDefault;
+        toWrite.disallowPitchBend = existing.disallowPitchBend;
         toWrite.models = existing.models;
     }
     saveProfile(toWrite);

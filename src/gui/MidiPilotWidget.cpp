@@ -1373,6 +1373,14 @@ void MidiPilotWidget::onSendMessage() {
                                   ? agentPrompt + QStringLiteral("\n\n") + pp.system
                                   : pp.system;
             }
+            // Phase 47: the profile can also strip the `pitch_bend` branch
+            // from the tool schema for this model. Set unconditionally so a
+            // profile change (or a model switch) takes effect on the very
+            // next run instead of leaving the previous run's value behind.
+            // resolveForModel returns a default-constructed profile when
+            // nothing matches; its flag is false, but be explicit.
+            _agentRunner->setProfileDisallowsPitchBend(
+                !pp.id.isEmpty() && pp.disallowPitchBend);
         }
         if (ffxivMode()) {
             // Detect which optional sections the file needs

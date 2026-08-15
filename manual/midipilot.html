@@ -580,7 +580,12 @@ Open <b>Settings &rarr; AI &rarr; Prompt Profiles&hellip;</b> to manage profiles
 <tr><td><b>Model patterns</b></td><td>One or more <code>provider:model</code> entries with optional glob suffix, e.g. <code>openai:gpt-5.5*</code>, <code>openrouter:openai/gpt-5.5*</code>, <code>gemini:gemini-2.5-pro</code>. The first matching profile wins.</td></tr>
 <tr><td><b>System prompt</b></td><td>The prompt text that should be sent for matching models. Markdown is allowed.</td></tr>
 <tr><td><b>Append to default</b></td><td>When checked, the profile is appended to the active mode prompt (Simple/Agent/FFXIV) instead of replacing it - useful for adding small, model-specific guardrails.</td></tr>
+<tr><td><b>Hide pitch-bend events from this model</b></td><td>Removes the pitch-bend event type from the tool list the model sees in Agent mode. See the note below.</td></tr>
 </table>
+
+<p>
+<b>Hide pitch-bend events from this model (schema-level).</b> Of all the things MidiPilot can write into a track, a pitch bend is the cheapest to describe - a note needs a pitch, a velocity, a length and a position, a bend needs almost nothing. A model that is unsure of itself will therefore sometimes answer a &ldquo;write me a melody&rdquo; request with a single pitch bend and nothing else, no matter how clearly the prompt asks for notes. Tick this box and the bend simply stops being an option: it is taken out of the tool description the model receives, so it has to write real notes. Set it per profile, for the one model that shows this behaviour, and leave your other models untouched. It applies to Agent mode, which is where the tool list exists; Simple mode does not use one. Leave it unchecked when you do want that model to write bends or vibrato for you.
+</p>
 
 <p>
 MidiPilot ships with one built-in profile: <b>GPT-5.5 Decisive</b>, bound to <code>openai:gpt-5.5*</code> and <code>openrouter:openai/gpt-5.5*</code>. It nudges the model to commit to a tool call instead of asking clarifying questions, which is a known weak spot of that family. You can edit, duplicate, or disable it like any other profile.

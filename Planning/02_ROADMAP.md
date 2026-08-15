@@ -13029,6 +13029,76 @@ status hint.
 
 ---
 
+## Phase 47: Prompt-profile "no pitch_bend" switch - schema-level, per model (2.2)
+
+**Origin - a user's local Qwen3-14B over Ollama, 2026-08-10.** The model reasoned
+14,000 characters of a perfectly correct plan (program_change at tick 0, notes at
+192 ticks, drums on channel 9) and then emitted, three times in a row,
+`insert_events` with a single `{"type":"pitch_bend","value":0}` event. Not from
+misunderstanding: `pitch_bend` is the CHEAPEST branch in the event schema (three
+required fields) where a `note` demands six. A weaker model under schema pressure
+takes the shortest valid path. The runtime guard rejects it, the system prompt
+forbids it, the retry hint says not to - and the schema keeps offering it as the
+easiest option. Prompt, guard and schema contradict each other.
+
+**The countermeasure already exists and is not reachable.**
+`makeEventSchema(includePitchBend=false)` removes the branch entirely; it is
+wired through `AgentToolPolicy::allowPitchBendEvents` ->
+`ToolSchemaOptions::includePitchBend` (AgentRunner.cpp:410). But
+`buildPolicyFor()` returns the default policy for every non-gpt-5.5 model
+(AgentToolPolicy.cpp:41), so the models that need it most - local ones - never
+get it. Extending the model check to "all local providers" would break "add
+vibrato" for everyone on Ollama; a global switch would break it for everyone.
+
+**Design (owner decision 2026-08-10): a checkbox on the PROMPT PROFILE.**
+Profiles are already bound to `provider:model` patterns and carry
+`appendToDefault` / `enabled` flags, so a per-model opt-out is a natural fit:
+the user ticks it for the local model that produces placeholders and leaves
+GPT-4o / Claude untouched. Concretely:
+
+1. `PromptProfile` gains `bool disallowPitchBend = false`, persisted by
+   `PromptProfileStore` under the existing `AI/prompt_profiles/<id>/` key
+   scheme, default false, round-tripped like `appendToDefault`.
+2. `PromptProfilesDialog` gets a checkbox "Hide pitch-bend events from this
+   model (schema-level)" next to the append checkbox, same enable/disable
+   handling for built-in profiles.
+3. THE WIRING IS THE POINT: the flag must reach `ToolSchemaOptions::includePitchBend`,
+   not merely append prompt text. `AgentRunner` does not know the profile store
+   (it builds its policy from model+provider only), so `MidiPilotWidget` -
+   which resolves the profile before every run (MidiPilotWidget.cpp:1369/1413)
+   - passes the decision in. Cleanest: a policy override on the runner
+   (`setDisallowPitchBend(bool)` or an extra `run()` argument) that
+   `buildPolicyFor()`'s result is AND-ed with: `allowPitchBendEvents =
+   policy.allowPitchBendEvents && !profile.disallowPitchBend`. The existing
+   gpt-5.5 behaviour must stay exactly as it is.
+4. When the flag is on, the profile ALSO benefits from the runtime guard and
+   the sanitized rejection guidance that gpt-5.5 already gets - reuse, do not
+   duplicate.
+5. Simple mode has no tool schema, so the flag has no effect there - document
+   that in the checkbox tooltip rather than pretending otherwise.
+6. MCP: the flag is a per-model MidiPilot setting and must NOT change the
+   schema served to MCP clients (McpServer calls `toolSchemas()` with default
+   options); external clients keep the full schema.
+
+**Tests:** store round-trip of the new field (test_prompt_profiles);
+`toolSchemas(opts)` with includePitchBend=false has no pitch_bend branch in the
+insert/replace event schemas and STILL satisfies the strict-mode invariant test;
+the AND-composition (gpt-5.5 policy false stays false; a non-5.5 model with the
+profile flag becomes false; without it stays true).
+
+**Docs:** manual/midipilot.html prompt-profiles section gains one paragraph;
+CHANGELOG 2.2.0 "New Features" gets a bullet in user language (why a local model
+writes placeholder bends, what the checkbox does, that it is per model).
+
+**Related, deliberately separate follow-ups from the same log:** the
+`create_track` result hint "Remember to insert a program_change" is wrong in
+FFXIV mode and costs weak models real reasoning; MidiPilot sends no `num_ctx`
+to Ollama so the server-side context slider silently decides; Qwen3's
+thinking can be switched off (Phase 26 lever). None of them is part of this
+phase.
+
+---
+
 ## Phase 46: AI arrangement capability - close the MCP gaps (2.2)
 
 **Origin - the octet experiment, 2026-07-25.** An external AI client was given a

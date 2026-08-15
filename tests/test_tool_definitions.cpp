@@ -639,6 +639,72 @@ private slots:
                                 .arg(problems.join(QStringLiteral("\n  ")))));
     }
 
+    // Phase 47 — the no-pitch_bend schema is no longer a gpt-5.5-only code
+    // path: any prompt profile can switch it on for its models, so it now
+    // ships to arbitrary providers. Two invariants in one place: the
+    // pitch_bend branch really is gone from BOTH write tools, and dropping a
+    // branch does not break the strict-mode contract the Responses API
+    // enforces (a single violation rejects the whole request, so the reduced
+    // schema has to be as strict as the full one).
+    void toolSchemas_withoutPitchBend_hasNoPitchBendBranchAndStaysStrict() {
+        setFfxivMode(true); // widest tool set: core + FFXIV
+        ToolDefinitions::ToolSchemaOptions opts;
+        opts.includePitchBend = false;
+        const QJsonArray tools = ToolDefinitions::toolSchemas(opts);
+        QVERIFY(!tools.isEmpty());
+
+        // --- no pitch_bend branch in insert_events / replace_events -------
+        int writeToolsSeen = 0;
+        for (const QJsonValue &v : tools) {
+            const QJsonObject fn = v.toObject().value(QStringLiteral("function")).toObject();
+            const QString name = fn.value(QStringLiteral("name")).toString();
+            if (name != QStringLiteral("insert_events")
+                && name != QStringLiteral("replace_events"))
+                continue;
+            ++writeToolsSeen;
+
+            const QJsonArray anyOf = fn.value(QStringLiteral("parameters")).toObject()
+                                       .value(QStringLiteral("properties")).toObject()
+                                       .value(QStringLiteral("events")).toObject()
+                                       .value(QStringLiteral("items")).toObject()
+                                       .value(QStringLiteral("anyOf")).toArray();
+            QVERIFY2(!anyOf.isEmpty(),
+                     qPrintable(QStringLiteral("%1: events.items.anyOf missing").arg(name)));
+            bool sawNote = false;
+            for (const QJsonValue &branch : anyOf) {
+                const QJsonArray types = branch.toObject()
+                                             .value(QStringLiteral("properties")).toObject()
+                                             .value(QStringLiteral("type")).toObject()
+                                             .value(QStringLiteral("enum")).toArray();
+                for (const QJsonValue &t : types) {
+                    const QString type = t.toString();
+                    if (type == QStringLiteral("note"))
+                        sawNote = true;
+                    QVERIFY2(type != QStringLiteral("pitch_bend"),
+                             qPrintable(QStringLiteral("%1 still offers a pitch_bend branch")
+                                            .arg(name)));
+                }
+            }
+            QVERIFY2(sawNote, qPrintable(QStringLiteral("%1 lost its note branch").arg(name)));
+        }
+        QCOMPARE(writeToolsSeen, 2);
+
+        // --- and the reduced schema is still strict-mode clean -------------
+        QStringList problems;
+        for (const QJsonValue &v : tools) {
+            const QJsonObject fn = v.toObject().value(QStringLiteral("function")).toObject();
+            const QString name = fn.value(QStringLiteral("name")).toString();
+            checkStrictObject(fn.value(QStringLiteral("parameters")).toObject(),
+                              name, QStringLiteral("parameters"), problems);
+        }
+        clearFfxivMode();
+
+        QVERIFY2(problems.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "strict-mode schema violations in the no-pitch_bend variant:\n  %1")
+                                .arg(problems.join(QStringLiteral("\n  ")))));
+    }
+
 private:
     // Recursive strict-mode check: every object schema must require all of its
     // properties and forbid extra ones. Descends into properties, anyOf/oneOf

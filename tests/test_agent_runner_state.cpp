@@ -205,6 +205,33 @@ private slots:
         QVERIFY(hint.contains(QStringLiteral("30 events")));
     }
 
+    // Phase 47 — the gap the prompt-profile switch exists to close.
+    //
+    // The AND-composition itself lives inside AgentRunner::run(), which needs
+    // a live AiClient, so it is not drivable here. What IS drivable, and what
+    // actually matters, is the base policy it composes with: gpt-5.5* loses
+    // pitch_bend on its own, every other model keeps it - including the local
+    // ones that produce the placeholder bends. If this test ever flips to
+    // "false" for the Ollama model, the profile flag has become redundant and
+    // someone widened the model check instead.
+    void buildPolicyFor_leavesPitchBendOnForEveryModelButGpt55()
+    {
+        const AgentToolPolicy gpt55 = AgentToolPolicyUtil::buildPolicyFor(
+            QStringLiteral("gpt-5.5"), QStringLiteral("openai"), /*isCompositionOrEdit=*/true);
+        QVERIFY2(!gpt55.allowPitchBendEvents,
+                 "gpt-5.5 composition must keep its schema-light policy");
+        QVERIFY(gpt55.sanitizeRejectionGuidance);
+
+        const AgentToolPolicy local = AgentToolPolicyUtil::buildPolicyFor(
+            QStringLiteral("hf.co/Qwen/Qwen3-14B-GGUF:Q4_K_M"),
+            QStringLiteral("ollama"), /*isCompositionOrEdit=*/true);
+        QVERIFY2(local.allowPitchBendEvents,
+                 "a local model must keep pitch_bend unless a prompt profile opts out");
+        // ...and it does NOT get the positive-only rejection guidance either,
+        // which is why run() sets that flag alongside the AND.
+        QVERIFY(!local.sanitizeRejectionGuidance);
+    }
+
     void genuineOutageStillRetriesSilently()
     {
         const AgentRunner::RetryKind kind = AgentRunner::classifyError(

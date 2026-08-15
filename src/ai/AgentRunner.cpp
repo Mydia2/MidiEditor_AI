@@ -359,11 +359,32 @@ void AgentRunner::run(const QString &systemPrompt,
     _policy = AgentToolPolicyUtil::buildPolicyFor(_client->model(),
                                                   _client->provider(),
                                                   isCompositionOrEdit);
-    qInfo().noquote() << QStringLiteral("[POLICY] model=%1 provider=%2 task=%3 flags=%4")
+
+    // Phase 47 — the active prompt profile may additionally forbid
+    // `pitch_bend` for the models it is bound to (set by MidiPilotWidget
+    // before every run). This is an AND, never an OR: the profile can only
+    // take the branch away, so gpt-5.5*'s policy above is never widened.
+    if (_profileDisallowsPitchBend) {
+        _policy.allowPitchBendEvents = false;
+        // Dependent flag. buildPolicyFor() does NOT derive the sanitized
+        // rejection guidance from allowPitchBendEvents — it sets both from
+        // the same gpt-5.5* model check — so without this line a
+        // profile-flagged model would keep the guidance texts that spell out
+        // the literal token `pitch_bend` in every rejection, re-anchoring the
+        // exact word we just removed from its schema. The runtime guard
+        // itself (isPitchBendOnlyPayload) is unconditional and applies
+        // either way. `boundedIncompleteWriteStop` is deliberately NOT
+        // enabled here: it changes when a run gives up, which is a different
+        // mitigation and not what this switch promises.
+        _policy.sanitizeRejectionGuidance = true;
+    }
+
+    qInfo().noquote() << QStringLiteral("[POLICY] model=%1 provider=%2 task=%3 flags=%4 profileNoPitchBend=%5")
         .arg(_client->model(),
              _client->provider(),
              taskTypeName(_workingState.taskType),
-             AgentToolPolicyUtil::describe(_policy));
+             AgentToolPolicyUtil::describe(_policy),
+             _profileDisallowsPitchBend ? QStringLiteral("1") : QStringLiteral("0"));
 
     if (_policy.sanitizeRejectionGuidance) {
         // Phase 31: scrub the default working state so that the very first
@@ -419,6 +440,13 @@ void AgentRunner::run(const QString &systemPrompt,
                          this, &AgentRunner::onApiError);
 
     sendNextRequest();
+}
+
+void AgentRunner::setProfileDisallowsPitchBend(bool disallow)
+{
+    // Contract: the caller sets this before EVERY run() (MidiPilotWidget does
+    // it where it resolves the prompt profile), so run() does not reset it.
+    _profileDisallowsPitchBend = disallow;
 }
 
 void AgentRunner::cancel()

@@ -66,6 +66,24 @@ public:
              MidiFile *file,
              MidiPilotWidget *widget);
 
+    /**
+     * \brief Phase 47 — lets the caller strip the `pitch_bend` branch from
+     *        the tool schema for the upcoming run.
+     *
+     * Set from the active \ref PromptProfile's \c disallowPitchBend flag.
+     * AgentRunner deliberately does not know PromptProfileStore: it derives
+     * its policy from model + provider only, so the profile decision has to
+     * be handed in from outside (MidiPilotWidget does it right before every
+     * \ref run call).
+     *
+     * The flag is AND-ed into the model policy: it can only turn pitch_bend
+     * OFF, never back on, so gpt-5.5*'s existing schema-light behaviour is
+     * unaffected. It is NOT reset by \ref run — the caller sets it before
+     * every run, which is what keeps a profile change effective from the
+     * next message on.
+     */
+    void setProfileDisallowsPitchBend(bool disallow);
+
     void cancel();
     bool isRunning() const;
 
@@ -167,6 +185,10 @@ private:
 
     // Phase 31 — model/task scoped policy, computed once per run() call.
     AgentToolPolicy _policy;
+    // Phase 47 — profile-level "no pitch_bend" opt-in, supplied by the caller
+    // via setProfileDisallowsPitchBend() before each run() and AND-ed into
+    // `_policy.allowPitchBendEvents`.
+    bool _profileDisallowsPitchBend = false;
     // Counter of consecutive write-tool calls that produced an "incomplete
     // payload" rejection (e.g. only program_change / cc, no notes). Used by
     // `policy.boundedIncompleteWriteStop` to terminate the run with a clear
