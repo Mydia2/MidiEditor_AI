@@ -497,7 +497,13 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "line into a 180 BPM project so bars line up again. One undoable step. MUST be "
             "confirmed by the user: call with dryRun=true, present the summary, and only call "
             "with dryRun=false after explicit user approval.",
-            makeParams(props, {"targetBpm", "scope", "dryRun"})));
+            // STRICT-SCHEMA-001: strict function schemas (what the Responses
+            // API enforces BY DEFAULT) require `required` to list EVERY key in
+            // `properties` - optionality is expressed by an anyOf[<type>, null]
+            // branch, never by leaving a key out. One violating tool fails the
+            // WHOLE request; see auto_fit_voice_load below for the reference.
+            makeParams(props, {"sourceBpm", "targetBpm", "scope", "trackIds",
+                               "channelIds", "tempoMode", "dryRun"})));
     }
 
     // set_ffxiv_mode (Phase 46) - CORE, deliberately OUTSIDE the FFXIV gate
@@ -583,7 +589,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                             "12 = one octave. 0 is allowed with foldToRange=true for a "
                             "pure range fold."}};
         props["foldToRange"] = QJsonObject{
-            {"type", "boolean"},
+            {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
             {"description", "After transposing, fold each note by octaves into the FFXIV "
                             "bard range C3-C6 (MIDI 48-84). Default false."}};
         tools.append(makeTool(
@@ -593,7 +599,8 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "is one call instead of re-writing every event. With foldToRange=true the result "
             "is folded octave-wise into C3-C6; notes that would leave the MIDI range 0-127 "
             "are left unchanged and reported as skipped.",
-            makeParams(props, {"semitones"})));
+            makeParams(props, {"trackIndex", "startTick", "endTick", "semitones",
+                               "foldToRange"})));
     }
 
     // split_chords_to_tracks
@@ -606,7 +613,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
             {"description", "Minimum simultaneous notes to count as a chord (default 2)."}};
         props["keepOriginal"] = QJsonObject{
-            {"type", "boolean"},
+            {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
             {"description", "true = copy the chord notes to the new tracks and keep the "
                             "originals; false (default) = move them."}};
         tools.append(makeTool(
@@ -617,7 +624,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "monophonic FFXIV performers (each new track = one performer). Track names get "
             "' - Voice N' suffixes; rename them to FFXIV instruments and run "
             "setup_channel_pattern afterwards. One undoable step.",
-            makeParams(props, {"trackIndex"})));
+            makeParams(props, {"trackIndex", "minNotes", "keepOriginal"})));
     }
 
     // copy_events_to_track
@@ -641,7 +648,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "one undoable step - e.g. double a melody onto a second performer, then transpose "
             "the copy. Notes only; the copies keep their channel and timing and are assigned "
             "to the target track. Use move_events_to_track to move instead.",
-            makeParams(props, {"sourceTrackIndex", "targetTrackIndex"})));
+            makeParams(props, {"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"})));
     }
 
     // --- FFXIV tools (only when FFXIV mode is active) ---
