@@ -14,10 +14,14 @@
  *     almost always a defect, and hunting the latter must not mean
  *     scrolling past thousands of the former.
  *   - The findings tree, grouped by type. Clicking an issue selects its
- *     notes in the editor and moves the cursor there.
+ *     notes in the editor and moves the cursor there. The tree is
+ *     MULTI-select (Ctrl/Shift) and group rows are selectable too, meaning
+ *     "all of my children" - because the headline job on a real file is
+ *     "delete the 482 stacked duplicates and keep the 531 chords".
  *   - A contextual fix row: only the tools matching the FOUND problems are
- *     offered - Delete Overlaps (selects the colliding notes first), the
- *     channel fixer, Auto-Fit Voice Load.
+ *     offered - Delete Overlaps (scoped to the tree selection when there is
+ *     one, otherwise every collision), the channel fixer, Auto-Fit Voice
+ *     Load. The same two actions sit in the tree's right-click menu.
  *   - "Analyze with MidiPilot": submits the findings to the AI through the
  *     normal chat path and mirrors the answer into the dialog.
  *
@@ -102,11 +106,12 @@ signals:
     void fixRequested(const QString &actionId);
 
     /** Delete exactly these events as ONE undo step ("Delete colliding
-     *  notes"). Emitted with the computed surplus of every collision:
-     *  duplicates keep one copy, simultaneous chords keep the highest
-     *  note (the melody rule Auto-Fit documents). Unlike the Tools-menu
-     *  Delete Overlaps this needs no mode dialog - the workbench already
-     *  knows exactly which notes are surplus. */
+     *  notes"). Emitted with the computed surplus of the SELECTED
+     *  collisions (every collision when nothing is selected): duplicates
+     *  keep one copy, simultaneous chords keep the highest note (the melody
+     *  rule Auto-Fit documents). Unlike the Tools-menu Delete Overlaps this
+     *  needs no mode dialog - the workbench already knows exactly which
+     *  notes are surplus. */
     void deleteEventsRequested(const QList<MidiEvent *> &events);
 
     /** Submit this prompt to MidiPilot (normal chat path, answer mirrored
@@ -119,10 +124,36 @@ private slots:
     void onSelectAllClicked();
     void onAnalyzeClicked();
 
+    /** Runs the collision repair: scoped to the tree selection when there
+     *  is one, over every collision when there is not. */
+    void onDeleteCollisionsClicked();
+
+    /** Right-click menu on the tree (select / delete / expand / collapse). */
+    void onTreeContextMenu(const QPoint &pos);
+
+    /** Keeps the collision button's text and enabled state in step with the
+     *  tree selection. */
+    void updateCollisionButton();
+
 private:
     void rebuildTree();
     void rebuildFixRow();
     QString buildAnalysisPrompt() const;
+
+    /** The current tree selection as issue indices into _report.issues: a
+     *  selected GROUP row contributes all of its children (group rows carry
+     *  no issue index - that absence is what tells them apart), a selected
+     *  finding contributes itself. Deduplicated, in report order; empty
+     *  when nothing is selected. */
+    QList<int> selectedIssueIndices() const;
+
+    /** The union of these issues' offending notes, deduplicated. */
+    QList<MidiEvent *> eventsOf(const QList<int> &issueIndices) const;
+
+    /** The surplus notes of these issues (non-collision types skipped) -
+     *  the rule itself lives in ffxivCollisionSurplus() next to the
+     *  detection, so it is testable without a widget. */
+    QList<MidiEvent *> collisionVictimsFor(const QList<int> &issueIndices) const;
 
     FfxivPlayabilityReport _report;
 

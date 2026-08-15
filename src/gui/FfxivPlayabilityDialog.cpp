@@ -1,10 +1,12 @@
 #include "FfxivPlayabilityDialog.h"
 
-#include "../MidiEvent/NoteOnEvent.h"
+#include "../MidiEvent/MidiEvent.h"
 
+#include <QAction>
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QPushButton>
 #include <QSet>
 #include <QTextBrowser>
@@ -15,7 +17,9 @@
 namespace {
 
 // Child items carry their issue's index in the report so a click can look
-// up the events without duplicating the list into the item.
+// up the events without duplicating the list into the item. GROUP rows
+// carry NO such data - that absence is the only marker needed to tell a
+// group from a finding.
 constexpr int kIssueIndexRole = Qt::UserRole;
 
 QString groupTitle(FfxivPlayabilityIssue::Type t, int count) {
@@ -95,11 +99,22 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
     _tree = new QTreeWidget(this);
     _tree->setColumnCount(1);
     _tree->setHeaderHidden(true);
-    _tree->setSelectionMode(QAbstractItemView::SingleSelection);
+    // Multi-select: on a real file "delete the stacked duplicates, keep the
+    // chords" is the whole point, so a group row, a Shift range and a
+    // Ctrl-picked handful must all be addressable.
+    _tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    _tree->setToolTip(tr("Click a finding to select its notes; Ctrl/Shift for "
+                         "several; click a group to take all of it. "
+                         "Right-click for actions."));
+    _tree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(_tree, &QTreeWidget::itemClicked,
             this, &FfxivPlayabilityDialog::onItemClicked);
     connect(_tree, &QTreeWidget::itemDoubleClicked,
             this, &FfxivPlayabilityDialog::onItemDoubleClicked);
+    connect(_tree, &QTreeWidget::itemSelectionChanged,
+            this, &FfxivPlayabilityDialog::updateCollisionButton);
+    connect(_tree, &QTreeWidget::customContextMenuRequested,
+            this, &FfxivPlayabilityDialog::onTreeContextMenu);
     layout->addWidget(_tree, 1);
 
     // --- AI analysis pane (hidden until an answer arrives) -----------------
@@ -113,7 +128,10 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
         tr("Click an issue to select its notes and move the cursor there; "
            "double-click to jump to the spot with only the affected track "
            "shown (the previous visibility returns when this window closes). "
-           "The buttons below offer the matching repair for what was found."),
+           "The buttons below offer the matching repair for what was found. "
+           "Selecting findings - Ctrl/Shift for several, or a whole group "
+           "row - limits the delete button and the right-click menu to "
+           "exactly those."),
         this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
@@ -125,44 +143,12 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
             this, &FfxivPlayabilityDialog::onSelectAllClicked);
     buttons->addWidget(_selectAllButton);
 
+    // The workbench knows exactly which notes are surplus - no mode dialog
+    // (second QA: the button must DELETE, not just mark). Its label follows
+    // the tree selection, see updateCollisionButton().
     _fixOverlapsButton = new QPushButton(tr("Delete colliding notes"), this);
-    _fixOverlapsButton->setToolTip(tr("Deletes the surplus notes of every collision "
-                                      "in one undo step: duplicates keep one copy, "
-                                      "simultaneous chords keep the highest note"));
-    connect(_fixOverlapsButton, &QPushButton::clicked, this, [this]() {
-        // The workbench knows exactly which notes are surplus - no mode
-        // dialog (second QA: the button must DELETE, not just mark).
-        // Survivor per collision group: highest pitch (the melody rule
-        // Auto-Fit documents), among equal pitches the louder note. A note
-        // may survive one issue and be a victim of another (C+C+E: the
-        // chord keeps E, the duplicate pair contributes both Cs) - the
-        // victim UNION handles that correctly.
-        QList<MidiEvent *> victims;
-        QSet<MidiEvent *> seen;
-        for (const FfxivPlayabilityIssue &i : _report.issues) {
-            if (i.type != FfxivPlayabilityIssue::Type::Overlap
-                && i.type != FfxivPlayabilityIssue::Type::DuplicateNote)
-                continue;
-            NoteOnEvent *survivor = nullptr;
-            for (MidiEvent *ev : i.events) {
-                auto *on = dynamic_cast<NoteOnEvent *>(ev);
-                if (!on) continue;
-                if (!survivor || on->note() > survivor->note()
-                    || (on->note() == survivor->note()
-                        && on->velocity() > survivor->velocity())) {
-                    survivor = on;
-                }
-            }
-            for (MidiEvent *ev : i.events) {
-                if (ev && ev != survivor && !seen.contains(ev)) {
-                    seen.insert(ev);
-                    victims.append(ev);
-                }
-            }
-        }
-        if (!victims.isEmpty())
-            emit deleteEventsRequested(victims);
-    });
+    connect(_fixOverlapsButton, &QPushButton::clicked,
+            this, &FfxivPlayabilityDialog::onDeleteCollisionsClicked);
     buttons->addWidget(_fixOverlapsButton);
 
     _fixChannelsButton = new QPushButton(tr("Channel Fixer"), this);
@@ -269,7 +255,9 @@ void FfxivPlayabilityDialog::rebuildTree() {
         if (count == 0) continue;
         auto *group = new QTreeWidgetItem(_tree);
         group->setText(0, groupTitle(type, count));
-        group->setFlags(group->flags() & ~Qt::ItemIsSelectable);
+        // Group rows ARE selectable - selecting one means "all of my
+        // children", the headline gesture ("delete the 482 stacked
+        // duplicates, keep the 531 chords").
         for (int idx = 0; idx < _report.issues.size(); ++idx) {
             const FfxivPlayabilityIssue &issue = _report.issues.at(idx);
             if (issue.type != type) continue;
@@ -304,6 +292,132 @@ void FfxivPlayabilityDialog::rebuildFixRow() {
     _fixChannelsButton->setVisible(hasChannelIssues);
     _fixVoiceButton->setVisible(hasVoiceIssues);
     _selectAllButton->setEnabled(!_report.offendingNotes().isEmpty());
+    updateCollisionButton();
+}
+
+QList<int> FfxivPlayabilityDialog::selectedIssueIndices() const {
+    QSet<int> picked;
+    const QList<QTreeWidgetItem *> items = _tree->selectedItems();
+    for (QTreeWidgetItem *item : items) {
+        if (!item) continue;
+        const QVariant idxVar = item->data(0, kIssueIndexRole);
+        if (idxVar.isValid()) {
+            picked.insert(idxVar.toInt());
+            continue;
+        }
+        // No issue index = GROUP row: it stands for all of its children.
+        for (int c = 0; c < item->childCount(); ++c) {
+            const QVariant childVar =
+                item->child(c)->data(0, kIssueIndexRole);
+            if (childVar.isValid()) picked.insert(childVar.toInt());
+        }
+    }
+    // Report order, so the delete order matches what the tree shows.
+    QList<int> out;
+    for (int i = 0; i < _report.issues.size(); ++i) {
+        if (picked.contains(i)) out.append(i);
+    }
+    return out;
+}
+
+QList<MidiEvent *> FfxivPlayabilityDialog::eventsOf(
+    const QList<int> &issueIndices) const {
+    QSet<MidiEvent *> seen;
+    QList<MidiEvent *> out;
+    for (int idx : issueIndices) {
+        if (idx < 0 || idx >= _report.issues.size()) continue;
+        for (MidiEvent *ev : _report.issues.at(idx).events) {
+            if (ev && !seen.contains(ev)) {
+                seen.insert(ev);
+                out.append(ev);
+            }
+        }
+    }
+    return out;
+}
+
+QList<MidiEvent *> FfxivPlayabilityDialog::collisionVictimsFor(
+    const QList<int> &issueIndices) const {
+    return ffxivCollisionSurplus(_report.issues, issueIndices);
+}
+
+void FfxivPlayabilityDialog::updateCollisionButton() {
+    if (!_fixOverlapsButton) return;
+    const QList<int> selection = selectedIssueIndices();
+    if (selection.isEmpty()) {
+        // Nothing picked = the original meaning: every collision at once.
+        _fixOverlapsButton->setText(tr("Delete colliding notes"));
+        _fixOverlapsButton->setToolTip(
+            tr("Deletes the surplus notes of every collision "
+               "in one undo step: duplicates keep one copy, "
+               "simultaneous chords keep the highest note"));
+        _fixOverlapsButton->setEnabled(true);
+        return;
+    }
+    const int n = collisionVictimsFor(selection).size();
+    if (n == 0) {
+        // A selection that holds no collisions (range findings, names, ...)
+        // has nothing to delete - say so instead of silently doing nothing.
+        _fixOverlapsButton->setText(tr("Delete selected (nothing to delete)"));
+        _fixOverlapsButton->setToolTip(
+            tr("The selected findings are not collisions, so there are no "
+               "surplus notes to remove"));
+        _fixOverlapsButton->setEnabled(false);
+        return;
+    }
+    _fixOverlapsButton->setText(tr("Delete selected (%1 notes)").arg(n));
+    _fixOverlapsButton->setToolTip(
+        tr("Deletes the surplus notes of the selected findings only, in one "
+           "undo step: duplicates keep one copy, simultaneous chords keep "
+           "the highest note"));
+    _fixOverlapsButton->setEnabled(true);
+}
+
+void FfxivPlayabilityDialog::onDeleteCollisionsClicked() {
+    QList<int> scope = selectedIssueIndices();
+    if (scope.isEmpty()) {
+        for (int i = 0; i < _report.issues.size(); ++i) scope.append(i);
+    }
+    const QList<MidiEvent *> victims = collisionVictimsFor(scope);
+    if (!victims.isEmpty())
+        emit deleteEventsRequested(victims);
+    // No refresh here: MainWindow re-runs the checks on Protocol::
+    // actionFinished, which calls refresh() and rebuilds the tree.
+}
+
+void FfxivPlayabilityDialog::onTreeContextMenu(const QPoint &pos) {
+    // Standard behaviour: a right-click on something outside the current
+    // selection makes that item the selection first.
+    QTreeWidgetItem *item = _tree->itemAt(pos);
+    if (item && !item->isSelected())
+        _tree->setCurrentItem(item);
+
+    const QList<int> selection = selectedIssueIndices();
+    const QList<MidiEvent *> events = eventsOf(selection);
+    const QList<MidiEvent *> victims = collisionVictimsFor(selection);
+
+    QMenu menu(this);
+    QAction *selectAction = menu.addAction(tr("Select these notes in editor"));
+    selectAction->setEnabled(!events.isEmpty());
+    QAction *deleteAction = menu.addAction(
+        tr("Delete surplus notes of selected (%1)").arg(victims.size()));
+    deleteAction->setEnabled(!victims.isEmpty());
+    menu.addSeparator();
+    QAction *expandAction = menu.addAction(tr("Expand all"));
+    QAction *collapseAction = menu.addAction(tr("Collapse all"));
+
+    QAction *chosen = menu.exec(_tree->viewport()->mapToGlobal(pos));
+    if (!chosen) return;
+    if (chosen == selectAction) {
+        emit selectEventsRequested(events);
+    } else if (chosen == deleteAction) {
+        // Same path as the button - MainWindow wraps it in one undo step.
+        emit deleteEventsRequested(victims);
+    } else if (chosen == expandAction) {
+        _tree->expandAll();
+    } else if (chosen == collapseAction) {
+        _tree->collapseAll();
+    }
 }
 
 QString FfxivPlayabilityDialog::buildAnalysisPrompt() const {
@@ -344,7 +458,20 @@ void FfxivPlayabilityDialog::onAnalyzeClicked() {
 void FfxivPlayabilityDialog::onItemClicked(QTreeWidgetItem *item, int) {
     if (!item) return;
     const QVariant idxVar = item->data(0, kIssueIndexRole);
-    if (!idxVar.isValid()) return;
+    if (!idxVar.isValid()) {
+        // A GROUP row: select the union of everything under it, so "click
+        // Stacked duplicates" shows all of them in the editor at once.
+        QList<int> indices;
+        for (int c = 0; c < item->childCount(); ++c) {
+            const QVariant childVar =
+                item->child(c)->data(0, kIssueIndexRole);
+            if (childVar.isValid()) indices.append(childVar.toInt());
+        }
+        const QList<MidiEvent *> events = eventsOf(indices);
+        if (!events.isEmpty())
+            emit selectEventsRequested(events);
+        return;
+    }
     const int idx = idxVar.toInt();
     if (idx < 0 || idx >= _report.issues.size()) return;
     const FfxivPlayabilityIssue &issue = _report.issues.at(idx);

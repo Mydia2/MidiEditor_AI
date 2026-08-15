@@ -45,6 +45,41 @@ QList<MidiEvent *> FfxivPlayabilityReport::offendingNotes() const {
     return out;
 }
 
+QList<MidiEvent *> ffxivCollisionSurplus(
+    const QList<FfxivPlayabilityIssue> &issues, const QList<int> &indices) {
+    // Survivor per collision group: highest pitch (the melody rule Auto-Fit
+    // documents), among equal pitches the louder note. A note may survive
+    // one issue and be a victim of another (C+C+E: the chord keeps E, the
+    // duplicate pair contributes both Cs) - the victim UNION handles that
+    // correctly.
+    QList<MidiEvent *> victims;
+    QSet<MidiEvent *> seen;
+    for (int idx : indices) {
+        if (idx < 0 || idx >= issues.size()) continue;
+        const FfxivPlayabilityIssue &i = issues.at(idx);
+        if (i.type != FfxivPlayabilityIssue::Type::Overlap
+            && i.type != FfxivPlayabilityIssue::Type::DuplicateNote)
+            continue;
+        NoteOnEvent *survivor = nullptr;
+        for (MidiEvent *ev : i.events) {
+            auto *on = dynamic_cast<NoteOnEvent *>(ev);
+            if (!on) continue;
+            if (!survivor || on->note() > survivor->note()
+                || (on->note() == survivor->note()
+                    && on->velocity() > survivor->velocity())) {
+                survivor = on;
+            }
+        }
+        for (MidiEvent *ev : i.events) {
+            if (ev && ev != survivor && !seen.contains(ev)) {
+                seen.insert(ev);
+                victims.append(ev);
+            }
+        }
+    }
+    return victims;
+}
+
 FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
     MidiFile *file, const FfxivPlayabilityChecks &checks) {
     FfxivPlayabilityReport report;

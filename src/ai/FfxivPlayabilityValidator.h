@@ -107,4 +107,22 @@ public:
         MidiFile *file, const FfxivPlayabilityChecks &checks = {});
 };
 
+/** The SURPLUS notes of the given collision findings - exactly what the
+ *  "Delete colliding notes" repair removes. Lives next to the detection so
+ *  the rule is testable without a widget (the GUI dialog only scopes it).
+ *
+ *  `indices` picks issues out of `issues`: the dialog passes the current
+ *  tree selection, or every index for "all collisions". Non-collision types
+ *  (range, track names, ...) are skipped, so a mixed selection is safe and
+ *  simply contributes nothing.
+ *
+ *  Survivor per collision group: highest pitch (the melody rule Auto-Fit
+ *  documents), among equal pitches the louder note. A note may survive one
+ *  issue and be a victim of another (C+C+E: the chord keeps E, the
+ *  duplicate pair contributes both Cs) - the victim UNION handles that
+ *  correctly. The result follows the order of `indices` and is
+ *  deduplicated. */
+QList<MidiEvent *> ffxivCollisionSurplus(
+    const QList<FfxivPlayabilityIssue> &issues, const QList<int> &indices);
+
 #endif // FFXIVPLAYABILITYVALIDATOR_H_

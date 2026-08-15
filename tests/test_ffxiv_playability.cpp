@@ -27,6 +27,12 @@
  *   8. offendingNotes() deduplicates notes shared by several issues.
  *   9. ALL groups are reported, not just the first per track (the old
  *      tool behaviour the GUI cannot live with).
+ *  10. ffxivCollisionSurplus() - the survivor rule behind the GUI's
+ *      "Delete colliding notes" - keeps the highest pitch per collision
+ *      (louder note among equal pitches), unions the victims across
+ *      issues, and can be SCOPED to a subset of findings so a user can
+ *      delete the stacked duplicates and keep the chords. Non-collision
+ *      findings contribute nothing.
  *
  * Harness: same ODR-shim approach as test_ffxiv_fixer_resync - real
  * MidiFile/MidiChannel/MidiTrack/Protocol/MidiEvent stack, GUI periphery
@@ -365,6 +371,56 @@ private slots:
 
         const FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
         QCOMPARE(r.countOf(Type::Overlap), 3);
+        delete f;
+    }
+
+    // --- 10. scoped collision surplus (the GUI's delete rule) ---------------
+    void collisionSurplusIsScopedAndUnions() {
+        MidiFile *f = makeFile("Trumpet", 0);
+        // An intentional chord, a stacked duplicate pair, and one note that
+        // is merely out of range - the three kinds a real report mixes.
+        NoteOnEvent *c4 = addNote(f, 0, f->track(1), 60, 0, 200);
+        NoteOnEvent *e4 = addNote(f, 0, f->track(1), 64, 0, 200);
+        NoteOnEvent *g4Loud = addNote(f, 0, f->track(1), 67, 480, 600);
+        NoteOnEvent *g4Quiet = addNote(f, 0, f->track(1), 67, 480, 600);
+        g4Quiet->setVelocity(40, false);
+        NoteOnEvent *low = addNote(f, 0, f->track(1), 30, 960, 1000);
+
+        // Hand-built report: the rule must not depend on the detection.
+        QList<FfxivPlayabilityIssue> issues;
+        FfxivPlayabilityIssue chord;
+        chord.type = Type::Overlap;
+        chord.events = {c4, e4};
+        issues.append(chord);
+        FfxivPlayabilityIssue dup;
+        dup.type = Type::DuplicateNote;
+        dup.events = {g4Loud, g4Quiet};
+        issues.append(dup);
+        FfxivPlayabilityIssue range;
+        range.type = Type::OutOfRange;
+        range.events = {low};
+        issues.append(range);
+
+        // All three: the chord loses its lower note, the pair loses the
+        // quieter copy, the range finding contributes nothing.
+        const QList<MidiEvent *> all =
+            ffxivCollisionSurplus(issues, {0, 1, 2});
+        QCOMPARE(all.size(), 2);
+        QVERIFY(all.contains(c4));
+        QVERIFY(all.contains(g4Quiet));
+        QVERIFY(!all.contains(e4));
+        QVERIFY(!all.contains(g4Loud));
+        QVERIFY(!all.contains(low));
+
+        // Scoped to the duplicates only - the whole point of the feature:
+        // fix the stacked notes, keep the chords.
+        const QList<MidiEvent *> dupsOnly = ffxivCollisionSurplus(issues, {1});
+        QCOMPARE(dupsOnly.size(), 1);
+        QCOMPARE(dupsOnly.first(), static_cast<MidiEvent *>(g4Quiet));
+
+        // A selection without collisions has nothing to delete.
+        QVERIFY(ffxivCollisionSurplus(issues, {2}).isEmpty());
+        QVERIFY(ffxivCollisionSurplus(issues, {}).isEmpty());
         delete f;
     }
 };

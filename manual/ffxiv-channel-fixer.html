@@ -371,7 +371,12 @@ and move the cursor there - double-click to jump to the spot with only the affec
 shown, so the finding is not buried under the other tracks' notes (the previous track
 visibility returns when the window closes) - and the
 buttons at the bottom offer the repair matching what was found - <b>Delete colliding notes</b> (removes the surplus notes of every collision as one undo step: duplicates keep one copy, simultaneous chords keep the highest note),
-<b>Channel Fixer</b>, and <b>Auto-Fit</b> for voice-limit findings. The window stays open while
+<b>Channel Fixer</b>, and <b>Auto-Fit</b> for voice-limit findings. The delete button follows the
+selection: pick findings with <b>Ctrl</b> or <b>Shift</b>, or click a group row such as
+<b>Stacked duplicates</b> to take the whole group at once, and the button changes to
+<b>Delete selected</b> and removes only those notes - so the stacked duplicates can be cleaned
+out while the chords stay untouched. The same two actions, selecting the notes and deleting the
+surplus, also sit in the tree's right-click menu, together with expand and collapse. The window stays open while
 you fix and re-checks automatically after every change, so repairs show their effect
 immediately. If MidiPilot has an AI provider set up, <b>Analyze with MidiPilot</b> sends the
 findings to the AI and shows its prioritized assessment right in the window.
