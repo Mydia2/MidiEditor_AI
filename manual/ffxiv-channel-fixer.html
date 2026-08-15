@@ -333,14 +333,14 @@ and lists everything that would go wrong, grouped by problem type:
 </p>
 
 <ul>
-<li><b>Simultaneous notes</b> - a performer plays one note at a time; where several notes
-<i>start on the same tick</i>, the game cannot play them all. A held note overlapped by later
-notes is fine (barely audible at speed) and is not flagged. On guitar tracks, notes on
-<i>different</i> channels are variant switches and are not flagged - only same-channel groups
-count</li>
-<li><b>Stacked duplicates</b> - the same pitch starting twice on the same tick, the classic
-hand-arranging slip. Easy to overlook in the editor because the notes sit exactly on top of each
-other</li>
+<li><b>Simultaneous notes</b> (checkbox <b>Chords</b>) - a performer plays one note at a time;
+where several <i>different</i> pitches <i>start on the same tick</i>, the game rolls them as a
+fast arpeggio instead. A held note overlapped by later notes is fine (barely audible at speed)
+and is not flagged. On guitar tracks, notes on <i>different</i> channels are variant switches
+and are not flagged - only same-channel groups count</li>
+<li><b>Stacked duplicates</b> (checkbox <b>Stacked notes</b>) - the same pitch starting twice on
+the same tick, the classic hand-arranging slip. Easy to overlook in the editor because the notes
+sit exactly on top of each other; the game plays the note once and the duplicate is wasted</li>
 <li><b>Notes outside C3-C6</b> - outside the bard's playable range</li>
 <li><b>Track names</b> - names that match no FFXIV instrument. In game the track name is what
 selects the instrument, so this is the one naming check that matters. Only tracks that contain
@@ -359,7 +359,10 @@ Beyond the playability rules, three more checks can be run from the same window:
 <b>Channels</b> (a non-guitar track whose notes are spread over several channels - this only
 affects playback inside the editor, in game the track name decides) and <b>Empty tracks</b>
 (instrument-named tracks without any notes). Every check is a checkbox at the top of the
-window, so single aspects can be re-checked in isolation with <b>Run checks</b>.
+window, so single aspects can be re-checked in isolation with <b>Run checks</b>. <b>Chords</b>
+and <b>Stacked notes</b> are two separate boxes because they mean opposite things: a chord is
+often a deliberate arranging decision, while a stacked note is usually a defect - switch the
+chords off and the duplicates are no longer buried among them.
 </p>
 
 <p>

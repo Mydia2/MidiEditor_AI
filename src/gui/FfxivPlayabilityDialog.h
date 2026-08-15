@@ -6,9 +6,13 @@
  * The FFXIV playability WORKBENCH (grown from a plain report on first QA
  * feedback): shows problems AND offers the repairs.
  *
- *   - A check row on top: every check category is a checkbox (monophony,
- *     range, track names, channel spread, empty tracks, voice load), so
- *     single aspects can be re-checked in isolation; "Run checks" re-runs.
+ *   - A check row on top: every check category is a checkbox (chords,
+ *     stacked notes, range, track names, channel spread, empty tracks,
+ *     voice load), so single aspects can be re-checked in isolation;
+ *     "Run checks" re-runs. Chords and stacked notes are separate boxes on
+ *     purpose - a chord is often an intentional decision, a stacked note
+ *     almost always a defect, and hunting the latter must not mean
+ *     scrolling past thousands of the former.
  *   - The findings tree, grouped by type. Clicking an issue selects its
  *     notes in the editor and moves the cursor there.
  *   - A contextual fix row: only the tools matching the FOUND problems are
@@ -122,7 +126,8 @@ private:
 
     FfxivPlayabilityReport _report;
 
-    QCheckBox *_checkMonophony = nullptr;
+    QCheckBox *_checkSimultaneous = nullptr;
+    QCheckBox *_checkDuplicates = nullptr;
     QCheckBox *_checkRange = nullptr;
     QCheckBox *_checkNames = nullptr;
     QCheckBox *_checkChannels = nullptr;

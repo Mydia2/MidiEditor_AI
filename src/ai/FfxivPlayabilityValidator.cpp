@@ -160,7 +160,7 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
             }
         }
 
-        if (!checks.monophony) {
+        if (!checks.simultaneousNotes && !checks.stackedDuplicates) {
             continue;
         }
 
@@ -171,9 +171,14 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
         // tick. Group note starts by tick (guitars: per channel, because
         // different channels are variant switches and legal):
         //   - one pitch appearing twice in a group -> stacked duplicate
+        //     (checks.stackedDuplicates)
         //   - two or more distinct pitches in a group -> simultaneous notes
-        //     (a chord the performer cannot play; one issue per group, not
-        //     per pair, so a triad counts once)
+        //     (checks.simultaneousNotes; a chord the performer cannot play -
+        //     one issue per group, not per pair, so a triad counts once)
+        // The two are separately switchable because they mean opposite
+        // things: chords are often intentional (the game rolls them as a
+        // fast arpeggio), a stacked duplicate is almost always a defect.
+        // The grouping is shared - it is computed once for both.
         QMap<QPair<int, int>, QList<int>> groups; // (channel|0, tick) -> idx
         for (int i = 0; i < notes.size(); ++i) {
             const int chKey = trackIsGuitar ? notes[i].channel : 0;
@@ -184,26 +189,30 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
             if (idx.size() < 2) continue;
             const int tick = it.key().second;
 
-            // Per-pitch duplicate detection inside the group.
+            // Grouping by pitch serves BOTH findings - computed once.
             QMap<int, QList<int>> byPitch;
             for (int i : idx) byPitch[notes[i].note].append(i);
-            for (auto p = byPitch.constBegin(); p != byPitch.constEnd(); ++p) {
-                if (p.value().size() < 2) continue;
-                FfxivPlayabilityIssue issue;
-                issue.type = FfxivPlayabilityIssue::Type::DuplicateNote;
-                issue.track = t;
-                issue.tick = tick;
-                for (int i : p.value()) issue.events.append(notes[i].ev);
-                issue.details = p.value().size() == 2
-                    ? QStringLiteral("Duplicate %1 stacked on tick %2")
-                          .arg(noteName(p.key())).arg(tick)
-                    : QStringLiteral("%1 x%2 stacked on tick %3")
-                          .arg(noteName(p.key())).arg(p.value().size()).arg(tick);
-                report.issues.append(issue);
+
+            // Per-pitch duplicate detection inside the group.
+            if (checks.stackedDuplicates) {
+                for (auto p = byPitch.constBegin(); p != byPitch.constEnd(); ++p) {
+                    if (p.value().size() < 2) continue;
+                    FfxivPlayabilityIssue issue;
+                    issue.type = FfxivPlayabilityIssue::Type::DuplicateNote;
+                    issue.track = t;
+                    issue.tick = tick;
+                    for (int i : p.value()) issue.events.append(notes[i].ev);
+                    issue.details = p.value().size() == 2
+                        ? QStringLiteral("Duplicate %1 stacked on tick %2")
+                              .arg(noteName(p.key())).arg(tick)
+                        : QStringLiteral("%1 x%2 stacked on tick %3")
+                              .arg(noteName(p.key())).arg(p.value().size()).arg(tick);
+                    report.issues.append(issue);
+                }
             }
 
             // Distinct pitches sounding at once.
-            if (byPitch.size() >= 2) {
+            if (checks.simultaneousNotes && byPitch.size() >= 2) {
                 FfxivPlayabilityIssue issue;
                 issue.type = FfxivPlayabilityIssue::Type::Overlap;
                 issue.track = t;

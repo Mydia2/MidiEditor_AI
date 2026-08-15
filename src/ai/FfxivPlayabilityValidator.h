@@ -70,9 +70,16 @@ struct FfxivPlayabilityIssue {
 };
 
 /** Which checks validate() runs - the GUI dialog exposes these as
- *  checkboxes so single aspects can be re-checked in isolation. */
+ *  checkboxes so single aspects can be re-checked in isolation. The two
+ *  same-tick findings are SEPARATE flags because they mean opposite things:
+ *  a chord is often a deliberate arranging decision (the game rolls it as a
+ *  fast arpeggio), a stacked duplicate is almost always a defect - hunting
+ *  duplicates must not mean wading through thousands of chords. */
 struct FfxivPlayabilityChecks {
-    bool monophony = true;     ///< simultaneous starts + stacked duplicates
+    bool simultaneousNotes = true;  ///< distinct pitches starting on one tick
+                                    ///< (chords - often intentional)
+    bool stackedDuplicates = true;  ///< the same pitch starting twice on one
+                                    ///< tick (almost always a defect)
     bool range = true;         ///< C3-C6
     bool trackNames = true;    ///< FFXIV instrument names
     bool channelSpread = true; ///< editor-playback channel consistency

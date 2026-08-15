@@ -51,9 +51,17 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
 
     // --- Check row: every category is individually re-runnable ------------
     auto *checksRow = new QHBoxLayout();
-    _checkMonophony = new QCheckBox(tr("Collisions"), this);
-    _checkMonophony->setToolTip(tr("Notes starting on the same tick on one performer "
-                                   "(simultaneous notes and stacked duplicates)"));
+    _checkSimultaneous = new QCheckBox(tr("Chords"), this);
+    _checkSimultaneous->setToolTip(tr("Several different pitches starting on the same "
+                                      "tick on one performer. In game a performer plays "
+                                      "one note at a time, so these play as a fast "
+                                      "arpeggio. Often intentional - switch this off to "
+                                      "hide them and look for real defects."));
+    _checkDuplicates = new QCheckBox(tr("Stacked notes"), this);
+    _checkDuplicates->setToolTip(tr("The same pitch starting twice on the same tick on "
+                                    "one performer. Almost always a MIDI defect (a "
+                                    "doubled note) - the game plays it once and the "
+                                    "duplicate is wasted."));
     _checkRange = new QCheckBox(tr("Range"), this);
     _checkRange->setToolTip(tr("Notes outside C3-C6"));
     _checkNames = new QCheckBox(tr("Track names"), this);
@@ -67,8 +75,9 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
     _checkVoiceLoad = new QCheckBox(tr("Voice limit"), this);
     _checkVoiceLoad->setToolTip(tr("Raw voice peak vs the 16-voice ceiling and "
                                    "notes/sec hotspots"));
-    for (QCheckBox *cb : {_checkMonophony, _checkRange, _checkNames,
-                          _checkChannels, _checkEmpty, _checkVoiceLoad}) {
+    for (QCheckBox *cb : {_checkSimultaneous, _checkDuplicates, _checkRange,
+                          _checkNames, _checkChannels, _checkEmpty,
+                          _checkVoiceLoad}) {
         cb->setChecked(true);
         checksRow->addWidget(cb);
     }
@@ -192,7 +201,8 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
 
 FfxivPlayabilityChecks FfxivPlayabilityDialog::selectedChecks() const {
     FfxivPlayabilityChecks c;
-    c.monophony = _checkMonophony->isChecked();
+    c.simultaneousNotes = _checkSimultaneous->isChecked();
+    c.stackedDuplicates = _checkDuplicates->isChecked();
     c.range = _checkRange->isChecked();
     c.trackNames = _checkNames->isChecked();
     c.channelSpread = _checkChannels->isChecked();
@@ -236,8 +246,8 @@ void FfxivPlayabilityDialog::rebuildTree() {
     } else {
         _summaryLabel->setText(
             tr("<b>%1 finding(s)</b> in %2 note(s) on %3 track(s). "
-               "Collisions will not play correctly in game - a performer "
-               "plays one note at a time.")
+               "A performer plays one note at a time: chords are rolled as "
+               "a fast arpeggio, stacked notes waste the duplicate.")
                 .arg(problemCount)
                 .arg(_report.checkedNotes)
                 .arg(_report.checkedTracks));

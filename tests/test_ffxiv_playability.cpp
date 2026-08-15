@@ -266,7 +266,8 @@ private slots:
         addNote(f, 0, f->track(1), 44, 0, 100);   // and a same-tick collision
 
         FfxivPlayabilityChecks none;
-        none.monophony = false;
+        none.simultaneousNotes = false;
+        none.stackedDuplicates = false;
         none.range = false;
         none.trackNames = false;
         none.channelSpread = false;
@@ -279,6 +280,45 @@ private slots:
         r = FfxivPlayabilityValidator::validate(f, onlyNames);
         QCOMPARE(r.issues.size(), 1);
         QCOMPARE(r.countOf(Type::TrackName), 1);
+        delete f;
+    }
+
+    // --- 10b. the two same-tick findings are INDEPENDENTLY switchable -------
+    // Chords are often an intentional decision (the game rolls them as a
+    // fast arpeggio), a stacked duplicate is almost always a defect - so
+    // hunting duplicates must not mean wading through thousands of chords.
+    void chordsAndStackedNotesAreSeparatelySelectable() {
+        MidiFile *f = makeFile("Trumpet", 0); // clean name, in range, 1 channel
+        // A chord: two DISTINCT pitches on one tick.
+        addNote(f, 0, f->track(1), 60, 0, 200);
+        addNote(f, 0, f->track(1), 64, 0, 200);
+        // A stacked duplicate: the SAME pitch twice on one tick.
+        addNote(f, 0, f->track(1), 67, 480, 680);
+        addNote(f, 0, f->track(1), 67, 480, 700);
+
+        // Chords only -> the Overlap, and nothing else.
+        FfxivPlayabilityChecks chordsOnly;
+        chordsOnly.stackedDuplicates = false;
+        FfxivPlayabilityReport r =
+            FfxivPlayabilityValidator::validate(f, chordsOnly);
+        QCOMPARE(r.countOf(Type::Overlap), 1);
+        QCOMPARE(r.countOf(Type::DuplicateNote), 0);
+        QCOMPARE(r.issues.size(), 1);
+
+        // Stacked notes only -> the DuplicateNote, and nothing else.
+        FfxivPlayabilityChecks duplicatesOnly;
+        duplicatesOnly.simultaneousNotes = false;
+        r = FfxivPlayabilityValidator::validate(f, duplicatesOnly);
+        QCOMPARE(r.countOf(Type::DuplicateNote), 1);
+        QCOMPARE(r.countOf(Type::Overlap), 0);
+        QCOMPARE(r.issues.size(), 1);
+
+        // Both on (the default) -> both findings.
+        r = FfxivPlayabilityValidator::validate(f);
+        QCOMPARE(r.countOf(Type::Overlap), 1);
+        QCOMPARE(r.countOf(Type::DuplicateNote), 1);
+        QCOMPARE(r.issues.size(), 2);
+
         delete f;
     }
 
