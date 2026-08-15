@@ -821,7 +821,9 @@ endif()
 # -----------------------------------------------------------------------------
 # Pure unit test for PromptProfileStore: glob match, resolution layering,
 # QSettings round-trip, and the read-only "GPT-5.5 Decisive" built-in.
-# No GUI, no network. Sandboxes through QStandardPaths::setTestModeEnabled.
+# No GUI, no network. Sandboxed via the AppPaths settings seam - QStandardPaths
+# test mode does NOT cover the Windows registry (TESTWIPE #8: the old wipe helper
+# deleted the developer's real prompt profiles on every ctest run).
 add_executable(test_prompt_profiles
     test_prompt_profiles.cpp
     ../src/ai/PromptProfileStore.cpp
