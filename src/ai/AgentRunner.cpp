@@ -594,6 +594,16 @@ void AgentRunner::onApiError(const QString &error)
 AgentRunner::RetryKind AgentRunner::classifyError(const QString &error)
 {
     const QString lower = error.toLower();
+    // TOOLJSON-500: must be checked BEFORE the generic HTTP-5xx branch below.
+    // A local server rejecting an unparsable tool call answers 500, so the
+    // message used to land in RetryKind::Network - whose hint is deliberately
+    // EMPTY ("transient, just retry silently"). So the one mechanism that
+    // could have rescued the run - the corrective hint fed back as a synthetic
+    // user message - stayed silent, and the retries were guaranteed to fail
+    // the same way. This kind carries a hint that actually changes the next
+    // attempt.
+    if (AiClient::errorIndicatesUnparsableToolCall(error))
+        return RetryKind::ToolCallCutOff;
     if (lower.contains(QStringLiteral("malformed")))
         return RetryKind::Malformed;
     if (lower.contains(QStringLiteral("max_tokens"))
@@ -653,6 +663,29 @@ QString AgentRunner::hintForRetry(RetryKind kind, const QString &rawError)
             "Your previous response contained no text and no tool call. "
             "Please retry — emit at least one tool call to make progress, "
             "or a final text answer if the work is complete.");
+    case RetryKind::ToolCallCutOff:
+        // The one hint that has to teach a concrete WORKING RULE, because the
+        // model cannot see why its call failed: the arguments JSON was cut off
+        // mid-object when generation exhausted the context, so "try again"
+        // reproduces it exactly. Numbers deliberately small - a local model
+        // that already overran once needs a lot of headroom.
+        // No "(server: ...)" quote here on purpose: the raw error at this point
+        // is MidiEditor's own wrapper sentence, ~250 chars of our prose before
+        // the server's text even starts, so rawError.left(200) only ever quoted
+        // us back at the model. The rules below are what changes behaviour.
+        Q_UNUSED(rawError);
+        return QStringLiteral(
+            "Your previous tool call was cut off before it ended and could not be "
+            "parsed. This happens when ONE call tries to write too "
+            "much and runs out of context. Do not repeat that call. Retry with "
+            "much smaller steps: "
+            "(1) write ONE track per call; "
+            "(2) cover at most 1-4 bars per call; "
+            "(3) send at most 30 events per insert_events/replace_events call; "
+            "(4) issue write calls one after another, never several large ones at "
+            "once; "
+            "(5) continue the same track in a follow-up call until the section is "
+            "complete. A smaller complete arrangement beats a truncated large one.");
     case RetryKind::Network:
         // Transient network — no semantic hint needed, just retry silently.
         return QString();

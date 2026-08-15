@@ -732,7 +732,12 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 {"description", "Max simultaneous voices per channel in overflow ranges (default 3, "
                                 "0 disables the chord limit). Outer voices always survive."}};
             props["desaturateRates"] = QJsonObject{
-                {"type", "boolean"},
+                // anyOf[..., null] like every other optional parameter here:
+                // strict mode forces all keys into "required", so optionality
+                // MUST be expressed by an allowed null - otherwise an MCP
+                // client or a non-strict provider that simply omits the key is
+                // rejected by executeTool's runtime required-gate.
+                {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
                 {"description", "Also thin each track's DENSEST passages (dense cymbal walls, 32nd/64th "
                                 "staccato runs) by keeping 1 of rateKeepOneOf notes per group. "
                                 "Default true."}};
@@ -750,7 +755,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 {"description", "Keep 1 of N notes in dense passages: 2 = halve (default), 3 = third, "
                                 "4 = quarter."}};
             props["preferLoudest"] = QJsonObject{
-                {"type", "boolean"},
+                {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
                 {"description", "Prefer keeping louder notes (accents) over the higher voice when "
                                 "thinning. Default false: fixer-normalized files have uniform velocity, "
                                 "so the higher voice (usually the melody) wins."}};
@@ -764,7 +769,18 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 "loudest note of each group survives. Deterministic, one undoable step. MUST be confirmed "
                 "by the user: call with dryRun=true, present the summary (including the percentage of "
                 "notes affected), and only call with dryRun=false after explicit user approval.",
-                makeParams(props, {"dryRun"})));
+                // STRICT-SCHEMA-001: the Responses API enforces strict function
+                // schemas BY DEFAULT, and strict mode demands that `required`
+                // list EVERY key in `properties` - optionality is expressed by
+                // the anyOf[..., null] types above, not by omission. Listing
+                // only dryRun made every request carrying this tool fail with
+                // HTTP 400 "Missing 'chordLimit'" (the first missing key in
+                // QJsonObject's alphabetical order), which is why FFXIV mode
+                // was unusable on gpt-5.5 / gpt-5.6 while chat-completions
+                // models were fine.
+                makeParams(props, {"startTick", "endTick", "dryRun", "targetCeiling",
+                                   "chordLimit", "desaturateRates", "ratePercent",
+                                   "rateKeepOneOf", "preferLoudest"})));
         }
     }
 
@@ -803,11 +819,33 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
             if (fn.value(QStringLiteral("name")).toString() != toolName)
                 continue;
             const QJsonObject params = fn.value(QStringLiteral("parameters")).toObject();
+            const QJsonObject props = params.value(QStringLiteral("properties")).toObject();
+            // A key is only truly mandatory if its schema does NOT offer a null
+            // branch. Strict-mode schemas (which the OpenAI Responses API
+            // demands) must list EVERY property in "required" and express
+            // optionality as anyOf[<type>, null] instead - so treating
+            // "required" literally here would reject callers that simply omit
+            // an optional parameter. That is exactly what happened to
+            // auto_fit_voice_load the moment its required list was completed:
+            // a perfectly valid {"dryRun": true} started failing. MCP clients
+            // and non-strict providers omit such keys as a matter of course.
+            auto allowsNull = [](const QJsonObject &propSchema) {
+                for (const QJsonValue &b : propSchema.value(QStringLiteral("anyOf")).toArray()) {
+                    if (b.toObject().value(QStringLiteral("type")).toString()
+                        == QStringLiteral("null"))
+                        return true;
+                }
+                return false;
+            };
+
             QStringList missing;
             for (const QJsonValue &rv : params.value(QStringLiteral("required")).toArray()) {
                 const QString key = rv.toString();
-                if (!args.contains(key))
-                    missing << key;
+                if (args.contains(key))
+                    continue;
+                if (allowsNull(props.value(key).toObject()))
+                    continue; // optional in substance - the handler defaults it
+                missing << key;
             }
             if (!missing.isEmpty()) {
                 QJsonObject result;

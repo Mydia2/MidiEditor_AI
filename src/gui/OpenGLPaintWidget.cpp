@@ -102,6 +102,31 @@ void OpenGLPaintWidget::initializeGL() {
 }
 
 void OpenGLPaintWidget::paintGL() {
+    // GLBLANK-001: paintContent() draws a HIDDEN child widget through
+    // QWidget::render(). Qt reacts to a hidden widget in prepareToRender() by
+    // walking the ancestor chain, clearing WA_WState_Hidden on every hidden
+    // ancestor - and setting it back again afterwards. Two things follow, both
+    // observed in the field with "Enable GPU acceleration for MIDI events" on:
+    //
+    //  1. That pass also invalidates the ancestors' layouts, so a full layout
+    //     run can happen INSIDE our paint and resize us. Qt then paints us
+    //     again, re-entering paintGL() while our QPainter still owns
+    //     _paintDevice; the nested QPainter::begin() fails with "a paint
+    //     device can only be painted by one painter at a time".
+    //  2. During the window's show sequence Qt paints us once while we are not
+    //     yet visible. At that moment our own ancestors are still flagged
+    //     hidden, so prepareToRender re-hides them when it is done - for good.
+    //     The editor group then keeps ZERO WIDTH for the whole session, which
+    //     is why the piano roll AND the group's tab strip stayed invisible
+    //     while the docks around them rendered normally.
+    //
+    // Both cases must DEFER the frame, never drop it: the dropped frame was
+    // the only one those events ever scheduled.
+    if (!canPaintNow(_inPaintGL, isVisible())) {
+        requestDeferredRepaint();
+        return;
+    }
+
     if (!_paintDevice) {
         // Fallback: clear to background color
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
@@ -122,10 +147,22 @@ void OpenGLPaintWidget::paintGL() {
         _lastPaintSize = currentSize;
     }
 
-    // Create OpenGL-accelerated QPainter
+    // Create OpenGL-accelerated QPainter. The scope guard resets the flag on
+    // EVERY exit path, so one failed frame can never latch the widget into a
+    // permanent "already painting" state.
+    struct PaintScope {
+        bool &flag;
+        explicit PaintScope(bool &f) : flag(f) { flag = true; }
+        ~PaintScope() { flag = false; }
+    } paintScope(_inPaintGL);
+
     QPainter painter(_paintDevice);
     if (!painter.isActive()) {
+        // Busy for a reason the guard above does not cover. Same rule: ask for
+        // another frame instead of leaving the widget blank until something
+        // else happens to repaint it.
         qWarning() << "OpenGLPaintWidget: Failed to create active OpenGL painter";
+        requestDeferredRepaint();
         return;
     }
 
@@ -149,6 +186,24 @@ void OpenGLPaintWidget::paintGL() {
     paintContent(&painter);
 
     painter.end();
+}
+
+void OpenGLPaintWidget::requestDeferredRepaint() {
+    // update() called from inside a paint is swallowed by Qt, so the request
+    // has to land after the current paint returned. One pending frame is
+    // enough - without the flag a widget that defers on every frame would
+    // queue an unbounded repaint storm.
+    if (_repaintPending) {
+        return;
+    }
+    _repaintPending = true;
+    QMetaObject::invokeMethod(
+        this,
+        [this]() {
+            _repaintPending = false;
+            update();
+        },
+        Qt::QueuedConnection);
 }
 
 void OpenGLPaintWidget::resizeGL(int w, int h) {

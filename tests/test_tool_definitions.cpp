@@ -604,6 +604,83 @@ private slots:
         QVERIFY2(err.contains(QStringLiteral("sourceTrackIndex")), qPrintable(err));
         QVERIFY2(err.contains(QStringLiteral("targetTrackIndex")), qPrintable(err));
     }
+
+    // -----------------------------------------------------------------
+    // STRICT-SCHEMA-001: the OpenAI Responses API validates function schemas
+    // in STRICT mode by default, and strict mode demands that `required` list
+    // EVERY key in `properties` (optionality is expressed by an anyOf with a
+    // null branch, never by leaving a key out) and that objects set
+    // additionalProperties=false. A single violation rejects the WHOLE request
+    // with HTTP 400, so one sloppy tool takes every other tool down with it -
+    // that is how auto_fit_voice_load made FFXIV mode unusable on gpt-5.5 and
+    // gpt-5.6 while chat-completions models never noticed.
+    //
+    // The API reports only the FIRST offending key it finds, so fixing them
+    // one HTTP 400 at a time is hopeless. This checks every tool at once,
+    // recursively, with FFXIV mode ON so the FFXIV tools are covered too.
+    void toolSchemas_satisfyStrictModeInEveryTool() {
+        setFfxivMode(true);
+        const QJsonArray tools = ToolDefinitions::toolSchemas();
+        QVERIFY(!tools.isEmpty());
+
+        QStringList problems;
+        for (const QJsonValue &v : tools) {
+            const QJsonObject fn = v.toObject().value(QStringLiteral("function")).toObject();
+            const QString name = fn.value(QStringLiteral("name")).toString();
+            checkStrictObject(fn.value(QStringLiteral("parameters")).toObject(),
+                              name, QStringLiteral("parameters"), problems);
+        }
+        clearFfxivMode();
+
+        QVERIFY2(problems.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "strict-mode schema violations - the Responses API rejects the "
+                     "entire request over any one of these:\n  %1")
+                                .arg(problems.join(QStringLiteral("\n  ")))));
+    }
+
+private:
+    // Recursive strict-mode check: every object schema must require all of its
+    // properties and forbid extra ones. Descends into properties, anyOf/oneOf
+    // branches and array items, because a nested event schema is validated just
+    // as strictly as the top level.
+    static void checkStrictObject(const QJsonObject &schema,
+                                  const QString &toolName,
+                                  const QString &path,
+                                  QStringList &problems) {
+        if (schema.value(QStringLiteral("type")).toString() == QStringLiteral("object")) {
+            const QJsonObject props = schema.value(QStringLiteral("properties")).toObject();
+            QSet<QString> required;
+            for (const QJsonValue &r : schema.value(QStringLiteral("required")).toArray())
+                required.insert(r.toString());
+
+            for (auto it = props.constBegin(); it != props.constEnd(); ++it) {
+                if (!required.contains(it.key())) {
+                    problems << QStringLiteral("%1 (%2): '%3' is in properties but not in required")
+                                    .arg(toolName, path, it.key());
+                }
+            }
+            if (schema.value(QStringLiteral("additionalProperties")).toBool(true)) {
+                problems << QStringLiteral("%1 (%2): additionalProperties must be false")
+                                .arg(toolName, path);
+            }
+            for (auto it = props.constBegin(); it != props.constEnd(); ++it) {
+                checkStrictObject(it.value().toObject(), toolName,
+                                  path + QStringLiteral(".") + it.key(), problems);
+            }
+        }
+        for (const QString &key : {QStringLiteral("anyOf"), QStringLiteral("oneOf")}) {
+            const QJsonArray branches = schema.value(key).toArray();
+            for (int i = 0; i < branches.size(); ++i) {
+                checkStrictObject(branches.at(i).toObject(), toolName,
+                                  QStringLiteral("%1.%2[%3]").arg(path, key).arg(i), problems);
+            }
+        }
+        if (schema.contains(QStringLiteral("items"))) {
+            checkStrictObject(schema.value(QStringLiteral("items")).toObject(), toolName,
+                              path + QStringLiteral(".items"), problems);
+        }
+    }
 };
 
 QTEST_APPLESS_MAIN(TestToolDefinitions)

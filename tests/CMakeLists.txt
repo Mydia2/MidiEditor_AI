@@ -1216,6 +1216,47 @@ add_test(NAME AutoFitDialog COMMAND test_auto_fit_dialog)
 # the target needs a QPA platform that works without a desktop session and
 # without flashing windows at the developer -> offscreen. Qt DLLs go on PATH
 # like every other Windows test target.
+# -----------------------------------------------------------------------------
+# test_opengl_paint_guard
+# -----------------------------------------------------------------------------
+# GLBLANK-001 (hotfix 2.1.1): the hardware-acceleration path had no test cover
+# at all, and had already broken twice - a context-menu stack overflow in
+# 1.8.1.1 and a permanently blank editor area in 2.1.1. Covers the paint guard
+# in OpenGLPaintWidget three ways: the pure decision rule, a source guard so
+# the rule cannot be dropped from paintGL() again, and an end-to-end paint of
+# a real OpenGLPaintWidget subclass rendering a hidden child (skipped where no
+# OpenGL context exists, e.g. a headless CI runner).
+#
+# OpenGLPaintWidget.cpp only INCLUDES Appearance.h without calling into it, so
+# the target links that single TU - no shims needed.
+find_package(Qt6 QUIET COMPONENTS OpenGL OpenGLWidgets)
+if(Qt6OpenGLWidgets_FOUND)
+    add_executable(test_opengl_paint_guard
+        test_opengl_paint_guard.cpp
+        ../src/gui/OpenGLPaintWidget.cpp
+    )
+    target_compile_definitions(test_opengl_paint_guard PRIVATE
+        GLGUARD_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(test_opengl_paint_guard PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::OpenGL
+        Qt6::OpenGLWidgets
+        Qt6::Test
+    )
+    add_test(NAME OpenGlPaintGuard COMMAND test_opengl_paint_guard)
+    if(WIN32)
+        get_target_property(_qt_core_loc Qt6::Core LOCATION)
+        get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+        set_tests_properties(OpenGlPaintGuard PROPERTIES
+            ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+    endif()
+else()
+    message(STATUS "Qt6 OpenGLWidgets not found - skipping test_opengl_paint_guard")
+endif()
+
 if(WIN32)
     get_target_property(_qt_core_loc Qt6::Core LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)

@@ -630,7 +630,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
     applyAuthHeader(request);
     // Generous timeouts: reasoning/thinking models can take minutes,
     // non-reasoning models still need time for large structured outputs.
-    request.setTransferTimeout((reasoning || geminiThinking) ? 600000 : 180000);
+    request.setTransferTimeout(requestTimeoutMs(reasoning || geminiThinking));
 
     logInstructionProfileState(QStringLiteral("REQUEST"), _model, messages);
     logApi(QStringLiteral("[REQUEST] model=%1 reasoning=%2 tools=%3 api=%4 body=%5")
@@ -740,7 +740,12 @@ void AiClient::testConnection()
     QNetworkRequest request{QUrl(_apiBaseUrl + endpointPath)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     applyAuthHeader(request);
-    request.setTransferTimeout(15000);
+    // TIMEOUT-LOCAL-001: the connection test asks for 16 tokens, so 15 s is
+    // plenty against a cloud endpoint and keeps a wrong key/URL failing fast.
+    // A local server has to LOAD the model into VRAM on the first request -
+    // a 9 GB 14B routinely needs longer than that from cold, so the test would
+    // report "cannot reach the server" for a setup that is perfectly fine.
+    request.setTransferTimeout(_provider == QStringLiteral("ollama") ? 120000 : 15000);
 
     logApi(QStringLiteral("[TEST-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(4000))));
 
@@ -1020,7 +1025,17 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
         logApi(QStringLiteral("[TIMEOUT] Request timed out or was cancelled"));
         // A user Stop (cancelRequest set _userCancelled) is not an error - only
         // a genuine transfer timeout should surface the toast.
-        if (!_isTestRequest && !_userCancelled) {
+        if (_isTestRequest) {
+            // TESTHANG-001: a timed-out connection test used to emit NOTHING, so
+            // the settings page sat on "Testing connection..." with the button
+            // disabled forever - and the temporary AiClient leaked, because its
+            // deleteLater hangs off this very signal.
+            if (!_userCancelled) {
+                emit connectionTestResult(false,
+                    tr("Connection test timed out. The server did not answer in time - "
+                       "with a local model this can simply mean it is still loading."));
+            }
+        } else if (!_userCancelled) {
             emit errorOccurred(tr("Request timed out. The prompt may be too complex for this model, "
                                   "or the provider is slow. Try a simpler prompt or a different model."));
         }
@@ -1077,10 +1092,32 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
         } else if (statusCode == 408 || statusCode == 425 || statusCode == 500
                    || statusCode == 502 || statusCode == 503 || statusCode == 504
                    || statusCode == 529) {
-            errorMsg = tr("%1 is busy or temporarily unavailable (HTTP %2). Please try again in a moment.")
-                           .arg(providerDisplayName(_provider)).arg(statusCode);
-            retriable = true;
-            baseDelayMs = 1000;
+            if (errorIndicatesUnparsableToolCall(apiErrorMessage)) {
+                // TOOLJSON-500: the server is fine - the MODEL produced a tool
+                // call that could not be parsed, virtually always because one
+                // call tried to write a whole song and generation ran out of
+                // context mid-JSON. Re-sending the identical request cannot
+                // succeed - it is deterministic. In the reported session the
+                // server answered each repeat within a second (17 failures in
+                // 34 s, with no new generation), so the cost is noise rather
+                // than time; the damage is that the user is told the wrong
+                // cause and the run ends with nothing learned. Leave
+                // retriable = false so OUR blind retry stays out of it;
+                // AgentRunner still retries, but with a corrective hint that
+                // actually changes the model's behaviour.
+                errorMsg = tr("The model produced a tool call that %1 could not parse - "
+                              "usually because one call tried to write too much and ran out "
+                              "of context. Ask for a smaller step (one track, a few bars at "
+                              "a time), or give the model a larger context window. "
+                              "Server said: %2")
+                               .arg(providerDisplayName(_provider), apiErrorMessage.left(300));
+                retriable = false;
+            } else {
+                errorMsg = tr("%1 is busy or temporarily unavailable (HTTP %2). Please try again in a moment.")
+                               .arg(providerDisplayName(_provider)).arg(statusCode);
+                retriable = true;
+                baseDelayMs = 1000;
+            }
         } else if (reply->error() == QNetworkReply::HostNotFoundError ||
                    reply->error() == QNetworkReply::ConnectionRefusedError) {
             if (_provider == QStringLiteral("ollama")) {
@@ -1464,6 +1501,37 @@ void AiClient::clearToolsIncapableFlag(const QString &provider,
     _settings->remove(toolsIncapableKey(provider, model));
 }
 
+void AiClient::emitStreamTransferTimeout()
+{
+    if (_userCancelled) {
+        _userCancelled = false;
+        return;
+    }
+    emit errorOccurred(tr("Request timed out - no more data arrived from the server. "
+                          "With a local model the answer may simply need longer than the "
+                          "current limit; with a remote provider the connection dropped."));
+}
+
+int AiClient::requestTimeoutMs(bool longThinking) const
+{
+    // TIMEOUT-LOCAL-001: a cloud model answers in seconds, so 3 minutes is a
+    // generous ceiling there. A LOCAL model is a different machine class: it
+    // runs on the user's own GPU and a 14B routinely needs minutes per turn -
+    // and Qwen-style models think at length WITHOUT the provider reporting
+    // reasoning=true, so they never qualified for the long timeout.
+    //
+    // Note WHY it bites: setTransferTimeout is an INACTIVITY timeout. A
+    // streaming request never trips it because tokens keep arriving - but a
+    // NON-streaming one sends nothing until the whole completion is done, so
+    // the entire generation counts as idle. Measured in the field on a local
+    // Qwen3-14B: rounds of 91-180 s, and the non-streaming rounds beyond the
+    // limit died as "Request timed out" on a perfectly healthy setup.
+    //
+    // Local providers therefore get the same allowance as reasoning models.
+    const bool localProvider = (_provider == QStringLiteral("ollama"));
+    return (longThinking || localProvider) ? 600000 : 180000;
+}
+
 bool AiClient::errorIndicatesNoToolSupport(const QString &error)
 {
     const QString l = error.toLower();
@@ -1703,7 +1771,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     applyAuthHeader(request);
-    request.setTransferTimeout((reasoning || geminiThinking) ? 600000 : 180000);
+    request.setTransferTimeout(requestTimeoutMs(reasoning || geminiThinking));
 
     logInstructionProfileState(QStringLiteral("STREAM-AGENT"), _model, messages);
     logApi(QStringLiteral("[STREAM-AGENT-REQ] model=%1 tools=%2 body=%3")
@@ -1723,6 +1791,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
 
         if (reply->error() == QNetworkReply::OperationCanceledError) {
             logApi(QStringLiteral("[STREAM-AGENT-CANCEL]"));
+            emitStreamTransferTimeout(); // STREAMSILENT-001
             _streamHasTools = false;
             _streamToolCalls.clear();
             clearStreamingRetryContext();
@@ -1925,7 +1994,7 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     applyAuthHeader(request);
-    request.setTransferTimeout((reasoning || geminiThinking) ? 600000 : 180000);
+    request.setTransferTimeout(requestTimeoutMs(reasoning || geminiThinking));
 
     logApi(QStringLiteral("[STREAM-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(2000))));
 
@@ -1948,6 +2017,7 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
 
         if (reply->error() == QNetworkReply::OperationCanceledError) {
             logApi(QStringLiteral("[STREAM-CANCEL]"));
+            emitStreamTransferTimeout(); // STREAMSILENT-001
             clearStreamingRetryContext();
             reply->deleteLater();
             return;
@@ -2554,6 +2624,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
 
         if (reply->error() == QNetworkReply::OperationCanceledError) {
             logApi(QStringLiteral("[STREAM-RESPONSES-CANCEL]"));
+            emitStreamTransferTimeout(); // STREAMSILENT-001
             _streamHasTools = false;
             _streamToolCalls.clear();
             _responsesStreamItems.clear();
@@ -2911,6 +2982,7 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
 
         if (reply->error() == QNetworkReply::OperationCanceledError) {
             logApi(QStringLiteral("[STREAM-GEMINI-CANCEL]"));
+            emitStreamTransferTimeout(); // STREAMSILENT-001
             _streamHasTools = false;
             _streamToolCalls.clear();
             clearStreamingRetryContext();

@@ -1,7 +1,7 @@
 # Changelog - MidiEditor AI
 
 All notable changes to MidiEditor AI are documented here.
-Releases: https://github.com/happytunesai/web/releases
+Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
@@ -33,6 +33,26 @@ Releases: https://github.com/happytunesai/web/releases
 * **The AI was told the wrong bar numbers** - MidiPilot and the MCP server reported the cursor's measure one too high, and the song one measure longer than it is. Bar numbers now match what the editor shows, so a request like "add a fill in the last bar" lands where you mean it.
 * **Toolbar bar display showed the wrong time signature and beat** - in Bar mode the time display read "4/2" for a song in 4/4 and counted beats as half notes, so a 4/4 bar never got past beat 2. It now shows the real time signature and counts every beat in the bar.
 * **Audio export: custom measure range was one bar early** - exporting "measures 5-8" of a WAV/FLAC/OGG/MP3 render actually produced bars 4-7, and the measure spinboxes offered one bar more than the song has. The range now matches the bar numbers the editor shows. (Full song and Selection exports were always correct.)
+
+---
+
+## [2.1.2] - 2026-08-10 - Hotfix: AI reliability and error reporting
+
+### Bug Fixes
+* **FFXIV mode did not work at all on OpenAI models** - with the FFXIV checkbox on, every request failed immediately and no tool ran. One of the FFXIV tools declared its parameters in a way OpenAI rejects outright, and a single rejected tool takes the whole request down with it - so the other nineteen tools never got a chance. This hit every gpt-5 model, the shipped default included, because they all switch to OpenAI's stricter transport as soon as tools are in play. Fixed for all of them; providers other than OpenAI were unaffected.
+* **A stalled request left MidiPilot spinning forever** - when a streaming answer stopped arriving, all four streaming paths logged the timeout and returned without telling anyone: no error, no retry, just a spinner that never stopped. The timeout is now surfaced like any other failure, so the agent can react to it instead of hanging. Most visible with local models, where a stall is far more likely than on a cloud endpoint.
+* **A timed-out connection test hung the Settings page** - if the server did not answer, "Test connection" never reported anything: the page stayed on "Testing connection..." with the button greyed out until you closed it. It now reports the timeout, and it allows for a local model that still has to load into memory before it can answer.
+* **The unit tests deleted your FFXIV setting (dev/from-source builds)** - running `ctest` removed the app's FFXIV mode from the real configuration, because the sandboxing the tests believed in does not cover the Windows registry. The tests now put back exactly what they found.
+* **A failed step no longer just says "failed"** - when MidiPilot refused a tool call (for example because the model tried to write placeholder pitch-bend events instead of notes), the reason was sent back to the AI but never shown to you: the panel showed a red "failed" and nothing else. The reason now appears in the chat, so a run that stalls is readable instead of mysterious.
+* **Local models were cut off after three minutes** - a request to a local server (Ollama, llama.cpp) was given the same three-minute limit as a cloud model. That limit counts time with no data arriving, and a local server sends nothing at all until the whole answer is finished - so on a 14B running on your own GPU, an ordinary turn ran out of time and ended in "Request timed out", however healthy the setup was. Local models now get the same generous limit as reasoning models, and the connection test allows for a model that still has to load into memory instead of giving up after fifteen seconds.
+* **MidiPilot blamed the server when a local model wrote too much at once** - if a local server (Ollama, llama.cpp) refused an oversized tool call, MidiPilot reported it as "busy or temporarily unavailable" and quietly re-sent the identical request several times, which could never succeed. The message now names the real cause - the model produced a tool call that could not be parsed, almost always because one call tried to write a whole arrangement at once - and suggests asking for a smaller step or giving the model a larger context window. In Agent mode the retry now tells the model to write one track and only a few bars per call, so the next attempt has a real chance of finishing instead of repeating the same oversized call. Genuine outages are unaffected and still retry on their own.
+
+---
+
+## [2.1.1] - 2026-08-07 - Hotfix: GPU acceleration
+
+### Bug Fixes
+* **GPU acceleration left the editor area empty** - with "Enable GPU acceleration for MIDI events" switched on, the piano roll and the tab strip above it stayed blank for the whole session while the panels around them drew normally. The editor view was painted once before it had become visible, which collapsed it to zero width permanently. Such an early frame is now postponed until the view is ready instead of being drawn too soon and lost.
 
 ---
 
