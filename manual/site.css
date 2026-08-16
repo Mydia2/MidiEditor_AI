@@ -1089,11 +1089,65 @@ video.lightbox-thumb:hover {
 }
 .media-todo code { font-size: 0.9em; }
 
-/* ---- Forwarding stub for a section that moved to a sub-page -------------
-   Overview pages keep a one-line pointer under the id the section used to
-   carry, so older deep links still land next to their new home.        */
-.moved-note {
+
+
+/* ---- Topic map: overview page "where to go next" -------------------------
+   One box per sub-page: a title link, a one-line description, and the page's
+   sections as small anchor chips. The <li> elements carry the section ids
+   that used to live on this page, so historical deep links (page.html#id)
+   still land here and see exactly one obvious link onward.               */
+.topic-map {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.topic-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem 1.2rem 1rem;
+}
+.topic-box .topic-title {
+    display: block;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 1.05rem;
+    text-decoration: none;
+    margin-bottom: 0.45rem;
+}
+.topic-box .topic-title:hover { text-decoration: underline; }
+.topic-box p {
     color: var(--text-muted);
-    font-size: 0.9em;
-    margin: 0.35rem 0;
+    font-size: 0.93rem;
+    line-height: 1.5;
+    margin: 0 0 0.75rem;
+}
+.topic-anchors {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+.topic-anchors li { margin: 0; }
+.topic-anchors a {
+    display: inline-block;
+    font-size: 0.82rem;
+    padding: 0.18rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    text-decoration: none;
+    background: rgba(255,255,255,0.02);
+    transition: border-color 0.15s, color 0.15s;
+}
+.topic-anchors a:hover { border-color: var(--accent); color: var(--accent); }
+/* A deep link that lands on a chip: highlight it briefly so the reader sees
+   where the old section went instead of an unremarkable middle-of-page stop. */
+.topic-anchors li:target a {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.18);
 }
