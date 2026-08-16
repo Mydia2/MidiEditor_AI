@@ -44,6 +44,7 @@ class QProgressDialog;
 class QTabBar;
 class QToolButton;
 class DocumentTabBar;
+class SettingsDialog;
 class MatrixWidget;
 class OpenGLMatrixWidget;
 class OpenGLMiscWidget;
@@ -874,6 +875,13 @@ public slots:
     void openConfig();
 
     /**
+     * \brief Opens Settings directly on the MidiPilot page. Used by the
+     *  MidiPilot panel's "MidiPilot Settings..." gear entry - landing on the
+     *  first page (Midi I/O) made that menu item a lie.
+     */
+    void openConfigOnMidiPilotTab();
+
+    /**
      * \brief Enables or disables the metronome.
      * \param enable True to enable metronome, false to disable
      */
@@ -1085,6 +1093,13 @@ public slots:
      * Called after a theme-change restart to return the user to where they were.
      */
     void openConfigOnAppearanceTab();
+
+    /**
+     * \brief Constructs and fully wires a SettingsDialog (signals, live
+     *  rendering-mode hook, MCP server for the AI page). The ONE construction
+     *  path behind every openConfig* entry point; callers only pick the page.
+     */
+    SettingsDialog *buildSettingsDialog();
 
     /**
      * \\brief Updates the status bar with cursor position, selection, and chord info.

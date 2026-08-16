@@ -79,6 +79,26 @@ public:
     void setCurrentTab(int index);
 
     /**
+     * \brief Selects the page whose widget is of type T (e.g. AiSettingsWidget).
+     *
+     * Prefer this over setCurrentTab(int) from callers outside the dialog: the
+     * page order is decided in the constructor and one page (Collaboration) is
+     * only present in some build configurations, so a hard-coded index is
+     * wrong the moment a page is inserted, removed or compiled out.
+     * \return true if a page of that type exists and was selected.
+     */
+    template <typename T>
+    bool setCurrentTabByType() {
+        for (int i = 0; i < _settingsWidgets.count(); ++i) {
+            if (qobject_cast<T *>(_settingsWidgets.at(i))) {
+                setCurrentTab(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * \brief Returns the main window associated with this dialog.
      */
     MainWindow *mainWindow() const { return _mainWindow; }

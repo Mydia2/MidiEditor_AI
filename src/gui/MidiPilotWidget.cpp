@@ -1886,7 +1886,9 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
 }
 
 void MidiPilotWidget::onSettingsClicked() {
-    _mainWindow->openConfig();
+    // Both entry points (setup-prompt button, gear menu "MidiPilot Settings...")
+    // ask for MidiPilot's settings by name - land on that page, not on Midi I/O.
+    _mainWindow->openConfigOnMidiPilotTab();
 }
 
 void MidiPilotWidget::onSettingsChanged() {

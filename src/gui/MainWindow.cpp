@@ -165,6 +165,7 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 #include "ImportOnlyFormats.h"
 #include "FfxivVoiceGaugeWidget.h"
 #include "AiSettingsWidget.h"
+#include "AppearanceSettingsWidget.h"
 
 #include "../ai/McpServer.h"
 #include "../ai/FfxivVoiceAnalyzer.h"
@@ -10792,7 +10793,13 @@ void MainWindow::showPostUpdateDialog(const QString &updatedFromVersion) {
     dlg->show();
 }
 
-void MainWindow::openConfig() {
+SettingsDialog *MainWindow::buildSettingsDialog() {
+    // ONE construction path for every "open Settings" entry point. Before
+    // this, openConfigOnAppearanceTab() was a hand-copied variant of
+    // openConfig() that had silently fallen behind - it never handed the MCP
+    // server to the AI page, so that page showed no live status when the
+    // dialog was opened via the theme-restart route. Every wiring lives here
+    // exactly once; callers only choose the page.
     SettingsDialog *d = new SettingsDialog(tr("Settings"), _settings, this);
     connect(d, SIGNAL(settingsChanged()), this, SLOT(updateAll()));
     if (_midiPilotWidget) {
@@ -10816,7 +10823,19 @@ void MainWindow::openConfig() {
     if (!aiWidgets.isEmpty() && _mcpServer) {
         aiWidgets.first()->setMcpServer(_mcpServer);
     }
+    return d;
+}
 
+void MainWindow::openConfig() {
+    buildSettingsDialog()->show();
+}
+
+void MainWindow::openConfigOnMidiPilotTab() {
+    // The MidiPilot panel's gear menu says "MidiPilot Settings..." - landing
+    // the user on the Midi I/O page (the dialog's first page) made that a lie
+    // and cost a click and a hunt through eleven categories every time.
+    SettingsDialog *d = buildSettingsDialog();
+    d->setCurrentTabByType<AiSettingsWidget>();
     d->show();
 }
 
@@ -10855,20 +10874,11 @@ void MainWindow::restartForThemeChange() {
 }
 
 void MainWindow::openConfigOnAppearanceTab() {
-    SettingsDialog *d = new SettingsDialog(tr("Settings"), _settings, this);
-    connect(d, SIGNAL(settingsChanged()), this, SLOT(updateAll()));
-    if (_midiPilotWidget) {
-        connect(d, SIGNAL(settingsChanged()), _midiPilotWidget, SLOT(onSettingsChanged()));
-    }
-
-    QList<PerformanceSettingsWidget*> perfWidgets = d->findChildren<PerformanceSettingsWidget*>();
-    if (!perfWidgets.isEmpty()) {
-        connect(perfWidgets.first(), &PerformanceSettingsWidget::renderingModeChanged,
-                this, &MainWindow::updateRenderingMode);
-    }
-
-    // Navigate to the Appearance tab (index 4)
-    d->setCurrentTab(4);
+    SettingsDialog *d = buildSettingsDialog();
+    // By type, not by index: the page order lives in SettingsDialog's
+    // constructor and the Collaboration page is compiled out in some builds,
+    // so a hard-coded 4 is one insertion away from pointing at the wrong page.
+    d->setCurrentTabByType<AppearanceSettingsWidget>();
     d->show();
 }
 
