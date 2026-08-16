@@ -8102,7 +8102,20 @@ void MainWindow::spreadSelection() {
 }
 
 void MainWindow::manual() {
-    QDesktopServices::openUrl(QUrl("https://happytunesai.github.io/MidiEditor_AI/", QUrl::TolerantMode));
+    // Help > Manual opens the published site. While a release is being
+    // prepared the local manual/ folder is ahead of it, so reviewing the
+    // pages through the app was impossible without editing this URL. The
+    // MIDIEDITOR_MANUAL_URL environment variable overrides the target for
+    // exactly that case (e.g. http://127.0.0.1:8765/docs-index.html served
+    // from manual/); unset it and the app points at the live site again.
+    // Dev-only knob: not a setting, not persisted, not documented in the
+    // manual itself.
+    QString url = QStringLiteral("https://happytunesai.github.io/MidiEditor_AI/");
+    const QByteArray override = qgetenv("MIDIEDITOR_MANUAL_URL");
+    if (!override.trimmed().isEmpty()) {
+        url = QString::fromUtf8(override.trimmed());
+    }
+    QDesktopServices::openUrl(QUrl(url, QUrl::TolerantMode));
 }
 
 void MainWindow::changeMiscMode(int mode) {
