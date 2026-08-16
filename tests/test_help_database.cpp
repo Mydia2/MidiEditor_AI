@@ -94,12 +94,18 @@ private slots:
                  QStringLiteral("ffxiv-drum-split.html"));
         QCOMPARE(firstPageFor(QStringLiteral("thin notes density auto fit")),
                  QStringLiteral("auto-fit-voice-load.html"));
-        QCOMPARE(firstPageFor(QStringLiteral("playability check collisions")),
-                 QStringLiteral("ffxiv-channel-fixer.html"));
-        // Both pages documenting the MCP server are acceptable.
+        // The playability check has its own page since the manual split it out
+        // of the channel-fixer page; the fixer keeps only a forwarding stub.
+        // Either is a correct landing - the stub points straight at the page.
+        const QString play = firstPageFor(QStringLiteral("playability check collisions"));
+        QVERIFY2(play == QStringLiteral("ffxiv-playability.html")
+                     || play == QStringLiteral("ffxiv-channel-fixer.html"),
+                 qPrintable(QStringLiteral("playability query landed on %1").arg(play)));
+        // The MCP server is documented on its own page and, since midipilot.html
+        // was split, in the tools reference (the overview only forwards there).
         const QString mcp = firstPageFor(QStringLiteral("connect mcp server client"));
         QVERIFY2(mcp == QStringLiteral("mcp-server.html")
-                     || mcp == QStringLiteral("midipilot.html"),
+                     || mcp == QStringLiteral("midipilot-tools.html"),
                  qPrintable(QStringLiteral("mcp query landed on %1").arg(mcp)));
     }
 

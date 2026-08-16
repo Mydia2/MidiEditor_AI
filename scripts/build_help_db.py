@@ -106,6 +106,16 @@ def clean(text):
     return text.strip()
 
 
+def is_forwarding_only(text):
+    """True if a section is a block of 'moved to' stubs (an intro line or
+    two around them is allowed - the block is still not content)."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 3:
+        return False
+    stubs = sum(1 for ln in lines if ln.lower().startswith("this section moved to"))
+    return stubs >= 3 and stubs * 2 > len(lines)  # a majority of stubs
+
+
 def tokenize(text):
     return sorted(set(re.findall(r"[a-z0-9]{3,}", text.lower())))
 
@@ -129,6 +139,12 @@ def build():
                 continue
             if not page_title:
                 page_title = title  # the h1 names the page
+            # A section that consists solely of forwarding stubs ("This
+            # section moved to ...") exists to keep old deep links alive,
+            # not to answer questions - as a search hit it is pure noise
+            # (the real content is indexed under its new page). Skip it.
+            if is_forwarding_only(text):
+                continue
             entries.append({
                 "page": name,
                 "anchor": sec["anchor"],

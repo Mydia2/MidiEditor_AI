@@ -1,0 +1,486 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MidiPilot Settings &amp; Providers | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0B1020">
+<meta name="description" content="Configuring MidiPilot: provider and model setup, supported providers including local Ollama, prompt profiles, custom system prompts, per-file presets, auto-save, token tracking, and the API log.">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+<style>
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img,
+.screenshot-single video {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+}
+.screenshot-single video { height: auto; aspect-ratio: 2074 / 926; }
+.screenshot-row img.crop-square-thumb,
+.screenshot-row img.fit-square-thumb {
+    width: min(320px, 42vw);
+    height: min(320px, 42vw);
+    margin: 1rem 0;
+}
+.screenshot-row img.crop-square-thumb { object-fit: cover; }
+.screenshot-row img.fit-square-thumb {
+    object-fit: contain;
+    background: var(--bg-card);
+}
+.screenshot-row img.crop-model-refresh { object-position: 78% 50%; }
+.screenshot-row img.crop-preset-load { object-position: 100% 50%; }
+@media (max-width: 700px) {
+    .screenshot-row img.crop-square-thumb,
+    .screenshot-row img.fit-square-thumb {
+        width: min(320px, 86vw);
+        height: min(320px, 86vw);
+    }
+}
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="midipilot-modes.html">&nbsp;&nbsp;&middot; Modes &amp; Conversations</a>
+                <a href="midipilot-ffxiv.html">&nbsp;&nbsp;&middot; MidiPilot in FFXIV Bard Mode</a>
+                <a href="midipilot-settings.html">&nbsp;&nbsp;&middot; Settings &amp; Providers</a>
+                <a href="midipilot-tools.html">&nbsp;&nbsp;&middot; AI Tools Reference</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="midipilot.html">&larr; MidiPilot overview</a></p>
+<h1 id="midipilot-settings">MidiPilot Settings and Providers</h1>
+
+<p>
+Everything you set up once and then stop thinking about: the provider and model connection, the
+prompts MidiPilot sends with each request, the settings it remembers per file, and the counters and
+logs that show what a request actually cost.
+</p>
+
+<hr>
+
+<h2 id="settings">AI Settings</h2>
+
+<p>
+Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a provider, enter your API key, choose a model, and customize behavior.
+</p>
+
+<div class="screenshot-row">
+<img src="screenshots/midipilot-settings.png" alt="MidiPilot AI settings" width="420">
+<img src="screenshots/midipilot-connection-test.png" alt="Connection test successful" width="420">
+</div>
+<div class="caption">Provider configuration - Connection test: &#x2705; Model: gemini-2.5-flash</div>
+
+<table>
+<tr><th>Setting</th><th>Description</th></tr>
+<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom</td></tr>
+<tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
+<tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>.</td></tr>
+<tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
+<tr><td><b>Refresh Models</b></td><td>Fetches the live provider model list from <code>/models</code>, normalizes provider-specific fields, filters obvious non-chat models, and stores the result in <code>&lt;userdata&gt;/midipilot_models.json</code>.</td></tr>
+<tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
+<tr><td><b>Force Streaming for This Model</b></td><td>Appears when the selected provider/model failed streaming during the current app session. Clears the temporary warning so the next request tries live streaming again.</td></tr>
+<tr><td><b>Token Limit</b></td><td>Optional cap on output tokens to control costs</td></tr>
+<tr><td><b>Thinking</b></td><td>Enable reasoning for o-series and GPT-5.x models</td></tr>
+<tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High</td></tr>
+<tr><td><b>Live Streaming</b></td><td>Streams both Simple and Agent responses live (text, reasoning summaries, and tool-call arguments) when the provider supports it. Failed paths automatically fall back to non-streaming for the rest of the session.</td></tr>
+<tr><td><b>Prompt Profiles&hellip;</b></td><td>Open the <a href="#prompt-profiles">Prompt Profiles</a> dialog to attach custom system prompts to specific provider/model combinations.</td></tr>
+<tr><td><b>Context Range</b></td><td>Measures before/after cursor sent as musical context (0-50)</td></tr>
+<tr><td><b>FFXIV Mode</b></td><td>Enable Bard Performance rule enforcement</td></tr>
+<tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per Agent request (5-100)</td></tr>
+<tr><td><b>Test Connection</b></td><td>Verify your API key and model work correctly</td></tr>
+</table>
+
+<h3 id="model-management">Model Refresh &amp; Favorites</h3>
+
+<p>
+MidiEditor AI can fetch provider model lists directly instead of relying on a fixed dropdown. The refresh button is available both in <b>Settings &rarr; MidiPilot AI</b> and in the MidiPilot footer, so you can update models without leaving the chat panel. Refreshed models are cached for seven days and used for context-window estimates.
+</p>
+
+<div class="screenshot-row">
+<img class="crop-square-thumb crop-model-refresh" src="screenshots/model_refresh.png" alt="Refreshing provider model list" width="420">
+<img class="fit-square-thumb" src="screenshots/model_favorites.png" alt="Model favorites dialog" width="420">
+</div>
+<div class="caption">Refresh provider models, then keep the dropdown focused with per-provider favourites</div>
+
+<p>
+When the footer refresh completes, MidiPilot reports the result in the chat/status area so you know whether the cache was updated or the provider rejected the request.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/model_update_chat.png" alt="Model update status in MidiPilot chat" width="520">
+<div class="caption">Model update feedback after a successful refresh</div>
+</div>
+
+<p>
+If a model fails live streaming but still works without streaming, MidiPilot retries automatically and marks that model with a warning icon for the current app session. The mark is <b>scoped per mode</b> - Simple Mode (no tools) and Agent Mode (with tools) are tracked independently, because some models support live streaming in only one of the two paths. The dropdown shows which mode is blocked: <code>&#x26A0; &lt;model&gt; (Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code>. Use <b>Force Streaming for This Model</b> to clear the temporary mark after switching providers, updating the model, or testing a fixed endpoint.
+</p>
+
+<p>
+<b>Capability-aware error handling</b> - if the active provider returns HTTP&nbsp;404 with <i>&ldquo;No endpoints found that support tool use&rdquo;</i> (or any equivalent &ldquo;tools not supported&rdquo; error), MidiPilot stops retrying immediately, posts a clear <i>&ldquo;Model does not support tool calling - pick a different model in Settings &rarr; AI, or switch to Simple mode for this request&rdquo;</i> bubble, and remembers the flag per <code>provider:model</code> for the rest of the session. Picking a different model re-enables Agent Mode automatically.
+</p>
+
+<hr>
+
+<h2 id="providers">Supported Providers</h2>
+
+<table>
+<tr><th>Provider</th><th>Base URL</th><th>API Key</th><th>Free Tier</th></tr>
+<tr><td><b>OpenAI</b></td><td>api.openai.com/v1</td><td><a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Limited</td></tr>
+<tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Free models available</td></tr>
+<tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com</td><td><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>15 RPM, 1M TPM</td></tr>
+<tr><td><b>Ollama (local)</b></td><td>localhost:11434/v1</td><td>None - runs on your PC</td><td>Free &amp; unlimited</td></tr>
+<tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified</td><td>Varies</td></tr>
+</table>
+
+<h3 id="ollama">Local AI with Ollama (free, private, no API key)</h3>
+
+<p>
+<a href="https://ollama.com" target="_blank" rel="noopener noreferrer">Ollama</a> runs an open-weight language model entirely on your own machine - no API key, no cloud account, no per-token cost, and nothing leaves your PC. Setup is a one-time step, comparable to getting a cloud API key:
+</p>
+
+<ol>
+<li><b>Install Ollama.</b> Download it from <a href="https://ollama.com" target="_blank" rel="noopener noreferrer">ollama.com</a> and run the installer. After installation the Ollama server runs in the background and listens on <code>http://localhost:11434</code>.</li>
+<li><b>Pull a model.</b> From a terminal, run e.g. <code>ollama pull llama3.1:8b</code>. Pick a model that advertises the <b>tools</b> capability if you want to use <b>Agent Mode</b> (the agent drives MidiPilot's tools to compose/edit; a chat-only model can still answer in Simple Mode). Smaller models download faster and respond quicker; large models need a capable GPU and lots of disk.</li>
+<li><b>Configure MidiPilot.</b> In <b>Settings &rarr; MidiPilot AI</b>, set <b>Provider</b> to <b>Ollama (local)</b>. The Base URL auto-fills to <code>http://localhost:11434/v1</code> and the API key field can stay empty. Click the <b>&#x1F504; Refresh</b> button to list your installed models (with size badges), pick one, and click <b>Test Connection</b>.</li>
+</ol>
+
+<p>
+If Test Connection reports the server can't be reached, make sure Ollama is actually running (launch the Ollama app, or run <code>ollama serve</code> in a terminal), then try again.
+</p>
+
+<h4>Two things worth knowing about local models</h4>
+
+<ul>
+<li><b>They are given more time.</b> A local model runs on your own GPU and a mid-sized one
+    routinely needs minutes for a single turn - and without live streaming a local server sends
+    nothing at all until the whole answer is finished, so from the outside the request looks idle
+    the entire time. MidiPilot therefore allows a local provider a considerably longer request
+    window than a cloud provider, and a slow answer is not treated as a dead connection. If a
+    request does time out, the message says so and suggests the answer may simply need longer.</li>
+<li><b>If it writes bends instead of notes, take the option away.</b> Small models sometimes
+    answer &ldquo;write me a melody&rdquo; with a lone pitch bend, because a bend is the cheapest
+    event to produce. Give that model a <a href="#prompt-profiles">prompt profile</a> with
+    <b>Hide pitch-bend events from this model</b> ticked and the shortcut disappears - it has to
+    write real notes.</li>
+</ul>
+
+<hr>
+
+<h2 id="prompt-profiles">Prompt Profiles (Per-Model System Prompts)</h2>
+
+<p>
+Open <b>Settings &rarr; MidiPilot AI &rarr; Prompt Profiles&hellip;</b>, or <b>Prompt Profiles&hellip;</b> from the &#x2699; gear menu in the MidiPilot footer, to manage profiles. A profile binds a custom system prompt to one or more model patterns and decides whether the profile <i>replaces</i> or <i>appends to</i> the default mode prompt.
+</p>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td><b>Name</b></td><td>Free-text label shown in the profile list (e.g. &ldquo;GPT-5.5 Decisive&rdquo;, &ldquo;Claude Strict JSON&rdquo;).</td></tr>
+<tr><td><b>Model patterns</b></td><td>One or more <code>provider:model</code> entries with optional glob suffix, e.g. <code>openai:gpt-5.5*</code>, <code>openrouter:openai/gpt-5.5*</code>, <code>gemini:gemini-2.5-pro</code>. The first matching profile wins.</td></tr>
+<tr><td><b>System prompt</b></td><td>The prompt text that should be sent for matching models. Markdown is allowed.</td></tr>
+<tr><td><b>Append to default</b></td><td>When checked, the profile is appended to the active mode prompt (Simple/Agent/FFXIV) instead of replacing it - useful for adding small, model-specific guardrails.</td></tr>
+<tr><td><b>Hide pitch-bend events from this model (schema-level)</b></td><td>Removes the pitch-bend event type from the tool list the model sees in Agent mode. See the note below.</td></tr>
+</table>
+
+<p>
+<b>Hide pitch-bend events from this model (schema-level).</b> Of all the things MidiPilot can write into a track, a pitch bend is the cheapest to describe - a note needs a pitch, a velocity, a length and a position, a bend needs almost nothing. A model that is unsure of itself will therefore sometimes answer a &ldquo;write me a melody&rdquo; request with a single pitch bend and nothing else, no matter how clearly the prompt asks for notes. Tick this box and the bend simply stops being an option: it is taken out of the tool description the model receives, so it has to write real notes.
+</p>
+
+<ul>
+<li><b>Per profile, per model.</b> The switch belongs to the profile, so it only affects the
+    <code>provider:model</code> patterns that profile is bound to. Every other model keeps the
+    full set of event types.</li>
+<li><b>Agent mode only.</b> That is where a tool schema exists; Simple mode sends a single request
+    without one, so the setting has nothing to act on there.</li>
+<li><b>MidiPilot only.</b> An external client connected to the <a href="mcp-server.html">MCP
+    server</a> always receives the complete schema, bends included - the switch is a setting for
+    the built-in agent, not a property of the file or of the tools themselves.</li>
+<li><b>Turn it off when you want bends.</b> If you want that model to write real pitch bends or
+    vibrato for you, leave the box unchecked. This is a workaround for a model that substitutes
+    bends for notes, not a rule about how music should be written.</li>
+</ul>
+
+<p>
+A local model is the most common reason to reach for it - see
+<a href="#ollama">Local AI with Ollama</a>.
+</p>
+
+<div class="media-todo" data-media="screenshot" data-file="midipilot_profile-pitchbend.png">What to capture: the Prompt Profiles dialog with a profile selected and the checkbox "Hide pitch-bend events from this model (schema-level)" ticked, its model bindings visible in the tree below. Why: the checkbox sits between two similar-looking options, and the shot ties the setting to the model list it applies to.</div>
+
+<p>
+MidiPilot ships with one built-in profile: <b>GPT-5.5 Decisive</b>, bound to <code>openai:gpt-5.5*</code> and <code>openrouter:openai/gpt-5.5*</code>. It nudges the model to commit to a tool call instead of asking clarifying questions, which is a known weak spot of that family. You can edit, duplicate, or disable it like any other profile.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot_promt_profiles.png" alt="Prompt Profiles dialog showing the built-in GPT-5.5 Decisive profile, model patterns, append-to-default toggle, and system prompt editor" width="700">
+<div class="caption">Prompt Profiles dialog with the built-in <b>GPT-5.5 Decisive</b> profile bound to <code>openai:gpt-5.5*</code> and <code>openrouter:openai/gpt-5.5*</code></div>
+</div>
+
+<hr>
+
+<h2 id="system-prompts">Custom System Prompts</h2>
+
+<p>
+Click <b>Edit System Prompts&hellip;</b> in settings to open the built-in editor. Each mode (Simple, Agent, FFXIV, FFXIV Compact) has its own tab with fully customizable instructions.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-system-prompts.png" alt="System Prompt Editor" width="550">
+<div class="caption">Built-in System Prompt Editor with tab-based mode selection</div>
+</div>
+
+<ul>
+<li><b>Load Default</b> - Reset the current tab to the built-in default prompt</li>
+<li><b>Export to JSON</b> - Save all prompts to a file for backup or sharing</li>
+<li><b>Import from JSON</b> - Load prompts from a previously exported file</li>
+<li><b>Reset All to Defaults</b> - Restore all modes to factory defaults</li>
+</ul>
+
+<p>
+Prompts are saved as <code>system_prompts.json</code> in the application directory. If no custom file exists, MidiPilot uses the hardcoded defaults.
+</p>
+
+<p>
+<b>Looking for per-model overrides?</b> The newer <a href="#prompt-profiles">Prompt Profiles</a> dialog lets you attach a dedicated system prompt to one or more <code>provider:model</code> combinations - great for guiding a single &ldquo;quirky&rdquo; model without touching the global mode prompts.
+</p>
+
+<hr>
+
+<h2 id="presets">Per-File AI Presets</h2>
+
+<p>
+Different MIDI files may need different AI settings. A 16-track orchestral arrangement needs different guidance than a 3-track FFXIV bard song. Per-file presets let you save and auto-load settings for each file.
+</p>
+
+<h3>What&rsquo;s Saved</h3>
+
+<ul>
+<li><b>Provider</b> - OpenAI, OpenRouter, Gemini, Ollama (local), or Custom</li>
+<li><b>Model</b> - e.g., gpt-5.4, gemini-2.5-flash</li>
+<li><b>Mode</b> - Simple or Agent</li>
+<li><b>FFXIV mode</b> - On or off</li>
+<li><b>Reasoning effort</b> - None / Low / Medium / High / Extra High</li>
+<li><b>Custom instructions</b> - Free-text notes appended to the system prompt (e.g., &ldquo;This is a jazz arrangement, keep swing feel&rdquo;)</li>
+</ul>
+
+<h3>How to Use</h3>
+
+<ol>
+<li>Click the <b>&#x2699; gear button</b> in the MidiPilot footer</li>
+<li>Select <b>&ldquo;Save AI preset for this file&rdquo;</b></li>
+<li>The current settings are saved as a <code>.midipilot.json</code> sidecar file next to your MIDI file</li>
+<li>Next time you open that MIDI file, the preset is <b>auto-loaded</b></li>
+</ol>
+
+<div class="screenshot-single">
+<img src="screenshots/preset_save_dialog_1.png" alt="Gear menu with Save AI preset option" width="380">
+</div>
+<div class="screenshot-row">
+<img class="fit-square-thumb" src="screenshots/preset_save_dialog_2.png" alt="Preset saved confirmation" width="380">
+<img class="crop-square-thumb crop-preset-load" src="screenshots/preset_save_dialog_3.png" alt="Preset auto-loaded on file reopen" width="380">
+</div>
+
+<h3>Sidecar File</h3>
+
+<p>
+Presets are stored as <code>&lt;filename&gt;.midipilot.json</code> next to the MIDI file. For example:
+</p>
+
+<pre><code>Sweet Child O Mine.mid
+Sweet Child O Mine.mid.midipilot.json   &larr; preset</code></pre>
+
+<p>
+The preset file is a simple JSON object. All fields are optional - any field not present falls back to the global default.
+</p>
+
+<hr>
+
+<h2 id="auto-save">Auto-Save</h2>
+
+<p>
+MidiEditor AI automatically saves a backup copy of your work at regular intervals, so you never lose progress to a crash or accidental close. Your original file is <b>never overwritten</b> - the backup is stored as a separate <code>.autosave</code> sidecar file alongside your MIDI file.
+</p>
+
+<h3>How It Works</h3>
+
+<ul>
+<li><b>Debounce timer</b> - after each edit, a countdown resets. The backup is only written once you pause editing for the configured interval (default: 120 seconds).</li>
+<li><b>Named files</b> - saved as <code>YourSong.mid.autosave</code> next to the original file.</li>
+<li><b>Untitled documents</b> - saved to <code>AppData/MidiEditor AI/autosave/untitled.autosave.mid</code>.</li>
+<li><b>Cleanup</b> - the <code>.autosave</code> backup is automatically deleted when you save normally or exit cleanly.</li>
+<li><b>Protocol entry</b> - each auto-save appears as an &ldquo;Auto-saved&rdquo; marker in the undo history panel.</li>
+</ul>
+
+<h3>Crash Recovery</h3>
+
+<ul>
+<li>When opening a file, if a newer <code>.autosave</code> backup exists, MidiEditor AI offers to recover it.</li>
+<li>On startup, orphaned untitled backups from previous crashes are detected and a recovery dialog is shown.</li>
+<li>Recovered files open as unsaved - use <b>Save As</b> to give them a permanent name.</li>
+</ul>
+
+<h3>Settings</h3>
+
+<p>
+Auto-save options are in <b>Settings &rarr; System &amp; Performance</b>:
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/autosave_settings.png" alt="Auto-Save settings in System &amp; Performance" width="550">
+<div class="caption">Auto-Save settings with enable toggle and interval configuration</div>
+</div>
+
+<table>
+<tr><th>Setting</th><th>Description</th></tr>
+<tr><td><b>Enable auto-save</b></td><td>Toggle automatic backups on or off (default: on)</td></tr>
+<tr><td><b>Save after idle (seconds)</b></td><td>Seconds of inactivity before a backup is written (30-600, default: 120)</td></tr>
+</table>
+
+<hr>
+
+<h2 id="token-tracking">Token Tracking &amp; Context Window</h2>
+
+<p>
+MidiPilot tracks token usage per API call and per session, with automatic normalization across providers (OpenAI, Anthropic, Gemini). The token counter is displayed at the bottom of the chat panel:
+</p>
+
+<p>
+<code>&lt;last call&gt; | &lt;session total&gt;&#x1F525; / &lt;context window&gt; [&lt;limit&gt;&#x2702;]</code>
+</p>
+
+<ul>
+<li><b>Last call</b> - Prompt + completion tokens from the most recent API call</li>
+<li><b>Session total</b> - Cumulative tokens since the chat was opened (&#x1F525; fire icon)</li>
+<li><b>Context window</b> - The model&rsquo;s known context limit (e.g., 128k for GPT-4o, 1M for GPT-5). Turns yellow when usage exceeds 80%</li>
+<li><b>Limit</b> - Only shown when a max token limit is enabled (&#x2702; scissors icon)</li>
+</ul>
+
+<h3>Context Window Management</h3>
+
+<p>
+When conversations grow long, MidiPilot automatically manages context to prevent exceeding the model&rsquo;s limit:
+</p>
+
+<ul>
+<li><b>Sliding window</b> - When estimated token usage exceeds 70% of the context window, older messages are dropped while keeping the system prompt, first 2 messages (task context), and most recent messages</li>
+<li><b>Truncation marker</b> - A &ldquo;[Context truncated]&rdquo; message is inserted where older messages were removed</li>
+<li><b>Visual warning</b> - The token label turns yellow when approaching 80% of the context window</li>
+</ul>
+
+<h3>Multi-Provider Token Normalization</h3>
+
+<p>
+Different providers report token usage in different formats. MidiPilot normalizes all of them:
+</p>
+
+<ul>
+<li><b>OpenAI Chat Completions</b> - <code>prompt_tokens</code> / <code>completion_tokens</code> (native format)</li>
+<li><b>OpenAI Responses API</b> - <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
+<li><b>Anthropic</b> - <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
+<li><b>Google Gemini</b> - <code>usageMetadata.promptTokenCount</code> / <code>candidatesTokenCount</code> &rarr; normalized</li>
+<li><b>Estimation fallback</b> - When a provider returns no usage data, MidiPilot estimates ~4 characters per token</li>
+</ul>
+
+<hr>
+
+<h2 id="api-log">API Log</h2>
+
+<p>
+MidiPilot writes every API request and response to a log file for debugging and transparency. The log is saved as <code>midipilot_api.log</code> in the same directory as the MidiEditor AI executable.
+</p>
+
+<table>
+<tr><th>Detail</th><th>Description</th></tr>
+<tr><td><b>Location</b></td><td><code>midipilot_api.log</code> next to the <code>.exe</code></td></tr>
+<tr><td><b>Format</b></td><td>ISO-8601 timestamp + direction (<code>[REQUEST]</code> / <code>[RESPONSE]</code>) + JSON body</td></tr>
+<tr><td><b>Cleared on</b></td><td>Starting a new chat or loading a different MIDI file - the previous log is overwritten</td></tr>
+<tr><td><b>Manual clear</b></td><td>Delete the file - it will be recreated on the next API call</td></tr>
+</table>
+
+<p>
+If the AI produces unexpected results, open the log to inspect the raw JSON sent to and received from the provider. This is especially useful for debugging tool-call sequences in Agent mode.
+</p>
+
+<hr>
+
+<h2 id="see-also">See also</h2>
+
+<ul>
+<li><a href="midipilot.html">MidiPilot - Your AI Copilot</a> - the overview: key features, getting started, the chat panel, and the mode comparison table.</li>
+<li><a href="midipilot-modes.html">MidiPilot Modes and Conversations</a> - what the mode, streaming, and reasoning settings on this page actually switch between.</li>
+<li><a href="midipilot-ffxiv.html">MidiPilot in FFXIV Bard Mode</a> - what the FFXIV Mode setting turns on.</li>
+<li><a href="midipilot-tools.html">MidiPilot AI Tools Reference</a> - every tool Agent mode can call, and the MCP server that exposes the same set.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

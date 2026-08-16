@@ -1088,3 +1088,12 @@ video.lightbox-thumb:hover {
     margin-right: 0.6rem;
 }
 .media-todo code { font-size: 0.9em; }
+
+/* ---- Forwarding stub for a section that moved to a sub-page -------------
+   Overview pages keep a one-line pointer under the id the section used to
+   carry, so older deep links still land next to their new home.        */
+.moved-note {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    margin: 0.35rem 0;
+}

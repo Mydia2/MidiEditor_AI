@@ -36,9 +36,13 @@
         {
             title: 'AI & Automation',
             pages: [
-                { href: 'midipilot.html', icon: '🤖', name: 'MidiPilot' },
-                { href: 'prompt-examples.html', icon: '💬', name: 'Prompt Examples' },
-                { href: 'mcp-server.html', icon: '🔗', name: 'MCP Server' }
+                { href: 'midipilot.html',          icon: '🤖', name: 'MidiPilot' },
+                { href: 'midipilot-modes.html',    icon: '🔀', name: 'Modes & Conversations' },
+                { href: 'midipilot-ffxiv.html',    icon: '🎮', name: 'MidiPilot in FFXIV Bard Mode' },
+                { href: 'midipilot-settings.html', icon: '⚙️', name: 'Settings & Providers' },
+                { href: 'midipilot-tools.html',    icon: '🔧', name: 'AI Tools Reference' },
+                { href: 'prompt-examples.html',    icon: '💬', name: 'Prompt Examples' },
+                { href: 'mcp-server.html',         icon: '🔗', name: 'MCP Server' }
             ]
         },
         {

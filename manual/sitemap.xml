@@ -10,6 +10,10 @@
 
   <!-- Documentation -->
   <url><loc>https://midieditor-ai.de/midipilot.html</loc><priority>0.8</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midipilot-modes.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midipilot-ffxiv.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midipilot-settings.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midipilot-tools.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/prompt-examples.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/supported-files.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/ffxiv-channel-fixer.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
