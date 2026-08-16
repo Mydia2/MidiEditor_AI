@@ -147,15 +147,18 @@ out of the game does not. Three constraints matter for arranging:
 <tr>
   <td><b>No native chords</b></td>
   <td>One key press = one note; arpeggiate or use Power Chord instruments</td>
-  <td>Stacked notes on the same key collapse.</td>
+  <td>Different pitches starting on the same tick are rolled as a fast arpeggio; the same pitch
+      stacked twice sounds once and the copy is wasted.</td>
 </tr>
 </tbody>
 </table>
 
 <p>
-The <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a> enforces <b>range</b> and
-the <i>Bard accuracy</i> path enforces percussion behaviour. The Voice Limiter adds
-<b>predictive feedback</b> on the polyphony ceiling and the note-rate
+The <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a> sets up channels, programs and
+velocities, and the <i>Bard accuracy</i> path reproduces the in-game playback behaviour.
+<a href="ffxiv-channel-fixer.html#validation">Check FFXIV Playability</a> is where <b>range</b>
+and the chord and stacked-note rules get reported, with the offending notes clickable. The Voice
+Limiter adds <b>predictive feedback</b> on the polyphony ceiling and the note-rate
 ceiling <i>while you are editing</i>.
 </p>
 

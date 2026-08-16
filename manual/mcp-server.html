@@ -131,7 +131,7 @@ created using the MCP protocol with shredding guitars, strings, and drums:
 </p>
 
 <div class="audio-box">
-<div class="audio-label">ðŸ”Š Listen</div>
+<div class="audio-label">&#x1F50A; Listen</div>
 <audio controls preload="none" aria-label="MCP demo: Metal remix of Mozart's Eine kleine Nachtmusik"><source src="wav/midieditor_ai_MCP.wav" type="audio/wav"></audio>
 <div class="audio-links"><a href="midi/midieditor_ai_MCP.mid">Download MIDI</a> &middot; <a href="wav/midieditor_ai_MCP.wav">Download WAV</a></div>
 </div>
@@ -148,7 +148,7 @@ All 20 measures were created via the MCP protocol with a guitar solo in the midd
 <ol class="step-list">
     <li>
         <b>Enable the MCP Server</b><br>
-        Go to <b>Edit &rarr; Settings &rarr; AI Settings</b>. In the <b>MCP Server</b> section,
+        Go to <b>Edit &rarr; Settings &rarr; MidiPilot AI</b>. In the <b>MCP Server</b> section,
         check <b>&ldquo;Start MCP server on launch&rdquo;</b>. Optionally generate an auth token for security.
     </li>
     <li>
@@ -207,6 +207,14 @@ You can reposition or hide it via <b>Edit &rarr; Settings &rarr; Layout &rarr; C
 <p>
 Click <b>&ldquo;Copy MCP Config to Clipboard&rdquo;</b> in MidiEditor AI&rsquo;s settings, then paste it into
 the appropriate config file for your AI client.
+</p>
+
+<p>
+What lands on the clipboard is a single server entry named <code>midieditor</code>, carrying the
+<code>url</code> for the port you configured and - if you generated one - an
+<code>Authorization: Bearer</code> header. Every client below wraps that entry in its own key
+(<code>mcpServers</code>, <code>mcp.servers</code>, &hellip;); the entry itself is the same
+everywhere. Without a token the <code>headers</code> block is simply absent.
 </p>
 
 <div class="config-tabs">
@@ -323,12 +331,12 @@ session at whichever document is currently active, or use <code>list_documents</
 <table>
     <tr><th>Tool</th><th>Description</th></tr>
     <tr><td><code>get_editor_state</code></td><td>Get file info, tracks, cursor position, tempo, time signature, and the selected-event count</td></tr>
-    <tr><td><code>get_track_info</code></td><td>Get details about a specific track (name, channel, note count, pitch range)</td></tr>
+    <tr><td><code>get_track_info</code></td><td>Get details about a specific track: name, assigned channel, total event count, and how many of those are notes</td></tr>
     <tr><td><code>query_events</code></td><td>Query MIDI events in a tick range on a track</td></tr>
     <tr><td><code>get_selection</code></td><td>Get the user's current selection as full events, each with a 0-based index (the index <code>delete_events_by_index</code> expects)</td></tr>
     <tr><td><code>search_help</code></td><td>Search the built-in manual (title/keyword/body scoring) - for questions about the editor itself</td></tr>
     <tr><td><code>get_help_section</code></td><td>Read one manual section's full plain text, found via <code>search_help</code></td></tr>
-    <tr><td><code>list_documents</code></td><td>List the open tabs: index, name, file path, modified flag, and which one is active</td></tr>
+    <tr><td><code>list_documents</code></td><td>List the open tabs across both <a href="editor-groups.html">editor groups</a>: index, title, file path, group (0 = left, 1 = right), modified flag, and which one is active</td></tr>
 </table>
 
 <h3>Document Tools <span class="tool-badge badge-write">WRITE</span></h3>
@@ -384,7 +392,8 @@ so connected clients refresh their tool list automatically.
 
 <p>
 MCP resources provide read-only context. AI clients can read these to understand the current editor state
-without making tool calls.
+without making tool calls. A resource read follows the same document the session&rsquo;s tool calls act on,
+so state and edits stay in step even if you switch tabs in the editor meanwhile.
 </p>
 
 <table>
@@ -491,7 +500,11 @@ AI clients should be aware of these when composing or editing large MIDI files.
 <h3>Tools not showing up</h3>
 <ul>
     <li>Make sure a MIDI file is loaded in MidiEditor AI (open or create a new file)</li>
-    <li>For FFXIV tools, verify FFXIV mode is enabled in MidiPilot settings</li>
+    <li>For FFXIV tools, verify FFXIV mode is enabled - either via the FFXIV checkbox in the
+        MidiPilot panel, or by calling <code>set_ffxiv_mode</code> from the client itself</li>
+    <li>The server announces the change with <code>notifications/tools/list_changed</code>, but a
+        client only receives it while an SSE stream is open. If your client shows a stale list,
+        ask it to refresh the tools or reconnect</li>
 </ul>
 
 <h3>&ldquo;Rate limit exceeded&rdquo; error</h3>

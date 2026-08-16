@@ -87,6 +87,7 @@
 .category-card:nth-child(4) { animation-delay: 0.20s; }
 .category-card:nth-child(5) { animation-delay: 0.25s; }
 .category-card:nth-child(6) { animation-delay: 0.30s; }
+.category-card:nth-child(7) { animation-delay: 0.35s; }
 @keyframes cardPopIn {
     from { opacity: 0; transform: translateY(16px) scale(0.96); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -173,6 +174,10 @@ Real-world examples showing what MidiPilot can do. Each prompt below has been te
 <div class="category-card">
 <h4><a href="#ffxiv">&#x1F3AE; FFXIV Bard</a></h4>
 <p>Convert for Final Fantasy XIV Bard Performance</p>
+</div>
+<div class="category-card">
+<h4><a href="#editor-help">&#x2753; About the Editor</a></h4>
+<p>Ask how a feature works and get the manual&rsquo;s answer</p>
 </div>
 </div>
 
@@ -318,6 +323,11 @@ The AI executes multiple tool calls iteratively - creating tracks for each instr
 <div class="audio-label">&#x1F50A; Listen (after transpose)</div>
 <audio controls preload="none"><source src="wav/8-bit-game-soundtrack_fith.wav" type="audio/wav"></audio>
 <div class="audio-links"><a href="midi/8-bit-game-soundtrack_fith.mid">Download MIDI</a> &middot; <a href="wav/8-bit-game-soundtrack_fith.wav">Download WAV</a></div>
+</div>
+
+<div class="prompt-box">
+<span class="label">Transpose &amp; fit into range</span>
+<blockquote>The lead guitar sits too high to be playable. Move the whole track down one octave, and fold anything that is still outside C3-C6 back into that range by octaves. Tell me if any note had to stay where it was.</blockquote>
 </div>
 
 <div class="prompt-box">
@@ -495,6 +505,16 @@ The AI executes multiple tool calls iteratively - creating tracks for each instr
 </div>
 
 <div class="prompt-box">
+<span class="label">Double a part</span>
+<blockquote>Copy the melody from the Flute track onto a new track called Violin, then transpose that copy down an octave so the two play the same line in octaves. Leave the original untouched.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Chords into separate voices</span>
+<blockquote>The piano track plays three-note chords. Split it voice by voice onto separate tracks - highest note first - so each line can be played by a single instrument, and name the new tracks after what they are.</blockquote>
+</div>
+
+<div class="prompt-box">
 <span class="label">Full orchestration</span>
 <blockquote>Take the piano melody on Track 1 and orchestrate it for strings: violins play the melody, violas play a harmony a third below, cellos play a simplified bass line, and double bass plays pedal tones on the root.</blockquote>
 </div>
@@ -511,6 +531,11 @@ The AI executes multiple tool calls iteratively - creating tracks for each instr
 <h2 id="conversion">&#x1F504; MIDI Conversion &amp; Cleanup</h2>
 
 <p>Fix, reorganize, and clean up MIDI files.</p>
+
+<div class="prompt-box">
+<span class="label">Re-tempo without changing the sound</span>
+<blockquote>This part was written at 90 BPM but the project runs at 180. Move it to 180 BPM so the bars line up again, while it still takes exactly as long to play as it does now. Show me what would change before you touch anything.</blockquote>
+</div>
 
 <div class="prompt-box">
 <span class="label">Channel remap</span>
@@ -539,7 +564,7 @@ The AI executes multiple tool calls iteratively - creating tracks for each instr
 <h2 id="ffxiv">&#x1F3AE; FFXIV Bard Performance</h2>
 
 <p>
-Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will enforce Final Fantasy XIV Bard Performance rules: C3-C6 range, monophonic, max 8 tracks, tonal drum mapping.
+Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will enforce Final Fantasy XIV Bard Performance rules: C3-C6 range, monophonic, max 8 tracks, tonal drum mapping. In Agent mode you can also just say what you want - MidiPilot can switch the mode on itself when a request is clearly about a bard performance.
 </p>
 
 <div class="prompt-box">
@@ -564,6 +589,41 @@ Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will en
 
 <div class="tip">
 <b>Tip:</b> The FFXIV system prompt automatically configures the AI to follow all Bard Performance constraints. You don&rsquo;t need to repeat the rules in every prompt - just enable the checkbox.
+</div>
+
+<hr>
+
+<!-- ------------------- EDITOR HELP ------------------- -->
+
+<h2 id="editor-help">&#x2753; Questions About the Editor</h2>
+
+<p>
+Not every question is about the music. MidiPilot can also answer questions about MidiEditor AI
+itself: it searches the built-in manual, reads the matching section and answers from it, naming the
+page it used - so you can open that page and read on. Use plain &ldquo;how do I&hellip;&rdquo;
+language; you do not need to know what a feature is called.
+</p>
+
+<div class="prompt-box">
+<span class="label">How do I &hellip;</span>
+<blockquote>How do I split a GM drum kit into separate FFXIV drum tracks?</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">What does this do</span>
+<blockquote>What does the voice-load lane show me, and what should I do about a red peak in it?</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Where is the setting</span>
+<blockquote>Where do I change the colours of the editor, and can I make my own theme?</blockquote>
+</div>
+
+<div class="tip">
+<b>Tip:</b> This works in <a href="midipilot.html#agent-mode">Agent mode</a>, where MidiPilot can
+reach for its tools. Ask the question, then follow it up with &ldquo;now do that on this
+file&rdquo; - the explanation and the edit happen in the same conversation. See
+<a href="midipilot.html#manual-answers">Questions About the Editor Itself</a>.
 </div>
 
 <hr>

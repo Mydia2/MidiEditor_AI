@@ -125,6 +125,10 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 </tr>
 <tr>
 <td></td>
+<td><i>Collaboration</i><br>Submenu for working on a file together: live sessions, pull requests and the session controls. See <a href="collaboration.html">Collaboration</a>.</td>
+</tr>
+<tr>
+<td></td>
 <td><i>Quit</i><br>Close MidiEditor AI.</td>
 </tr>
 </table>
@@ -150,6 +154,10 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 <tr>
 <td></td>
 <td><i>Select all events from track&hellip;</i><br>Select all events assigned to a given track.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Navigate selection up / down / left / right</i><br>Moves the selection to the neighbouring event with the arrow keys - up and down by pitch, left and right in time.</td>
 </tr>
 <tr>
 <td><img src="tools/copy.png" width="20" height="20"></td>
@@ -299,7 +307,7 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 <h4 id="context-menu-visibility">Context Menu - Visibility at a Glance</h4>
 <p>
   Right-clicking any note in the event view opens a context menu with quick reassignment shortcuts.
-  Both the <b>Move to Track</b> and <b>Move to Channel</b> submenus now display a small visibility
+  Both the <b>Move to Track</b> and <b>Move to Channel</b> submenus carry a small visibility
   icon next to every entry, so you can see at a glance which tracks and channels are currently
   shown without first opening the side panels:
 </p>
@@ -400,16 +408,55 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 </p>
 
 <ul>
-<li><b>Selected note info</b> - note name, octave, MIDI number, velocity, and duration</li>
-<li><b>Chord analysis</b> - automatically detects chords from selected notes (major, minor, 7th, dim, aug, sus, and more)</li>
-<li><b>Tick position</b> - current cursor position in ticks</li>
-<li><b>Event count</b> - number of selected events</li>
+<li><b>Cursor position</b> - the measure and beat the cursor sits on and its exact tick, written as
+    <code>M:4 B:3 | T:2880</code></li>
+<li><b>Selection size</b> - how many events are selected right now</li>
+<li><b>Chord analysis</b> - automatically detects chords from the selected notes (major, minor, 7th,
+    dim, aug, sus, and more). The field stays empty while the selection contains no notes or forms
+    no chord the detector recognizes</li>
+<li><b>Undo memory</b> - the active document's undo depth and what the undo history costs in memory,
+    see <a href="#undo_memory">below</a></li>
 </ul>
 
+<p>
+  The details of the selected events themselves - note number, velocity, duration and every other
+  property - are shown in the <a href="#event_editor">event editor</a> on the right.
+</p>
+
 <div style="text-align:center; margin:1.5rem 0;">
-<a href="screenshots/statusbar_chord_detection.png" class="lightbox-link"><img src="screenshots/statusbar_chord_detection.png" style="max-width:900px; border:1px solid var(--border); border-radius:8px;" alt="Status bar showing chord detection, note info, tick position, and event count"></a>
+<a href="screenshots/statusbar_chord_detection.png" class="lightbox-link"><img src="screenshots/statusbar_chord_detection.png" style="max-width:900px; border:1px solid var(--border); border-radius:8px;" alt="Status bar showing the cursor position, the number of selected events and the detected chord"></a>
 <p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">The status bar with chord detection - selecting notes shows the detected chord name.</p>
 </div>
+
+<h4 id="undo_memory">Undo Memory</h4>
+
+<p>
+  The right-hand end of the status bar carries an undo readout in the form <code>Undo 42 | ~118 MB</code>.
+  It refreshes about once a second and answers the question "how much is the editor still holding on
+  to?" without opening a task manager.
+</p>
+
+<ul>
+  <li><b>The count</b> is the <i>active document's</i> undo history - the same list the
+      <b>Protocol</b> panel shows.</li>
+  <li><b>The megabytes</b> are an estimate for <i>all open tabs together</i>, across both
+      <a href="editor-groups.html">editor groups</a>. It measures the undo snapshots the editor
+      keeps, which is why it is prefixed with a tilde: the real memory the process uses is higher,
+      and a task manager will always report more.</li>
+</ul>
+
+<p>
+  The tooltip on the field spells out two things worth knowing:
+</p>
+
+<ul>
+  <li><b>The figure does not drop when you press Undo.</b> Undone steps stay in memory so that Redo
+      can bring them back.</li>
+  <li><b>Closing a tab lowers the figure, but not the memory.</b> Only open tabs are counted, while
+      a closed document's history stays allocated until you close the application.</li>
+</ul>
+
+<div class="media-todo" data-media="screenshot" data-file="editor_statusbar-undo-memory.png">What to capture: a close-up of the right-hand status bar of a session with a few tabs open and a good deal of editing behind it, showing the cursor, selection, chord and "Undo NN | ~NNN MB" fields, with the tooltip visible. Why: the readout is a small piece of a wide bar, and the tooltip carries the two caveats the text describes.</div>
 
 </main>
 

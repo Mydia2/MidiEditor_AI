@@ -325,13 +325,14 @@ just a count.
 
 <p>
 The analysis is useful beyond removing notes, so the dialog can also just hand its result over:
-<b>Select in editor</b> closes it and leaves the notes it found <i>selected and unchanged</i>. From
-there any editor operation applies to exactly that set. The example that inspired it: on a dense
-tremolo run, set the skip slider to every 2nd note, press <b>Select in editor</b>, then
-<b>Transpose Octave Up</b> - and a machine-gun repeat becomes an alternating-octave arpeggio, in
-two undo steps and without clicking a single note by hand. The same trick works with any other
-operation: move the found notes to another track, change their velocity, or delete just some of
-them by hand.
+<b>Select in editor</b> closes it and leaves the notes it found <i>selected and unchanged</i> - not
+one of them is removed. From there any editor operation applies to exactly that set. The example
+that inspired it: on a dense tremolo run, set the skip slider to every 2nd note, press <b>Select in
+editor</b>, then <b>Transpose Octave Up</b> - and a machine-gun repeat becomes an alternating-octave
+arpeggio, in one editor operation and without clicking a single note by hand. The same trick works
+with any other operation: move the found notes to another track, change their velocity, or delete
+just some of them by hand. The button needs something to hand over, so it stays inactive while the
+current settings find no notes at all.
 </p>
 
 <p>
@@ -404,7 +405,8 @@ when you apply</p>
       you want a different result, undo first instead of stacking passes.</li>
   <li>If you change the track structure while the dialog is open (adding, removing or reordering
       tracks), the dialog closes itself - its track list belongs to the arrangement it was opened
-      on. Just open it again.</li>
+      on. Switching to another tab closes it for the same reason: it works on one document. Just
+      open it again.</li>
 </ul>
 
 <hr>
@@ -444,7 +446,20 @@ with the dialog's global options: a tick range, the voice ceiling, the chord lim
 density settings. The dialog-only refinements - picking tracks and giving each its own
 intensity - stay in the dialog; the tool always works across all tracks with one density
 target. It defaults to a dry run: the agent reports what would be removed and asks for your
-confirmation before the real pass, which is again a single undo step. Combined with the
+confirmation before the real pass, which is again a single undo step.
+</p>
+
+<p>
+One default differs on purpose. The dialog opens with a mild density target of 10%, because
+thinning by taste is what a person came for. The tool starts at <b>0</b>: an agent fixes the real
+overflows and leaves density alone unless you ask for it, so a dry run on a perfectly healthy file
+does not come back with hundreds of notes to remove. Ask for it in words - "and thin the densest
+15%" - and the agent passes the target along.
+</p>
+
+<p>
+The tool lives in the FFXIV bundle, so it appears once FFXIV mode is on; the agent can switch the
+mode on itself when you ask for something that needs it. Combined with the
 read-only <code>analyze_voice_load</code> tool the agent can find the heavy spots first and
 then propose a reduction - see <a href="midipilot.html">MidiPilot</a> and the
 <a href="ffxiv-voice-limiter.html#ai-tool">Voice Limiter's AI tools</a>.
