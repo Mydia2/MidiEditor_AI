@@ -1,0 +1,365 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Check FFXIV Playability | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0B1020">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="audio.css">
+<style>
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img,
+.screenshot-single video { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+.highlight-box {
+    background: var(--bg-card);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.highlight-box p { margin: 0; }
+</style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-playability.html">Check FFXIV Playability</a>
+                <a href="ffxiv-drum-split.html">FFXIV Drum Split</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<h1 id="ffxiv-playability">&#x1F50E; Check FFXIV Playability</h1>
+
+<p>
+A file can look perfect in the editor and still lose notes in game. <b>Check FFXIV Playability</b>
+reads it by the rules of a bard performance, lists everything that would go wrong, and offers the
+repair that matches each kind of finding - without leaving the window.
+</p>
+
+<hr>
+
+<h2 id="overview">What it is, and how to open it</h2>
+
+<p>
+It is a workbench rather than a report: every finding is clickable, the
+repairs that match what was found sit in the same window, and the list re-checks itself after
+every change you make. Like the channel fixer it is deterministic and works offline - the AI is
+optional.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F50E; <b>Find it in:</b> menu <b>Tools &rarr; Check FFXIV Playability&hellip;</b> or the
+check button in the toolbar, next to <b>Fix X|V Channels</b> and the drum split. The window is
+modeless, so the editor stays fully usable while it is open, and it belongs to one tab - switching
+documents closes it.</p>
+</div>
+
+<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_workbench.png">What to capture: the Check FFXIV Playability window over the editor on a file with real findings - the row of seven check boxes, the summary line, and the findings tree with the "Simultaneous notes" and "Stacked duplicates" groups expanded and the repair buttons visible at the bottom. Why: this page describes a window nobody has seen yet; one picture places the checks, the tree and the repairs at once.</div>
+
+<hr>
+
+<h2 id="playability-rules">The in-game rules the checks encode</h2>
+
+<p>
+The checks are not generic MIDI hygiene. They follow how a bard performance actually behaves:
+</p>
+
+<ul>
+<li><b>A performer plays one note at a time.</b> One track is one performer, so anything that asks
+a track to sound two notes at once is something the game has to resolve on its own.</li>
+<li><b>Only notes starting on the same tick collide.</b> A held note that later notes overlap is
+not a clash you can hear at playing speed, so overlaps of that kind are deliberately left
+alone.</li>
+<li><b>Guitars work per channel.</b> The five electric guitar variants share a track and switch by
+channel, so two guitar notes on <i>different</i> channels are a variant switch, not a chord.</li>
+<li><b>The track name selects the instrument.</b> Program changes only make the editor's SoundFont
+playback faithful; in game the name decides. That is why track names are validated and program
+changes are not - a name/program mismatch is the <a href="ffxiv-channel-fixer.html">channel fixer</a>'s
+business.</li>
+</ul>
+
+<hr>
+
+<h2 id="playability-checks">The checks</h2>
+
+<p>
+Every check is a checkbox in the row at the top of the window, and all of them start ticked.
+<b>Run checks</b> re-runs with the current selection, so a single aspect can be looked at in
+isolation. The headline case: untick <b>Chords</b> so that hundreds of deliberate chords stop
+burying the handful of stacked duplicates - the two are separate boxes precisely because they mean
+opposite things.
+</p>
+
+<table class="info-table">
+<tr><th>Checkbox</th><th>Group in the list</th><th>What it finds, and why it matters</th></tr>
+<tr>
+  <td><b>Chords</b></td>
+  <td>Simultaneous notes</td>
+  <td>Two or more <i>different</i> pitches starting on the same tick on one performer. The game
+      rolls them as a fast arpeggio instead of a chord. Often a deliberate arranging decision,
+      which is why it has its own switch. On guitar tracks only same-channel groups count.</td>
+</tr>
+<tr>
+  <td><b>Stacked notes</b></td>
+  <td>Stacked duplicates</td>
+  <td>The <i>same</i> pitch starting twice on the same tick - the classic hand-arranging slip. The
+      copies sit exactly on top of each other in the editor, so they are easy to overlook; the
+      game plays the note once and the duplicate is wasted.</td>
+</tr>
+<tr>
+  <td><b>Range</b></td>
+  <td>Notes outside C3-C6</td>
+  <td>Notes below C3 or above C6 (MIDI 48-84), outside the bard's playable range.</td>
+</tr>
+<tr>
+  <td><b>Track names</b></td>
+  <td>Track names</td>
+  <td>Names matching no FFXIV instrument. Since the name is what selects the instrument in game,
+      this is the naming check that matters. Octave suffixes such as <code>+1</code> are ignored,
+      and only tracks that actually contain notes are checked - a silent track occupies no
+      performer, so its name is irrelevant.</td>
+</tr>
+<tr>
+  <td><b>Channels</b></td>
+  <td>Channel spread - editor playback only</td>
+  <td>An instrument-named track (guitars excepted) whose notes sit on several channels. In game
+      the track name still decides; in the editor's SoundFont preview those notes play as
+      different instruments. The <a href="ffxiv-channel-fixer.html">channel fixer</a> is the repair.</td>
+</tr>
+<tr>
+  <td><b>Empty tracks</b></td>
+  <td>Empty instrument tracks</td>
+  <td>Tracks named like an instrument but holding no notes. Informational - usually a leftover
+      from experimenting that still occupies one of the eight performer slots.</td>
+</tr>
+<tr>
+  <td><b>Voice limit</b></td>
+  <td>Voice limit &middot; Note-rate hotspots</td>
+  <td>The raw voice peak against the 16-voice ceiling together with the number of overflow ranges,
+      plus per-channel passages above 14 notes per second. See the
+      <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a> for what those ceilings mean and
+      <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a> for the repair.</td>
+</tr>
+</table>
+
+<hr>
+
+<h2 id="playability-list">Reading the list</h2>
+
+<p>
+The line above the tree counts what was found - findings, notes checked, tracks checked - or
+reports that the file is playable when the selected checks turn up nothing. Below it the findings
+are grouped by type, worst first, each group with its own count. Groups of more than twenty
+findings start collapsed so a broken file does not open as a wall of text; <b>Expand all</b> and
+<b>Collapse all</b> in the right-click menu switch that at any time.
+</p>
+
+<ul>
+<li><b>Click a finding</b> to select its notes in the editor and move the cursor to its tick.
+    Findings that have no notes of their own - a rejected track name, an empty track - only move
+    the cursor.</li>
+<li><b>Click a group row</b> to select the union of everything under it, so one click on
+    <b>Stacked duplicates</b> shows every duplicate in the file at once.</li>
+<li><b>Double-click a finding</b> to jump to it: the piano roll scrolls to the spot and only the
+    affected track stays visible, so the finding is not buried under seven other tracks' notes.
+    The previous track visibility comes back when the window closes.</li>
+<li><b>Ctrl</b> and <b>Shift</b> pick several findings at once, group rows included. That
+    selection is what the delete button and the right-click menu act on.</li>
+<li><b>Select all offending notes</b> hands the complete set over to the editor as a normal
+    selection, ready for any editor operation.</li>
+</ul>
+
+<div class="media-todo" data-media="video" data-file="ffxiv-playability_focus-mode.webm">What to capture: a double-click on a single finding in a multi-track file - the piano roll scrolls to the tick, every other track disappears, the notes stay selected, then closing the window brings all tracks back. Why: focus mode is a state change in the editor, not in the dialog, and a still cannot show that it undoes itself on close.</div>
+
+<hr>
+
+<h2 id="playability-repair">Repairing from the window</h2>
+
+<p>
+The buttons at the bottom offer only the repairs that match what was actually found, so the row
+stays a set of tools rather than a console of dead buttons:
+</p>
+
+<table class="info-table">
+<tr><th>Button</th><th>Appears when</th><th>What it does</th></tr>
+<tr>
+  <td><b>Delete colliding notes</b></td>
+  <td>Simultaneous notes or stacked duplicates were found</td>
+  <td>Removes the surplus notes of every collision in one undo step. A chord keeps its highest
+      note, a duplicate keeps one copy - the louder one.</td>
+</tr>
+<tr>
+  <td><b>Channel Fixer</b></td>
+  <td>Channel spread or track-name findings exist</td>
+  <td>Runs <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> to tidy channels, names and programs.</td>
+</tr>
+<tr>
+  <td><b>Auto-Fit&hellip;</b></td>
+  <td>Voice-limit or note-rate findings exist</td>
+  <td>Opens <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a> to thin the overloaded
+      passages.</td>
+</tr>
+</table>
+
+<p>
+The delete button follows your selection in the tree. With nothing selected it reads <b>Delete
+colliding notes</b> and treats every collision in the file. Select findings - individually, as a
+Ctrl or Shift range, or by clicking a group row - and it becomes <b>Delete selected (N notes)</b>
+and removes exactly those surplus notes. That is how the stacked duplicates get cleaned out while
+the chords stay untouched. A selection that contains no collisions at all, say a handful of
+out-of-range notes, leaves the button disabled and reading <b>Delete selected (nothing to
+delete)</b> instead of quietly doing nothing.
+</p>
+
+<p>
+The same two actions - <b>Select these notes in editor</b> and <b>Delete surplus notes of
+selected</b>, with its own count - also sit in the tree's right-click menu, next to expand and
+collapse.
+</p>
+
+<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_delete-selected.png">What to capture: the findings tree with the "Stacked duplicates" group row selected (its children highlighted) and the repair button below reading "Delete selected (N notes)". Why: the selection-scoped delete is the tool's most useful gesture and its whole feedback is the changed button label.</div>
+
+<p>
+Whatever you do, the window stays open and re-checks after every change - your own edits included
+- so a repair's effect shows up immediately as findings disappearing from the list. Each delete is
+a single undo step, so <b>Ctrl+Z</b> brings the notes back and the list follows.
+</p>
+
+<hr>
+
+<h2 id="playability-ai">Analyze with MidiPilot</h2>
+
+<p>
+When MidiPilot has an AI provider set up, <b>Analyze with MidiPilot</b> sends the findings to the
+AI and shows its answer in a pane inside the window: a short, prioritized verdict on what must be
+fixed before playing in game, what is cosmetic, and in which order to work through it, with the
+matching tools named. The request goes through the normal chat, so the panel opens alongside and
+keeps the conversation. Without a configured provider the button is simply not there.
+</p>
+
+<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_analysis.png">What to capture: the workbench after an analysis, with the AI's prioritized verdict filling the analysis pane between the findings tree and the button row. Why: the pane only exists once an answer has arrived, so no other screenshot of the window can show it.</div>
+
+<hr>
+
+<h2 id="playability-ai-tool">The same check as an AI tool</h2>
+
+<p>
+With FFXIV mode enabled, MidiPilot and any connected <a href="mcp-server.html">MCP</a> client can
+run the same engine through the <b>validate_ffxiv</b> tool, so an arrangement built by the AI is
+held to the same standard as one built by hand. The tool reports the four in-game rules - notes
+starting on the same tick, stacked duplicates, range and track names - and it tells stacked
+duplicates from chords rather than lumping them together. Every finding comes with its tick, so
+the agent can navigate to a problem instead of describing it vaguely, and when a track name is
+rejected the answer quotes the legal instrument spellings, which is what turns "that name is
+wrong" into a fix.
+</p>
+
+<p>
+The editor-only checks stay in the window: channel spread, empty tracks and the voice-limit
+figures are about the editor and about arranging comfort, not about whether the game can play the
+file, so they never flip the tool's verdict. The AI reaches the voice figures through
+<code>analyze_voice_load</code> instead - see the
+<a href="ffxiv-voice-limiter.html#ai-tool">Voice Limiter's AI tools</a>.
+</p>
+
+<hr>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><a href="ffxiv-channel-fixer.html">Fix X|V Channels - the channel, program and naming
+    setup this check assumes</a></li>
+  <li><a href="auto-fit-voice-load.html">Auto-Fit Voice Load - thins the passages the voice-limit
+    findings point at</a></li>
+  <li><a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter - the live gauge and lane behind the
+    voice ceilings</a></li>
+  <li><a href="ffxiv-drum-split.html">FFXIV Drum Split - turns a GM kit into the named percussion
+    tracks the name check expects</a></li>
+  <li><a href="midipilot.html#ffxiv-mode">MidiPilot - FFXIV mode and the
+    <code>validate_ffxiv</code> tool</a></li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+
+<button class="scroll-top" id="scrollTopBtn" title="Back to top">&#x2191;</button>
+<script>
+(function() {
+    var btn = document.getElementById('scrollTopBtn');
+    window.addEventListener('scroll', function() {
+        btn.classList.toggle('visible', window.scrollY > 300);
+    });
+    btn.addEventListener('click', function() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+})();
+</script>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

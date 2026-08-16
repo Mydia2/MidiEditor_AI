@@ -61,6 +61,7 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-playability.html">Check FFXIV Playability</a>
                 <a href="ffxiv-drum-split.html">FFXIV Drum Split</a>
                 <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
                 <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
@@ -328,214 +329,17 @@ FFXIV electric guitar supports 5 tonal variants that share channels via <code>pr
 <h2 id="validation">Validation - Check FFXIV Playability</h2>
 
 <p>
-<b>Check FFXIV Playability</b> examines a file the way the game will play it and lists everything
-that would go wrong. It is a workbench rather than a report: every finding is clickable, the
-repairs that match what was found sit in the same window, and the list re-checks itself after
-every change you make. Like the channel fixer it is deterministic and works offline - the AI is
-optional.
-</p>
-
-<div class="highlight-box">
-<p>&#x1F50E; <b>Find it in:</b> menu <b>Tools &rarr; Check FFXIV Playability&hellip;</b> or the
-check button in the toolbar, next to <b>Fix X|V Channels</b> and the drum split. The window is
-modeless, so the editor stays fully usable while it is open, and it belongs to one tab - switching
-documents closes it.</p>
-</div>
-
-<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_workbench.png">What to capture: the Check FFXIV Playability window over the editor on a file with real findings - the row of seven check boxes, the summary line, and the findings tree with the "Simultaneous notes" and "Stacked duplicates" groups expanded and the repair buttons visible at the bottom. Why: the whole section describes a window nobody has seen yet; one picture places the checks, the tree and the repairs at once.</div>
-
-<h3 id="playability-rules">The in-game rules the checks encode</h3>
-
-<p>
-The checks are not generic MIDI hygiene. They follow how a bard performance actually behaves:
-</p>
-
-<ul>
-<li><b>A performer plays one note at a time.</b> One track is one performer, so anything that asks
-a track to sound two notes at once is something the game has to resolve on its own.</li>
-<li><b>Only notes starting on the same tick collide.</b> A held note that later notes overlap is
-not a clash you can hear at playing speed, so overlaps of that kind are deliberately left
-alone.</li>
-<li><b>Guitars work per channel.</b> The five electric guitar variants share a track and switch by
-channel, so two guitar notes on <i>different</i> channels are a variant switch, not a chord.</li>
-<li><b>The track name selects the instrument.</b> Program changes only make the editor's SoundFont
-playback faithful; in game the name decides. That is why track names are validated and program
-changes are not - a name/program mismatch is the <a href="#overview">channel fixer</a>'s
-business.</li>
-</ul>
-
-<h3 id="playability-checks">The checks</h3>
-
-<p>
-Every check is a checkbox in the row at the top of the window, and all of them start ticked.
-<b>Run checks</b> re-runs with the current selection, so a single aspect can be looked at in
-isolation. The headline case: untick <b>Chords</b> so that hundreds of deliberate chords stop
-burying the handful of stacked duplicates - the two are separate boxes precisely because they mean
-opposite things.
-</p>
-
-<table class="info-table">
-<tr><th>Checkbox</th><th>Group in the list</th><th>What it finds, and why it matters</th></tr>
-<tr>
-  <td><b>Chords</b></td>
-  <td>Simultaneous notes</td>
-  <td>Two or more <i>different</i> pitches starting on the same tick on one performer. The game
-      rolls them as a fast arpeggio instead of a chord. Often a deliberate arranging decision,
-      which is why it has its own switch. On guitar tracks only same-channel groups count.</td>
-</tr>
-<tr>
-  <td><b>Stacked notes</b></td>
-  <td>Stacked duplicates</td>
-  <td>The <i>same</i> pitch starting twice on the same tick - the classic hand-arranging slip. The
-      copies sit exactly on top of each other in the editor, so they are easy to overlook; the
-      game plays the note once and the duplicate is wasted.</td>
-</tr>
-<tr>
-  <td><b>Range</b></td>
-  <td>Notes outside C3-C6</td>
-  <td>Notes below C3 or above C6 (MIDI 48-84), outside the bard's playable range.</td>
-</tr>
-<tr>
-  <td><b>Track names</b></td>
-  <td>Track names</td>
-  <td>Names matching no FFXIV instrument. Since the name is what selects the instrument in game,
-      this is the naming check that matters. Octave suffixes such as <code>+1</code> are ignored,
-      and only tracks that actually contain notes are checked - a silent track occupies no
-      performer, so its name is irrelevant.</td>
-</tr>
-<tr>
-  <td><b>Channels</b></td>
-  <td>Channel spread - editor playback only</td>
-  <td>An instrument-named track (guitars excepted) whose notes sit on several channels. In game
-      the track name still decides; in the editor's SoundFont preview those notes play as
-      different instruments. The <a href="#overview">channel fixer</a> is the repair.</td>
-</tr>
-<tr>
-  <td><b>Empty tracks</b></td>
-  <td>Empty instrument tracks</td>
-  <td>Tracks named like an instrument but holding no notes. Informational - usually a leftover
-      from experimenting that still occupies one of the eight performer slots.</td>
-</tr>
-<tr>
-  <td><b>Voice limit</b></td>
-  <td>Voice limit &middot; Note-rate hotspots</td>
-  <td>The raw voice peak against the 16-voice ceiling together with the number of overflow ranges,
-      plus per-channel passages above 14 notes per second. See the
-      <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a> for what those ceilings mean and
-      <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a> for the repair.</td>
-</tr>
-</table>
-
-<h3 id="playability-list">Reading the list</h3>
-
-<p>
-The line above the tree counts what was found - findings, notes checked, tracks checked - or
-reports that the file is playable when the selected checks turn up nothing. Below it the findings
-are grouped by type, worst first, each group with its own count. Groups of more than twenty
-findings start collapsed so a broken file does not open as a wall of text; <b>Expand all</b> and
-<b>Collapse all</b> in the right-click menu switch that at any time.
-</p>
-
-<ul>
-<li><b>Click a finding</b> to select its notes in the editor and move the cursor to its tick.
-    Findings that have no notes of their own - a rejected track name, an empty track - only move
-    the cursor.</li>
-<li><b>Click a group row</b> to select the union of everything under it, so one click on
-    <b>Stacked duplicates</b> shows every duplicate in the file at once.</li>
-<li><b>Double-click a finding</b> to jump to it: the piano roll scrolls to the spot and only the
-    affected track stays visible, so the finding is not buried under seven other tracks' notes.
-    The previous track visibility comes back when the window closes.</li>
-<li><b>Ctrl</b> and <b>Shift</b> pick several findings at once, group rows included. That
-    selection is what the delete button and the right-click menu act on.</li>
-<li><b>Select all offending notes</b> hands the complete set over to the editor as a normal
-    selection, ready for any editor operation.</li>
-</ul>
-
-<div class="media-todo" data-media="video" data-file="ffxiv-playability_focus-mode.webm">What to capture: a double-click on a single finding in a multi-track file - the piano roll scrolls to the tick, every other track disappears, the notes stay selected, then closing the window brings all tracks back. Why: focus mode is a state change in the editor, not in the dialog, and a still cannot show that it undoes itself on close.</div>
-
-<h3 id="playability-repair">Repairing from the window</h3>
-
-<p>
-The buttons at the bottom offer only the repairs that match what was actually found, so the row
-stays a set of tools rather than a console of dead buttons:
-</p>
-
-<table class="info-table">
-<tr><th>Button</th><th>Appears when</th><th>What it does</th></tr>
-<tr>
-  <td><b>Delete colliding notes</b></td>
-  <td>Simultaneous notes or stacked duplicates were found</td>
-  <td>Removes the surplus notes of every collision in one undo step. A chord keeps its highest
-      note, a duplicate keeps one copy - the louder one.</td>
-</tr>
-<tr>
-  <td><b>Channel Fixer</b></td>
-  <td>Channel spread or track-name findings exist</td>
-  <td>Runs <a href="#overview">Fix X|V Channels</a> to tidy channels, names and programs.</td>
-</tr>
-<tr>
-  <td><b>Auto-Fit&hellip;</b></td>
-  <td>Voice-limit or note-rate findings exist</td>
-  <td>Opens <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a> to thin the overloaded
-      passages.</td>
-</tr>
-</table>
-
-<p>
-The delete button follows your selection in the tree. With nothing selected it reads <b>Delete
-colliding notes</b> and treats every collision in the file. Select findings - individually, as a
-Ctrl or Shift range, or by clicking a group row - and it becomes <b>Delete selected (N notes)</b>
-and removes exactly those surplus notes. That is how the stacked duplicates get cleaned out while
-the chords stay untouched. A selection that contains no collisions at all, say a handful of
-out-of-range notes, leaves the button disabled and reading <b>Delete selected (nothing to
-delete)</b> instead of quietly doing nothing.
+Setting the channels up is one half of the job; the other is making sure the arrangement is
+something a performer can actually play. <b>Tools &rarr; Check FFXIV Playability&hellip;</b>
+examines the file the way the game will play it - notes colliding on the same tick, stacked
+duplicates, range, track names, channel spread and voice load - and offers the matching repair for
+each kind of finding, this fixer among them.
 </p>
 
 <p>
-The same two actions - <b>Select these notes in editor</b> and <b>Delete surplus notes of
-selected</b>, with its own count - also sit in the tree's right-click menu, next to expand and
-collapse.
-</p>
-
-<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_delete-selected.png">What to capture: the findings tree with the "Stacked duplicates" group row selected (its children highlighted) and the repair button below reading "Delete selected (N notes)". Why: the selection-scoped delete is the tool's most useful gesture and its whole feedback is the changed button label.</div>
-
-<p>
-Whatever you do, the window stays open and re-checks after every change - your own edits included
-- so a repair's effect shows up immediately as findings disappearing from the list. Each delete is
-a single undo step, so <b>Ctrl+Z</b> brings the notes back and the list follows.
-</p>
-
-<h3 id="playability-ai">Analyze with MidiPilot</h3>
-
-<p>
-When MidiPilot has an AI provider set up, <b>Analyze with MidiPilot</b> sends the findings to the
-AI and shows its answer in a pane inside the window: a short, prioritized verdict on what must be
-fixed before playing in game, what is cosmetic, and in which order to work through it, with the
-matching tools named. The request goes through the normal chat, so the panel opens alongside and
-keeps the conversation. Without a configured provider the button is simply not there.
-</p>
-
-<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_analysis.png">What to capture: the workbench after an analysis, with the AI's prioritized verdict filling the analysis pane between the findings tree and the button row. Why: the pane only exists once an answer has arrived, so no other screenshot of the window can show it.</div>
-
-<h3 id="playability-ai-tool">The same check as an AI tool</h3>
-
-<p>
-With FFXIV mode enabled, MidiPilot and any connected <a href="mcp-server.html">MCP</a> client can
-run the same engine through the <b>validate_ffxiv</b> tool, so an arrangement built by the AI is
-held to the same standard as one built by hand. The tool reports the four in-game rules - notes
-starting on the same tick, stacked duplicates, range and track names - and it tells stacked
-duplicates from chords rather than lumping them together. Every finding comes with its tick, so
-the agent can navigate to a problem instead of describing it vaguely, and when a track name is
-rejected the answer quotes the legal instrument spellings, which is what turns "that name is
-wrong" into a fix.
-</p>
-
-<p>
-The editor-only checks stay in the window: channel spread, empty tracks and the voice-limit
-figures are about the editor and about arranging comfort, not about whether the game can play the
-file, so they never flip the tool's verdict. The AI reaches the voice figures through
-<code>analyze_voice_load</code> instead - see the
-<a href="ffxiv-voice-limiter.html#ai-tool">Voice Limiter's AI tools</a>.
+&#x1F449; <a href="ffxiv-playability.html"><b>Full documentation: Check FFXIV Playability</b></a> -
+the checks and the in-game rules behind them, reading the findings list, the selection-scoped
+repairs, the AI analysis, and the <code>validate_ffxiv</code> tool.
 </p>
 
 <hr>
@@ -556,7 +360,7 @@ The entire Fix X|V Channels operation is wrapped in a <b>single undo action</b>.
 <li><b>Use Preserve for touch-ups</b> - if you only need to fix guitar variants after manual editing, Preserve keeps everything else intact</li>
 <li><b>Split the drums first</b> - the <a href="ffxiv-drum-split.html">FFXIV Drum Split</a> turns a GM drum track into named percussion tracks the fixer routes automatically</li>
 <li><b>Combine with MidiPilot</b> - use "Convert this for FFXIV Bard performance" in Agent mode to compose, then Fix X|V to clean up channels</li>
-<li><b>Check afterwards</b> - run <a href="#validation">Check FFXIV Playability</a> once the channels are set up; it needs no AI and its findings are clickable. Ask MidiPilot to run <code>validate_ffxiv</code> when you want the same verdict inside a conversation</li>
+<li><b>Check afterwards</b> - run <a href="ffxiv-playability.html">Check FFXIV Playability</a> once the channels are set up; it needs no AI and its findings are clickable. Ask MidiPilot to run <code>validate_ffxiv</code> when you want the same verdict inside a conversation</li>
 </ul>
 
 </main>
