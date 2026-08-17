@@ -27,11 +27,23 @@
 #define APPPATHS_H_
 
 #include <QString>
+#include <QStringList>
 #include <memory>
 
 class QSettings;
 
 namespace AppPaths {
+
+/** Directory the running executable lives in.
+ *
+ *  Resolved from the OS, not from argv[0] (v2.2 review): Qt's WinMain shim
+ *  rebuilds argv with WideCharToMultiByte(CP_ACP, ...) and this build ships
+ *  no UTF-8 activeCodePage manifest, so an install path with characters
+ *  outside the system ANSI codepage arrives as '?'; and argv[0] carries no
+ *  directory at all when the program is started by bare name from PATH or by
+ *  a wrapper (which used to make the CWD the data directory). Works before
+ *  QApplication exists - initSettings() runs that early. */
+QString exeDir();
 
 /** Base data directory (ensured to exist). Windows: the exe directory. */
 QString dataDir();
@@ -46,6 +58,16 @@ QString dataFilePath(const QString &fileName);
 /** Portable Mode (Phase 45 step 4): true when `portable.txt` sits next to
  *  the executable or the app was started with `--portable`. Decided once. */
 bool isPortable();
+
+/** Arguments EVERY self-relaunch must re-pass (theme-change restart,
+ *  auto-updater). Returns {"--portable"} in portable mode, empty otherwise.
+ *
+ *  Why (v2.2 review): the switch and the marker file are documented as
+ *  equivalent, so a copy started with `--portable` alone has no marker. A
+ *  relaunch that drops the switch comes back on the system settings store and
+ *  silently reads a different configuration than the one it just wrote.
+ *  Re-passing the switch is harmless when the marker is present. */
+QStringList relaunchArgs();
 
 /** Call FIRST THING in main(), BEFORE QApplication and before the first
  *  QSettings use anywhere (Appearance::loadEarlySettings reads rendering
@@ -68,6 +90,17 @@ std::unique_ptr<QSettings> settings();
  *  can never wipe the developer's real configuration again. */
 void setSettingsScopeForTests(const QString &organization,
                               const QString &application);
+
+/** Test seam: pin exeDir() to `dir` (pass QString() to clear) and forget the
+ *  portable decision, so a test can drive initSettings() with a synthetic
+ *  argv against a QTemporaryDir instead of the test binary's own folder. */
+void setExeDirForTests(const QString &dir);
+
+/** The argv[0]-based exe-dir resolution - the LAST RESORT inside
+ *  initSettings() once the OS query failed, exposed so it can be tested
+ *  directly. Returns an empty string when argv[0] yields nothing usable
+ *  (never the CWD). */
+QString exeDirFromArgv(int argc, char *argv[]);
 
 } // namespace AppPaths
 

@@ -57,9 +57,11 @@ public:
      *  sees the notes, not just a summary. A half-written draft in the
      *  input field survives the round trip. No-op for Show-mode viewers
      *  (only the presenter may drive MidiPilot).
-     * \return true if the message was actually accepted and sent; false when
-     *  a guard refused it (busy, agent running, not configured, Show-mode
-     *  lock). Callers that wait for assistantReplied (the playability
+     * \return true if the message was actually dispatched to the AI client or
+     *  the agent runner; false when a guard refused it (busy, agent running,
+     *  not configured, Show-mode lock, or a tool-incapable model in agent
+     *  mode). The verdict comes from \ref sendCurrentPrompt, not from any side
+     *  effect. Callers that wait for assistantReplied (the playability
      *  workbench) must not latch on a refusal - nothing will ever arrive.
      */
     bool submitPrompt(const QString &text);
@@ -213,6 +215,21 @@ private:
         QJsonObject context;
         QDateTime timestamp;
     };
+
+    /**
+     * \brief The real send path: validates, captures context and dispatches the
+     *  request to \ref AiClient (simple mode) or \ref AgentRunner (agent mode).
+     * \return true ONLY when the request was actually handed to the client or the
+     *  runner, i.e. a terminal signal (responseReceived / errorOccurred /
+     *  agentFinished / agentError) is guaranteed to follow. false on every guard
+     *  and refusal path (empty prompt, provider not configured, busy, agent
+     *  already running, tool-incapable model in agent mode) - nothing was sent
+     *  and no reply will ever arrive. ANALYZE-LATCH-001: \ref submitPrompt
+     *  forwards this verdict to programmatic callers that latch on
+     *  \ref assistantReplied; it must never be inferred from side effects such
+     *  as the input field having been cleared.
+     */
+    bool sendCurrentPrompt();
 
     void setupUi();
     void setupSetupPrompt();

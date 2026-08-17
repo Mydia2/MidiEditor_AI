@@ -651,13 +651,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v2.1.2 - August 2026</h3>
-        <p class="whats-new-subtitle">Hotfix</p>
+        <h3>v2.2.0 - August 2026</h3>
+        <p class="whats-new-subtitle">FFXIV Playability, Portable Mode, and a MidiPilot that knows the manual</p>
         <ul>
-            <li><strong>FFXIV mode did not work on OpenAI models</strong> - with the FFXIV checkbox on, every request failed instantly and no tool ran, because one FFXIV tool declared its parameters in a way OpenAI rejects - and a single rejected tool takes the whole request down with it. This hit every gpt-5 model including the shipped default; other providers were unaffected.</li>
-            <li><strong>A failed step no longer just says &ldquo;failed&rdquo;</strong> - when MidiPilot refused a tool call, the reason went back to the AI but was never shown to you. It now appears in the chat, so a stalled run is readable.</li>
-            <li><strong>MidiPilot blamed the server when a local model wrote too much at once</strong> - if a local server (Ollama, llama.cpp) refused an oversized tool call, MidiPilot reported &ldquo;busy or temporarily unavailable&rdquo; and re-sent the identical request, which could never succeed. It now names the real cause and asks the model for smaller steps, so the next attempt can finish.</li>
-            <li><strong>Local models were cut off after three minutes</strong> - a local server (Ollama, llama.cpp) sends nothing at all until an answer is finished, so an ordinary turn on a model running on your own GPU ran out of time and ended in &ldquo;Request timed out&rdquo;, however healthy the setup was. Local models now get the same generous limit as reasoning models.</li>
+            <li><strong>Check FFXIV Playability</strong> - a workbench that examines the file the way the game plays it: chords and stacked duplicates on monophonic performers, notes outside C3-C6, track names no instrument matches, voice peak, channel spread, empty tracks. Click a finding to select its notes, double-click to focus the track, delete exactly the marked notes in one undo step, or hand the report to MidiPilot for a prioritised assessment.</li>
+            <li><strong>Portable Mode</strong> - drop a <code>portable.txt</code> next to the exe (or start with <code>--portable</code>) and every setting lives in a <code>config/</code> folder beside it - nothing touches the registry. Every data file now has a platform-aware home, which also unblocks the macOS build.</li>
+            <li><strong>MidiPilot answers editor questions from the manual</strong> - "How do I split drums?" no longer gets a guess: two new tools search the built-in manual and quote the page. Right-click selected notes and <strong>Ask MidiPilot about the selection</strong> sends them straight to the AI.</li>
+            <li><strong>The AI arranges for FFXIV, not just legally</strong> - new tools <code>transpose_events</code>, <code>split_chords_to_tracks</code>, <code>copy_events_to_track</code>, <code>convert_tempo_preserve_duration</code> and <code>set_ffxiv_mode</code>, an arrangement guide in the FFXIV context, and the two voice-load tools finally agree.</li>
+            <li><strong>Small things that add up</strong> - Auto-Fit Voice Load can select instead of remove, prompt profiles can hide pitch bends from a single model, an undo-memory readout in the status bar, and the tempo, bar-numbering and export-range fixes.</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>

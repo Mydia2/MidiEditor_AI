@@ -19,7 +19,14 @@
  *       chosen channel's events; tempo map is untouched.
  *   7.  convert() with SelectedEvents + a frozen pointer set only moves
  *       the listed events.
- *   8.  Round-trip 90 → 180 → 90 BPM on a NoteOn returns to (or within
+ *   8.  A partial scope combined with ReplaceFixed or ScaleTempoMap is
+ *       refused (the tempo map is shared): nothing moves inside or
+ *       outside the scope, the map stays intact, and the legal
+ *       partial-scope mode (EventsOnly) still works.
+ *   9.  A SelectedChannels scope leaves the file-global time-signature and
+ *       meta events (channels 18 / 16) alone, even with includeTimeSig /
+ *       includeMeta at their default true.
+ *  10.  Round-trip 90 → 180 → 90 BPM on a NoteOn returns to (or within
  *       ±1 tick of) the original tick.
  *
  * Strategy
@@ -306,6 +313,17 @@ struct ScopedFile {
         return on;
     }
 
+    /// Bare event on one of the file-GLOBAL channels (16 = meta/lyrics/key
+    /// signature, 18 = time signature). The service only ever looks at the
+    /// channel index and the tick, so the base MidiEvent (shimmed in this TU)
+    /// is enough — TimeSignatureEvent is not linked into this test.
+    MidiEvent *addGlobalEvent(int channel, int tick) {
+        MidiEvent *ev = new MidiEvent(channel, track0);
+        ev->setFile(file);
+        ev->setMidiTime(tick, false);
+        return ev;
+    }
+
     TempoChangeEvent *addTempo(int tick, int bpm) {
         // mspq = 60000000 / bpm ; TempoChangeEvent stores microseconds
         // per quarter; setBeats() can rewrite the BPM later.
@@ -332,6 +350,8 @@ private slots:
     void convert_replaceFixed_scalesNotesAndCollapsesTempo();
     void convert_eventsOnly_perChannel_isolatesScope();
     void convert_selectedEvents_onlyMovesListed();
+    void convert_partialScope_rejectsTempoMapModes();
+    void convert_selectedChannels_leavesGlobalMetaAlone();
 
     void convert_roundTrip_returnsToOrigin();
 };
@@ -457,6 +477,126 @@ void TestTempoConversionService::convert_selectedEvents_onlyMovesListed() {
     QVERIFY(r.ok);
     QCOMPARE(a->midiTime(), 480);
     QCOMPARE(b->midiTime(), bTickBefore);
+}
+
+// TEMPO-PARTIAL-REPLACE-001: the tempo map is shared by the whole file, so a
+// partial scope must not be allowed to replace or rescale it — that would
+// retime every event OUTSIDE the scope. Both map-touching modes are refused;
+// EventsOnly (the legal partial-scope mode) still works.
+void TestTempoConversionService::convert_partialScope_rejectsTempoMapModes() {
+    ScopedFile f;
+    f.file->setTempoBpm(90.0);
+    TempoChangeEvent *tempoAtStart = f.addTempo(0, 90);
+    TempoChangeEvent *tempoLater = f.addTempo(1920, 120);
+
+    // In scope: channel 0 on track 1. Outside: channel 9 on track 0.
+    NoteOnEvent *inScope = f.addNote(0, 480, 240, 60, 100, f.track1);
+    NoteOnEvent *outside = f.addNote(9, 480, 240, 36, 100, f.track0);
+    OffEvent *outsideOff = outside->offEvent();
+    QVERIFY(outsideOff);
+
+    const int inTickBefore = inScope->midiTime();
+    const int outTickBefore = outside->midiTime();
+    const int outOffTickBefore = outsideOff->midiTime();
+
+    const TempoConversionTempoMode mapModes[] = {
+        TempoConversionTempoMode::ReplaceFixed,
+        TempoConversionTempoMode::ScaleTempoMap
+    };
+    for (TempoConversionTempoMode mode : mapModes) {
+        TempoConversionOptions opts;
+        opts.sourceBpm = 90.0;
+        opts.targetBpm = 180.0;
+        opts.scope = TempoConversionScope::SelectedTracks;
+        opts.trackIds = {1};
+        opts.tempoMode = mode;
+
+        // The shared validator names the reason...
+        const QString conflict = TempoConversionService::scopeModeConflict(opts);
+        QVERIFY(!conflict.isEmpty());
+        QVERIFY(conflict.contains(QStringLiteral("partial scope")));
+
+        // ...and both entry points refuse.
+        const auto p = TempoConversionService::preview(f.file, opts);
+        QVERIFY(!p.ok);
+        QCOMPARE(p.error, conflict);
+
+        const auto r = TempoConversionService::convert(f.file, opts);
+        QVERIFY(!r.ok);
+        QCOMPARE(r.error, conflict);
+        QCOMPARE(r.affectedEvents, 0);
+        QCOMPARE(r.tempoEventsRemoved, 0);
+        QCOMPARE(r.tempoEventsInserted, 0);
+
+        // Nothing moved — neither inside nor outside the scope.
+        QCOMPARE(inScope->midiTime(), inTickBefore);
+        QCOMPARE(outside->midiTime(), outTickBefore);
+        QCOMPARE(outsideOff->midiTime(), outOffTickBefore);
+
+        // Tempo map intact: same two events, same ticks, same BPMs.
+        QMultiMap<int, MidiEvent *> *tmap = f.file->channelEvents(17);
+        QCOMPARE(tmap->size(), 2);
+        QCOMPARE(tempoAtStart->midiTime(), 0);
+        QCOMPARE(tempoLater->midiTime(), 1920);
+        QCOMPARE(tempoAtStart->beatsPerQuarter(), 90);
+        QCOMPARE(tempoLater->beatsPerQuarter(), 120);
+    }
+
+    // The legal combination is untouched: EventsOnly re-ticks track 1 only.
+    TempoConversionOptions legal;
+    legal.sourceBpm = 90.0;
+    legal.targetBpm = 180.0;
+    legal.scope = TempoConversionScope::SelectedTracks;
+    legal.trackIds = {1};
+    legal.tempoMode = TempoConversionTempoMode::EventsOnly;
+    QVERIFY(TempoConversionService::scopeModeConflict(legal).isEmpty());
+
+    const auto ok = TempoConversionService::convert(f.file, legal);
+    QVERIFY(ok.ok);
+    QCOMPARE(inScope->midiTime(), inTickBefore * 2);
+    QCOMPARE(outside->midiTime(), outTickBefore);
+    QCOMPARE(outsideOff->midiTime(), outOffTickBefore);
+    QCOMPARE(f.file->channelEvents(17)->size(), 2);
+    QCOMPARE(tempoAtStart->beatsPerQuarter(), 90);
+    QCOMPARE(tempoLater->beatsPerQuarter(), 120);
+}
+
+// TEMPO-PARTIAL-META-001: channels 16 and 18 carry the file-GLOBAL meta and
+// time-signature events. `channelIds` can only name MIDI channels 0..15, so a
+// channel scope never asks for them — yet they used to be re-ticked anyway
+// (the channel filter only covered 0..15 and includeTimeSig/includeMeta
+// default to true), moving the bar grid for the material OUTSIDE the scope.
+void TestTempoConversionService::convert_selectedChannels_leavesGlobalMetaAlone() {
+    ScopedFile f;
+    f.file->setTempoBpm(120.0);
+    NoteOnEvent *inScope = f.addNote(/*ch*/ 0, 480, 240);
+    MidiEvent *timeSigAtStart = f.addGlobalEvent(/*ch*/ 18, 0);
+    MidiEvent *timeSigLater = f.addGlobalEvent(/*ch*/ 18, 960);
+    MidiEvent *meta = f.addGlobalEvent(/*ch*/ 16, 480);
+
+    TempoConversionOptions opts;
+    opts.sourceBpm = 120.0;
+    opts.targetBpm = 240.0;
+    opts.scope = TempoConversionScope::SelectedChannels;
+    opts.channelIds = {0};
+    opts.tempoMode = TempoConversionTempoMode::EventsOnly;
+    // Left at their defaults ON PURPOSE — that is what the AI/MCP tool passes,
+    // so the scope alone has to protect the global events.
+    QVERIFY(opts.includeTimeSig);
+    QVERIFY(opts.includeMeta);
+
+    // The note and its off event, and nothing from channels 16/18.
+    const auto pre = TempoConversionService::preview(f.file, opts);
+    QVERIFY(pre.ok);
+    QCOMPARE(pre.affectedEvents, 2);
+
+    const auto r = TempoConversionService::convert(f.file, opts);
+    QVERIFY(r.ok);
+    QCOMPARE(r.affectedEvents, 2);
+    QCOMPARE(inScope->midiTime(), 960);
+    QCOMPARE(timeSigAtStart->midiTime(), 0);
+    QCOMPARE(timeSigLater->midiTime(), 960);
+    QCOMPARE(meta->midiTime(), 480);
 }
 
 void TestTempoConversionService::convert_roundTrip_returnsToOrigin() {

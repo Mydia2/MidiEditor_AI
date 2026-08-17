@@ -244,17 +244,18 @@ the converted events.
   <td>The tempo map is left exactly as it was. Only the event ticks in scope are rescaled, so the
     material really does take longer or shorter in real time.</td>
   <td>You want a half-time / double-time correction inside a project that already runs at the
-    correct musical tempo - and it is the right choice for every partial scope.</td>
+    correct musical tempo - and it is the mode every partial scope uses.</td>
 </tr>
 </tbody>
 </table>
 
 <div class="warn-box">
-<p>&#x26A0; <b>Partial scopes want <i>Scale events only</i>.</b> The tempo map belongs to the whole
-file, not to a track or a channel. Replacing it from a track-, channel- or selection-scoped
-conversion retimes the material outside your scope as well - which is exactly what you did not ask
-for. Use <i>Replace with single fixed tempo at tick 0</i> for whole-project conversions and
-<i>Scale events only</i> for everything narrower.</p>
+<p>&#x26A0; <b>Partial scopes use <i>Scale events only</i>.</b> The tempo map belongs to the whole
+file, not to a track or a channel, so changing it from a partial scope would retime everything
+outside the scope. As soon as <i>Apply to</i> is anything other than <i>Whole project</i>, the
+dialog therefore selects <i>Scale events only</i> and greys the other two modes out, with that
+reason printed under them. Set the scope back to <i>Whole project</i> and all three are available
+again, with your previous choice restored.</p>
 </div>
 
 <hr>

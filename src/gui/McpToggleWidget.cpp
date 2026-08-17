@@ -18,6 +18,7 @@
 
 #include "McpToggleWidget.h"
 #include "Appearance.h"
+#include "../AppPaths.h"
 #include "../ai/McpServer.h"
 
 #include <QPainter>
@@ -77,20 +78,29 @@ void McpToggleWidget::paintEvent(QPaintEvent *) {
 
 void McpToggleWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton && _server) {
+        // Through AppPaths::settings(): the flat "MCP/..." keys below are the
+        // ones AiSettingsWidget writes and MainWindow reads on startup. A
+        // default-constructed QSettings has no organization name (nothing in
+        // src/ ever sets one), so on Windows this READ returned nothing - the
+        // toggle always started the server on the fallback port 9420 with no
+        // auth token, whatever the user had configured - and the MCP/enabled
+        // write was dropped with an AccessError.
+        auto settings = AppPaths::settings();
         if (_server->isRunning()) {
             _server->stop();
             // Update settings to reflect disabled state
-            QSettings settings;
-            settings.setValue("MCP/enabled", false);
+            settings->setValue(QStringLiteral("MCP/enabled"), false);
         } else {
-            QSettings settings;
-            quint16 port = static_cast<quint16>(settings.value("MCP/port", 9420).toInt());
-            QString token = settings.value("MCP/auth_token").toString();
-            if (!token.isEmpty()) {
-                _server->setAuthToken(token);
-            }
+            const quint16 port = static_cast<quint16>(
+                settings->value(QStringLiteral("MCP/port"), 9420).toInt());
+            const QString token =
+                settings->value(QStringLiteral("MCP/auth_token")).toString();
+            // Always push the token, empty included: a token the user removed
+            // in Settings has to disappear here too (same call as
+            // AiSettingsWidget's live toggle and MainWindow's MCP sync).
+            _server->setAuthToken(token.isEmpty() ? QString() : token);
             _server->start(port);
-            settings.setValue("MCP/enabled", true);
+            settings->setValue(QStringLiteral("MCP/enabled"), true);
         }
     }
     QWidget::mousePressEvent(event);

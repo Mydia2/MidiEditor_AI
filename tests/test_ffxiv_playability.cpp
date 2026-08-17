@@ -33,6 +33,15 @@
  *      issues, and can be SCOPED to a subset of findings so a user can
  *      delete the stacked duplicates and keep the chords. Non-collision
  *      findings contribute nothing.
+ *  11. MidiTrack's focus overlay (the workbench's focus mode): hidden() is
+ *      the effective/rendered state and ORs it in, hiddenByUser() stays the
+ *      document flag, a protocol snapshot never carries the overlay, and an
+ *      explicit setHidden() ends it - so the Tracks-panel eye and the Track
+ *      menu can always bring a focus-hidden track back.
+ *  12. Neither reloadState nor a remove/undo round trip clears the overlay,
+ *      and a removed track comes back as the very same object - which is why
+ *      the workbench clears the overlay through the list of tracks it dimmed
+ *      instead of walking the file's current tracks at close time.
  *
  * Harness: same ODR-shim approach as test_ffxiv_fixer_resync - real
  * MidiFile/MidiChannel/MidiTrack/Protocol/MidiEvent stack, GUI periphery
@@ -421,6 +430,112 @@ private slots:
         // A selection without collisions has nothing to delete.
         QVERIFY(ffxivCollisionSurplus(issues, {2}).isEmpty());
         QVERIFY(ffxivCollisionSurplus(issues, {}).isEmpty());
+        delete f;
+    }
+
+    // --- 11. focus overlay vs. document visibility ---------------------------
+    // The workbench's focus mode (double-click a finding -> show only that
+    // track) hides through MidiTrack's VIEW-only _focusHidden overlay. The
+    // three contracts every caller relies on:
+    //   a) hidden() is the EFFECTIVE (rendered) state and ORs the overlay in,
+    //      while hiddenByUser() stays the document's own flag - that is what
+    //      keeps the Tracks-panel eye, the save-time "not audible" warning,
+    //      the collab broadcast and the AI's track list honest while focus is
+    //      on (FOCUS-DEADEYE-001).
+    //   b) a deliberate user visibility action ENDS the overlay, so the eye
+    //      and the Track menu can always bring a focus-hidden track back
+    //      instead of being dead controls that still push undo steps.
+    //   c) the overlay is never part of an undo snapshot.
+    void focusOverlayIsViewOnly() {
+        MidiFile *f = makeFile("Trumpet", 0);
+        MidiTrack *t = f->track(1);
+
+        QVERIFY(!t->hidden());
+        QVERIFY(!t->hiddenByUser());
+        QVERIFY(!t->focusHidden());
+
+        // (a) overlay hides for rendering, document flag untouched.
+        t->setFocusHidden(true);
+        QVERIFY(t->hidden());
+        QVERIFY(!t->hiddenByUser());
+        QVERIFY(t->focusHidden());
+
+        // (c) a protocol snapshot must not carry the overlay - otherwise an
+        // undo taken while focus is active could resurface it later.
+        ProtocolEntry *snapshot = t->copy();
+        MidiTrack *snapshotTrack = dynamic_cast<MidiTrack *>(snapshot);
+        QVERIFY(snapshotTrack != nullptr);
+        QVERIFY(!snapshotTrack->focusHidden());
+        delete snapshot;
+
+        // (b1) the one-click path the Tracks-panel eye takes for a track that
+        // is ONLY focus-hidden: releasing the overlay is view state, so it must
+        // cost NO undo step (an empty protocol action would still wipe the redo
+        // stack and mark the document modified).
+        const int stepsBefore = f->protocol()->stepsBack();
+        t->setFocusHidden(false);
+        QVERIFY(!t->hidden());
+        QCOMPARE(f->protocol()->stepsBack(), stepsBefore);
+
+        // (b2) the undoable path: setHidden(false) on a focus-hidden track also
+        // really shows it again (before the fix hidden() stayed true and the
+        // click was a no-op that still appended an empty undo step).
+        t->setFocusHidden(true);
+        QVERIFY(t->hidden());
+        f->protocol()->startNewAction("show track");
+        t->setHidden(false);
+        f->protocol()->endAction();
+        QVERIFY(!t->focusHidden());
+        QVERIFY(!t->hidden());
+        QVERIFY(!t->hiddenByUser());
+
+        // Hiding is a deliberate visibility action too: the overlay ends and
+        // the document flag alone decides.
+        t->setFocusHidden(true);
+        f->protocol()->startNewAction("hide track");
+        t->setHidden(true);
+        f->protocol()->endAction();
+        QVERIFY(!t->focusHidden());
+        QVERIFY(t->hidden());
+        QVERIFY(t->hiddenByUser());
+
+        delete f;
+    }
+
+    // --- 12. undo does not clear the overlay --------------------------------
+    // Pins WHY the workbench has to remember which track objects it dimmed:
+    // neither reloadState nor a removal/undo round trip touches _focusHidden,
+    // and a removed track keeps its identity (the very same pointer comes
+    // back). Clearing "track(0..numTracks-1) at close time" therefore misses a
+    // track removed while focus was active, and it returns invisible for good
+    // (FOCUS-REMOVED-001).
+    void focusOverlaySurvivesRemovalAndUndo() {
+        MidiFile *f = makeFile("Trumpet", 0);
+        f->protocol()->startNewAction("add track");
+        f->addTrack();
+        f->protocol()->endAction();
+        QCOMPARE(f->numTracks(), 3);
+
+        MidiTrack *victim = f->track(2);
+        victim->setFocusHidden(true); // as focus mode would
+
+        f->protocol()->startNewAction("remove track");
+        QVERIFY(f->removeTrack(victim));
+        f->protocol()->endAction();
+        QCOMPARE(f->numTracks(), 2);
+
+        f->protocol()->undo(false);
+        QCOMPARE(f->numTracks(), 3);
+        // Same object, overlay intact - undo restores the document state only.
+        QCOMPARE(f->track(2), victim);
+        QVERIFY(victim->focusHidden());
+        QVERIFY(victim->hidden());
+        QVERIFY(!victim->hiddenByUser());
+
+        // What the workbench does at close time, via its remembered list.
+        victim->setFocusHidden(false);
+        QVERIFY(!victim->hidden());
+
         delete f;
     }
 };

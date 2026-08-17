@@ -152,8 +152,15 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
     buttons->addWidget(_fixOverlapsButton);
 
     _fixChannelsButton = new QPushButton(tr("Channel Fixer"), this);
-    _fixChannelsButton->setToolTip(tr("Runs Fix X|V Channels - repairs channel "
-                                      "spread and tidies track naming/programs"));
+    // Only offered for channel-spread findings: the fixer works from the
+    // FFXIV instrument NAMES it recognises, so it cannot repair a rejected
+    // track name (CHANFIX-PROMISE-001) - say what it does do.
+    _fixChannelsButton->setToolTip(tr("Runs Fix X|V Channels: re-syncs the "
+                                      "channels and programs of the tracks it "
+                                      "recognises as FFXIV instruments. A "
+                                      "rejected track name is not renamed for "
+                                      "you - rename the track to an FFXIV "
+                                      "instrument name instead."));
     connect(_fixChannelsButton, &QPushButton::clicked, this, [this]() {
         emit fixRequested(QStringLiteral("fix_ffxiv_channels"));
     });
@@ -281,9 +288,17 @@ void FfxivPlayabilityDialog::rebuildFixRow() {
     const bool hasCollisions =
         _report.countOf(FfxivPlayabilityIssue::Type::Overlap) > 0
         || _report.countOf(FfxivPlayabilityIssue::Type::DuplicateNote) > 0;
+    // CHANFIX-PROMISE-001: ChannelSpread ONLY. Track-name findings are exactly
+    // the case the channel fixer cannot repair - it re-syncs channels and
+    // programs of tracks it RECOGNISES as FFXIV instruments and cannot invent a
+    // name for a track that has none, so on a plain GM file the button did
+    // nothing but pop "No FFXIV instrument names detected." A ChannelSpread
+    // finding, in contrast, is only ever raised for an instrument-named track
+    // (see FfxivPlayabilityValidator), so the fixer always has something to do
+    // - which is also why gating on FFXIVChannelFixer::analyzeFile() would only
+    // repeat that fact at the cost of a second full-file pass per re-check.
     const bool hasChannelIssues =
-        _report.countOf(FfxivPlayabilityIssue::Type::ChannelSpread) > 0
-        || _report.countOf(FfxivPlayabilityIssue::Type::TrackName) > 0;
+        _report.countOf(FfxivPlayabilityIssue::Type::ChannelSpread) > 0;
     const bool hasVoiceIssues =
         _report.countOf(FfxivPlayabilityIssue::Type::VoiceCeiling) > 0
         || _report.countOf(FfxivPlayabilityIssue::Type::NoteRate) > 0;
@@ -436,8 +451,12 @@ QString FfxivPlayabilityDialog::buildAnalysisPrompt() const {
     const int cap = 40;
     for (int i = 0; i < _report.issues.size() && i < cap; ++i) {
         const FfxivPlayabilityIssue &issue = _report.issues.at(i);
-        lines << QStringLiteral("- Track %1: %2").arg(issue.track)
-                                                 .arg(issue.details);
+        // Same guard as the tree: file-level findings (voice peak, note-rate
+        // hotspots) carry track -1 and were reaching the AI as "Track -1: ...".
+        lines << (issue.track >= 0
+                      ? QStringLiteral("- Track %1: %2").arg(issue.track)
+                                                        .arg(issue.details)
+                      : QStringLiteral("- File: %1").arg(issue.details));
     }
     if (_report.issues.size() > cap)
         lines << QStringLiteral("(%1 more findings omitted)")
@@ -492,7 +511,27 @@ void FfxivPlayabilityDialog::onItemDoubleClicked(QTreeWidgetItem *item, int colu
     const FfxivPlayabilityIssue &issue = _report.issues.at(idx);
     if (issue.track >= 0)
         emit focusTrackRequested(issue.track);
-    emit revealTickRequested(issue.tick);
+    // The pitch line to reveal along with the tick: only for the per-note,
+    // single-track finding types, whose events sit within a few lines of each
+    // other (one tick group, or a single note). File-level findings (voice
+    // peak, rate hotspots) and name/empty-track findings have no meaningful
+    // line - -1 leaves the vertical scroll where it is.
+    int line = -1;
+    if (issue.track >= 0 && !issue.events.isEmpty()
+        && (issue.type == FfxivPlayabilityIssue::Type::OutOfRange
+            || issue.type == FfxivPlayabilityIssue::Type::Overlap
+            || issue.type == FfxivPlayabilityIssue::Type::DuplicateNote)) {
+        int lo = -1;
+        int hi = -1;
+        for (MidiEvent *ev : issue.events) {
+            if (!ev) continue;
+            const int l = ev->line();
+            if (lo < 0 || l < lo) lo = l;
+            if (hi < 0 || l > hi) hi = l;
+        }
+        if (lo >= 0) line = (lo + hi) / 2;
+    }
+    emit revealTickRequested(issue.tick, line);
 }
 
 void FfxivPlayabilityDialog::onSelectAllClicked() {

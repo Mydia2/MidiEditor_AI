@@ -520,9 +520,10 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "Enable or disable FFXIV Bard Performance mode. The mode gates the FFXIV tool "
             "bundle (validate_ffxiv, convert_drums_ffxiv, setup_channel_pattern, "
             "analyze_voice_load, auto_fit_voice_load): enabling adds them to the tool list, "
-            "disabling removes them - refresh the tool list after calling this (MCP clients "
-            "also receive notifications/tools/list_changed). The current mode is reported by "
-            "get_editor_state as ffxivMode.",
+            "disabling removes them. The change takes effect from your next step - in an "
+            "agent run the tool list and the FFXIV rules are re-derived automatically, and "
+            "MCP clients receive notifications/tools/list_changed. The current mode is "
+            "reported by get_editor_state as ffxivMode.",
             makeParams(props, {"enabled"})));
     }
 
@@ -795,6 +796,23 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
 }
 
 // ---------------------------------------------------------------------------
+// protocolActorPrefix — who gets the credit in the Protocol panel
+// ---------------------------------------------------------------------------
+// MUST stay byte-identical to the static protoPrefix() in MidiPilotWidget.cpp
+// (the widget-routed tools' path) - the two forms are documented as ONE format
+// in manual/mcp-server.html, and test_tool_definitions locks these strings.
+QString ToolDefinitions::protocolActorPrefix(const QString &source) {
+    if (!source.startsWith(QLatin1String("mcp")))
+        return QStringLiteral("MidiPilot");
+
+    // "mcp" -> "MidiPilotMCP", "mcp:ClientName" -> "MidiPilotMCP (ClientName)"
+    const int colon = source.indexOf(QLatin1Char(':'));
+    if (colon > 0 && colon + 1 < source.length())
+        return QStringLiteral("MidiPilotMCP (%1)").arg(source.mid(colon + 1));
+    return QStringLiteral("MidiPilotMCP");
+}
+
+// ---------------------------------------------------------------------------
 // executeTool — dispatches tool calls to read-only or write handlers
 // ---------------------------------------------------------------------------
 QJsonObject ToolDefinitions::executeTool(const QString &toolName,
@@ -984,7 +1002,7 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         return widget->executeAction(actionObj);
     }
     if (toolName == "convert_tempo_preserve_duration") {
-        return execConvertTempoPreserveDuration(args, file);
+        return execConvertTempoPreserveDuration(args, file, source);
     }
     if (toolName == "set_ffxiv_mode") {
         return execSetFfxivMode(args, widget);
@@ -996,13 +1014,13 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         return execGetHelpSection(args);
     }
     if (toolName == "transpose_events") {
-        return execTransposeEvents(args, file);
+        return execTransposeEvents(args, file, source);
     }
     if (toolName == "split_chords_to_tracks") {
-        return execSplitChordsToTracks(args, file);
+        return execSplitChordsToTracks(args, file, source);
     }
     if (toolName == "copy_events_to_track") {
-        return execCopyEventsToTrack(args, file);
+        return execCopyEventsToTrack(args, file, source);
     }
 
     // FFXIV tools
@@ -1010,10 +1028,10 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         return execValidateFFXIV(file);
     }
     if (toolName == "convert_drums_ffxiv") {
-        return execConvertDrumsFFXIV(args, file, widget);
+        return execConvertDrumsFFXIV(args, file, widget, source);
     }
     if (toolName == "setup_channel_pattern") {
-        return execSetupChannelPattern(file, widget);
+        return execSetupChannelPattern(file, widget, source);
     }
     if (toolName == "analyze_voice_load") {
         return execAnalyzeVoiceLoad(args, file);
@@ -1265,7 +1283,8 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
 
 QJsonObject ToolDefinitions::execConvertDrumsFFXIV(const QJsonObject &args,
                                                     MidiFile *file,
-                                                    MidiPilotWidget *widget) {
+                                                    MidiPilotWidget *widget,
+                                                    const QString &source) {
     QJsonObject result;
     if (!file) {
         result["success"] = false;
@@ -1346,6 +1365,7 @@ QJsonObject ToolDefinitions::execConvertDrumsFFXIV(const QJsonObject &args,
         createAction["trackName"] = name;
         createAction["channel"] = 0;
         createAction["explanation"] = QString("FFXIV drum: %1").arg(name);
+        if (!source.isEmpty()) createAction["_source"] = source;
         QJsonObject createResult = widget->executeAction(createAction);
         int newTrackIdx = createResult["trackIndex"].toInt(-1);
         if (newTrackIdx < 0) return -1;
@@ -1369,6 +1389,7 @@ QJsonObject ToolDefinitions::execConvertDrumsFFXIV(const QJsonObject &args,
         insertAction["track"] = newTrackIdx;
         insertAction["channel"] = 0;
         insertAction["explanation"] = QString("FFXIV drum events: %1").arg(name);
+        if (!source.isEmpty()) insertAction["_source"] = source;
         widget->executeAction(insertAction);
         return newTrackIdx;
     };
@@ -1428,7 +1449,8 @@ static int ffxivProgramNumber(const QString &instrumentName) {
 // setup_channel_pattern — delegates to FFXIVChannelFixer
 // ---------------------------------------------------------------------------
 QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
-                                                      MidiPilotWidget * /*widget*/) {
+                                                      MidiPilotWidget * /*widget*/,
+                                                      const QString &source) {
     // V131-P2-04: FFXIVChannelFixer::fixChannels() calls
     // MidiChannel::removeEvent(..., true) in its CLEAN phase, which routes
     // through Protocol::enterUndoStep(). If no action is open, every undo
@@ -1437,7 +1459,9 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
     // this AI-tool entry point previously did not. Wrap here so the fix runs
     // under a Protocol action regardless of caller.
     if (file && file->protocol())
-        file->protocol()->startNewAction(QStringLiteral("Agent: setup channel pattern"));
+        file->protocol()->startNewAction(
+            protocolActorPrefix(source)
+            + QStringLiteral(": Agent setup channel pattern"));
     QJsonObject result = FFXIVChannelFixer::fixChannels(file);
     if (file && file->protocol())
         file->protocol()->endAction();
@@ -1462,10 +1486,12 @@ QJsonObject ToolDefinitions::execSetFfxivMode(const QJsonObject &args,
     result["success"] = true;
     result["ffxivMode"] = enabled;
     result["summary"] = enabled
-        ? QStringLiteral("FFXIV mode enabled - the FFXIV tool bundle is now available; "
-                         "refresh the tool list.")
-        : QStringLiteral("FFXIV mode disabled - the FFXIV tool bundle is gone; "
-                         "refresh the tool list.");
+        ? QStringLiteral("FFXIV mode enabled - the FFXIV tools (validate_ffxiv, "
+                         "convert_drums_ffxiv, setup_channel_pattern, analyze_voice_load, "
+                         "auto_fit_voice_load) and the FFXIV rules are available from your "
+                         "next step.")
+        : QStringLiteral("FFXIV mode disabled - the FFXIV tools are no longer available "
+                         "from your next step.");
     return result;
 }
 
@@ -1757,10 +1783,12 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
 }
 
 QJsonObject ToolDefinitions::execConvertTempoPreserveDuration(const QJsonObject &args,
-                                                              MidiFile *file) {
+                                                              MidiFile *file,
+                                                              const QString &source) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
     Q_UNUSED(args);
     Q_UNUSED(file);
+    Q_UNUSED(source);
     QJsonObject result;
     result["success"] = false;
     result["error"] = QStringLiteral("Stub build: convert_tempo_preserve_duration is unavailable.");
@@ -1909,6 +1937,16 @@ QJsonObject ToolDefinitions::execConvertTempoPreserveDuration(const QJsonObject 
         }
     }
 
+    // Protocol-panel attribution. The label is built HERE (not in the service)
+    // so it uses the same "<actor>: Agent <verb> - <detail>" format as every
+    // other agent/MCP action; the service keeps its own label for the dialog.
+    // Prefix concatenated, not .arg()-substituted - see execTransposeEvents.
+    opts.actionLabel = protocolActorPrefix(source)
+                       + QStringLiteral(": Agent convert tempo - %1 to %2 BPM "
+                                        "(duration preserved)")
+                             .arg(opts.sourceBpm, 0, 'f', 2)
+                             .arg(opts.targetBpm, 0, 'f', 2);
+
     const bool dryRun = args.value("dryRun").toBool(true); // safe default
     const TempoConversionResult r = dryRun ? TempoConversionService::preview(file, opts)
                                            : TempoConversionService::convert(file, opts);
@@ -1970,10 +2008,12 @@ QJsonObject ToolDefinitions::execConvertTempoPreserveDuration(const QJsonObject 
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
-QJsonObject ToolDefinitions::execTransposeEvents(const QJsonObject &args, MidiFile *file) {
+QJsonObject ToolDefinitions::execTransposeEvents(const QJsonObject &args, MidiFile *file,
+                                                 const QString &source) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
     Q_UNUSED(args);
     Q_UNUSED(file);
+    Q_UNUSED(source);
     QJsonObject result;
     result["success"] = false;
     result["error"] = QStringLiteral("Stub build: transpose_events is unavailable.");
@@ -2049,7 +2089,11 @@ QJsonObject ToolDefinitions::execTransposeEvents(const QJsonObject &args, MidiFi
         return result;
     }
 
-    file->protocol()->startNewAction(QObject::tr("Transpose notes (AI)"));
+    // Actor prefix CONCATENATED, never .arg()-substituted: an MCP client name
+    // is remote input and a "%2" inside it would eat the next argument.
+    file->protocol()->startNewAction(
+        protocolActorPrefix(source)
+        + QStringLiteral(": Agent transpose notes - %1 semitones").arg(semitones));
     for (const Target &t : targets) {
         t.on->setNote(t.newNote);
     }
@@ -2070,10 +2114,12 @@ QJsonObject ToolDefinitions::execTransposeEvents(const QJsonObject &args, MidiFi
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
-QJsonObject ToolDefinitions::execSplitChordsToTracks(const QJsonObject &args, MidiFile *file) {
+QJsonObject ToolDefinitions::execSplitChordsToTracks(const QJsonObject &args, MidiFile *file,
+                                                     const QString &source) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
     Q_UNUSED(args);
     Q_UNUSED(file);
+    Q_UNUSED(source);
     QJsonObject result;
     result["success"] = false;
     result["error"] = QStringLiteral("Stub build: split_chords_to_tracks is unavailable.");
@@ -2128,7 +2174,9 @@ QJsonObject ToolDefinitions::execSplitChordsToTracks(const QJsonObject &args, Mi
     for (const QList<NoteOnEvent *> &chord : chords)
         maxVoices = qMax(maxVoices, static_cast<int>(chord.size()));
 
-    file->protocol()->startNewAction(QObject::tr("Split chords to tracks (AI)"));
+    file->protocol()->startNewAction(
+        protocolActorPrefix(source)
+        + QStringLiteral(": Agent split chords to tracks - Track %1").arg(trackIndex));
 
     const int firstNewIndex = file->numTracks();
     QVector<MidiTrack *> voiceTracks;
@@ -2198,10 +2246,12 @@ QJsonObject ToolDefinitions::execSplitChordsToTracks(const QJsonObject &args, Mi
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
-QJsonObject ToolDefinitions::execCopyEventsToTrack(const QJsonObject &args, MidiFile *file) {
+QJsonObject ToolDefinitions::execCopyEventsToTrack(const QJsonObject &args, MidiFile *file,
+                                                   const QString &source) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
     Q_UNUSED(args);
     Q_UNUSED(file);
+    Q_UNUSED(source);
     QJsonObject result;
     result["success"] = false;
     result["error"] = QStringLiteral("Stub build: copy_events_to_track is unavailable.");
@@ -2256,7 +2306,11 @@ QJsonObject ToolDefinitions::execCopyEventsToTrack(const QJsonObject &args, Midi
         return result;
     }
 
-    file->protocol()->startNewAction(QObject::tr("Copy notes to track (AI)"));
+    file->protocol()->startNewAction(
+        protocolActorPrefix(source)
+        + QStringLiteral(": Agent copy notes to track - Track %1 to Track %2")
+              .arg(sourceIndex)
+              .arg(targetIndex));
     // ONE channel snapshot per touched channel (documented bulk pattern) -
     // per-note insertNote snapshots cost ~1 MB each on dense channels.
     for (auto it = byChannel.begin(); it != byChannel.end(); ++it) {

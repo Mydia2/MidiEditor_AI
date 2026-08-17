@@ -129,12 +129,11 @@ QJsonObject EditorContext::captureFileInfo(MidiFile *file)
     info[QStringLiteral("endTick")] = file->endTick();
     info[QStringLiteral("modified")] = !file->saved();
 
-    // Total measures = the 1-based number of the measure the last tick falls
-    // in. measure() is already 1-based, so the former +1 claimed one measure
-    // more than the song has - an AI asked to work "in the last bar" aimed
-    // past the end.
-    int ms = 0, me = 0;
-    info[QStringLiteral("totalMeasures")] = file->measure(file->endTick(), &ms, &me);
+    // Total measures = the 1-based bar of the last SOUNDING tick.
+    // measure(endTick()) overcounts by one whenever the song ends exactly on a
+    // bar line (endTick() is the exclusive end, so it already sits in the next
+    // bar) - an AI asked to work "in the last bar" aimed past the end.
+    info[QStringLiteral("totalMeasures")] = file->measureCount();
 
     return info;
 }
@@ -223,7 +222,10 @@ QJsonArray EditorContext::captureTrackList(MidiFile *file)
         obj[QStringLiteral("name")] = t->name();
         obj[QStringLiteral("channel")] = t->assignedChannel();
         obj[QStringLiteral("muted")] = t->muted();
-        obj[QStringLiteral("hidden")] = t->hidden();
+        // The DOCUMENT flag, not hidden(): a temporary view overlay (the
+        // playability workbench's focus mode) must not make the AI believe the
+        // user hid six of seven tracks (FOCUS-DEADEYE-001).
+        obj[QStringLiteral("hidden")] = t->hiddenByUser();
         arr.append(obj);
     }
     return arr;

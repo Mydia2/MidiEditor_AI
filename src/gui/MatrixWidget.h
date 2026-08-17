@@ -309,6 +309,17 @@ public:
     int visibleEndMs() const { return endTimeX; }
     int visibleEndLine() const { return endLineY; }
 
+    /** \brief Scroll VERTICALLY so the given note line is on screen, centred
+     *  in the visible pitch band. Does nothing when the line is already
+     *  visible, so a reveal never jumps the view for no reason.
+     *
+     *  The counterpart of timeMsChanged() for the pitch axis: needed by the
+     *  playability workbench, whose double-click reveal could scroll to the
+     *  right bar and still leave an out-of-range note above or below the
+     *  visible band. Moves the REAL scrollbar via scrollChanged (same idiom as
+     *  the wheel handler), so bars and view cannot desync. */
+    void revealLine(int line);
+
     // === Editing lock (Phase 9.9c §15.2 — Show Mode viewer) ===
 
     /**

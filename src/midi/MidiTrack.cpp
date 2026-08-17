@@ -116,6 +116,13 @@ void MidiTrack::reloadState(ProtocolEntry *entry) {
 void MidiTrack::setHidden(bool hidden) {
     ProtocolEntry *toCopy = copy();
     _hidden = hidden;
+    // FOCUS-DEADEYE-001: an explicit visibility action ends the focus overlay
+    // for this track. Otherwise setHidden(false) from the Tracks-panel eye or
+    // the Track menu would leave the track invisible (hidden() still ORs the
+    // overlay in) - a dead control that nevertheless pushes an undo step.
+    // Not part of the snapshot above: the overlay is view state, so undoing
+    // this step restores _hidden only, never the overlay.
+    _focusHidden = false;
     protocol(toCopy, this);
     emit trackChanged();
 }
@@ -123,6 +130,7 @@ void MidiTrack::setHidden(bool hidden) {
 bool MidiTrack::hidden() {
     // The focus overlay (workbench focus mode) hides on top of the
     // document state - view-only, never part of any undo snapshot.
+    // Document-state readers want hiddenByUser() instead.
     return _hidden || _focusHidden;
 }
 

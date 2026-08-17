@@ -55,6 +55,26 @@ public:
     static bool isPitchBendOnlyPayload(const QJsonArray &events);
 
     /**
+     * \brief Protocol-panel actor prefix for a tool-call \a source.
+     *
+     * The prefix names WHO made an edit, so the Protocol panel can tell the
+     * built-in panel apart from an external MCP client:
+     * \li empty / anything else -> \c "MidiPilot"
+     * \li \c "mcp"              -> \c "MidiPilotMCP"
+     * \li \c "mcp:<client>"     -> \c "MidiPilotMCP (<client>)"
+     *
+     * The tools that route through MidiPilotWidget::executeAction get this from
+     * the widget (static \c protoPrefix in MidiPilotWidget.cpp, same three
+     * forms) by passing \c _source along with the action. Tools that open their
+     * own Protocol action - transpose_events, split_chords_to_tracks,
+     * copy_events_to_track, convert_tempo_preserve_duration,
+     * setup_channel_pattern - build their label with this helper instead, so
+     * both paths produce ONE format. Public because the exact strings are
+     * documented in manual/mcp-server.html and unit-tested.
+     */
+    static QString protocolActorPrefix(const QString &source);
+
+    /**
      * \brief Executes a tool call by delegating to existing handlers.
      * \param toolName The function name from the tool call.
      * \param args The parsed arguments object.
@@ -88,9 +108,11 @@ private:
     static QJsonObject execValidateFFXIV(MidiFile *file);
     static QJsonObject execConvertDrumsFFXIV(const QJsonObject &args,
                                              MidiFile *file,
-                                             MidiPilotWidget *widget);
+                                             MidiPilotWidget *widget,
+                                             const QString &source);
     static QJsonObject execSetupChannelPattern(MidiFile *file,
-                                               MidiPilotWidget *widget);
+                                               MidiPilotWidget *widget,
+                                               const QString &source);
     // Phase 32.6: read-only voice-load analysis for the agent
     static QJsonObject execAnalyzeVoiceLoad(const QJsonObject &args, MidiFile *file);
     // v2.1.0 #1: auto-fit thinning action (dry-run first, user-confirmed)
@@ -99,7 +121,8 @@ private:
     // not FFXIV-gated - tempo conversion is generic, and core tools are what
     // the MCP server exposes. Dry-run first, user-confirmed.
     static QJsonObject execConvertTempoPreserveDuration(const QJsonObject &args,
-                                                        MidiFile *file);
+                                                        MidiFile *file,
+                                                        const QString &source);
     // Phase 46: FFXIV-mode switch - CORE (an agent needs it to REACH the
     // gated FFXIV bundle). Drives the MidiPilot checkbox so persistence and
     // the MCP tools/list_changed broadcast take the one existing path.
@@ -107,9 +130,15 @@ private:
                                         MidiPilotWidget *widget);
     // Phase 46 pt 3 (octet finding #2): the three arrangement tools the GUI
     // has had for years and the tool surface lacked. All CORE.
-    static QJsonObject execTransposeEvents(const QJsonObject &args, MidiFile *file);
-    static QJsonObject execSplitChordsToTracks(const QJsonObject &args, MidiFile *file);
-    static QJsonObject execCopyEventsToTrack(const QJsonObject &args, MidiFile *file);
+    // `source` reaches these three (and the tempo tool above) only so their
+    // own Protocol action can carry the same actor attribution the
+    // widget-routed tools get - see protocolActorPrefix().
+    static QJsonObject execTransposeEvents(const QJsonObject &args, MidiFile *file,
+                                           const QString &source);
+    static QJsonObject execSplitChordsToTracks(const QJsonObject &args, MidiFile *file,
+                                               const QString &source);
+    static QJsonObject execCopyEventsToTrack(const QJsonObject &args, MidiFile *file,
+                                             const QString &source);
     // Phase 44 ("Manual Bot"): grounded answers about the editor itself.
     // Need no MidiFile - they read the embedded help_db.json.
     static QJsonObject execSearchHelp(const QJsonObject &args);

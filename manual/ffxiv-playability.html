@@ -208,9 +208,14 @@ findings start collapsed so a broken file does not open as a wall of text; <b>Ex
     the cursor.</li>
 <li><b>Click a group row</b> to select the union of everything under it, so one click on
     <b>Stacked duplicates</b> shows every duplicate in the file at once.</li>
-<li><b>Double-click a finding</b> to jump to it: the piano roll scrolls to the spot and only the
-    affected track stays visible, so the finding is not buried under seven other tracks' notes.
-    The previous track visibility comes back when the window closes.</li>
+<li><b>Double-click a finding</b> to jump to it: the piano roll scrolls to the spot - sideways to
+    the bar and, for a note finding, up or down to the note itself - and only the affected track
+    stays visible, so the finding is not buried under seven other tracks' notes. The previous track
+    visibility comes back when the window closes, and while only one track is shown the eye in the
+    <b>Tracks</b> panel brings any track back with one click - <b>Show all tracks</b> brings back the
+    whole set - without leaving anything in the undo history. Clicking a finding on another track
+    moves the single-track view along with it, so the notes you just selected are always the ones
+    you can see.</li>
 <li><b>Ctrl</b> and <b>Shift</b> pick several findings at once, group rows included. That
     selection is what the delete button and the right-click menu act on.</li>
 <li><b>Select all offending notes</b> hands the complete set over to the editor as a normal
@@ -244,8 +249,12 @@ stays a set of tools rather than a console of dead buttons:
 </tr>
 <tr>
   <td><b>Channel Fixer</b></td>
-  <td>Channel spread or track-name findings exist</td>
-  <td>Runs <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> to tidy channels, names and programs.</td>
+  <td>Channel-spread findings exist</td>
+  <td>Runs <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> to re-sync the channels and
+      programs of the tracks it recognises as FFXIV instruments. A rejected <b>track name</b> is not
+      repaired for you - the fixer works from the names it recognises and cannot invent one, so
+      rename the track to an FFXIV instrument name yourself; the finding then disappears on the next
+      check.</td>
 </tr>
 <tr>
   <td><b>Auto-Fit&hellip;</b></td>

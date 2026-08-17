@@ -30,6 +30,15 @@ QString soundFontsDir() {
     return AppPaths::soundFontsDir();
 }
 
+// Every persist in this file goes through AppPaths::settings() - the scope the
+// app READS this state from (MainWindow's out_port, FluidSynthEngine's
+// "FluidSynth" group). A default-constructed QSettings has no organization name
+// (nothing in src/ ever sets one), so on Windows its writes are dropped with an
+// AccessError: the "crash-safe" persists here silently did nothing.
+void persistValue(const QString &key, const QVariant &value) {
+    AppPaths::settings()->setValue(key, value);
+}
+
 QString preferredMicrosoftSynthPort() {
     for (const QString &name : MidiOutput::outputPorts()) {
         if (name.contains("Microsoft", Qt::CaseInsensitive) &&
@@ -83,7 +92,7 @@ bool requestEnable(QWidget *parent) {
     if (!MidiOutput::isFluidSynthOutput()) {
         previousPort = MidiOutput::outputPort();
         if (MidiOutput::setOutputPort(MidiOutput::FLUIDSYNTH_PORT_NAME)) {
-            QSettings().setValue("out_port", MidiOutput::FLUIDSYNTH_PORT_NAME);
+            persistValue(QStringLiteral("out_port"), MidiOutput::FLUIDSYNTH_PORT_NAME);
             outputSwitched = true;
         }
     }
@@ -96,7 +105,7 @@ bool requestEnable(QWidget *parent) {
     auto abortRestoringOutput = [&]() -> bool {
         if (outputSwitched) {
             MidiOutput::setOutputPort(previousPort);
-            QSettings().setValue("out_port", previousPort);
+            persistValue(QStringLiteral("out_port"), previousPort);
         }
         return false;
     };
@@ -108,7 +117,7 @@ bool requestEnable(QWidget *parent) {
         if (engine->isSoundFontEnabled(p) && !isC64SoundFont(p))
             snapshot << p;
     }
-    QSettings().setValue(kSnapshotKey, snapshot);
+    persistValue(QLatin1String(kSnapshotKey), snapshot);
 
     // 2. Find a C64 SoundFont: already in the stack, else on disk.
     QString c64Path;
@@ -182,10 +191,16 @@ bool requestEnable(QWidget *parent) {
     // event loop, so the toolbar widgets repaint while it is up. If the flag
     // weren't set yet they'd read "neither armed nor SoundFont mode" and flash
     // grey for the duration of the popup (the toggle-flicker the user saw).
-    QSettings persist;
-    engine->saveSettings(&persist);
     engine->setC64SoundFontMode(true);
-    QSettings().setValue("c64SoundFontMode", true);
+    // Persist AFTER the flag is set: saveSettings() writes
+    // FluidSynth/c64SoundFontMode, which is the key loadSettings() reads on the
+    // next start. (The old order persisted the stale flag and then wrote a
+    // top-level "c64SoundFontMode" nobody reads - from a default-constructed
+    // QSettings that dropped the write anyway.)
+    {
+        auto persist = AppPaths::settings();
+        engine->saveSettings(persist.get());
+    }
 
     if (outputSwitched && parent) {
         QMessageBox::information(
@@ -215,8 +230,8 @@ void requestDisable(QWidget *parent) {
     }
 
     // 2. Restore the snapshot (the GM / previous selection).
-    QSettings settings;
-    const QStringList snapshot = settings.value(kSnapshotKey).toStringList();
+    const QStringList snapshot =
+        AppPaths::settings()->value(QLatin1String(kSnapshotKey)).toStringList();
     int restored = 0;
     for (const QString &p : snapshot) {
         if (!QFileInfo::exists(p)) continue;
@@ -258,10 +273,12 @@ void requestDisable(QWidget *parent) {
         }
     }
 
-    QSettings persist;
-    engine->saveSettings(&persist);
+    // Flag first, then persist - see requestEnable() above.
     engine->setC64SoundFontMode(false);
-    QSettings().setValue("c64SoundFontMode", false);
+    {
+        auto persist = AppPaths::settings();
+        engine->saveSettings(persist.get());
+    }
 }
 
 // First GM-ish SoundFont in soundfonts/ that isn't a C64/FFXIV one (prefers a
@@ -345,13 +362,13 @@ void normalizeDefaultSoundFont(QWidget *parent) {
             if (!msPort.isEmpty() && MidiOutput::outputPort() != msPort) {
                 C64Mode::stopPlaybackForEngineChange();
                 MidiOutput::setOutputPort(msPort);
-                QSettings().setValue("out_port", msPort);
+                persistValue(QStringLiteral("out_port"), msPort);
             }
         }
     }
 
-    QSettings persist;
-    engine->saveSettings(&persist);
+    auto persist = AppPaths::settings();
+    engine->saveSettings(persist.get());
 }
 
 #else // !FLUIDSYNTH_SUPPORT

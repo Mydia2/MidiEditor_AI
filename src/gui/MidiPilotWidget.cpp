@@ -44,6 +44,7 @@
 #include "../ai/AiClient.h"
 #include "../ai/AgentRunner.h"
 #include "../ai/EditorContext.h"
+#include "../ai/ToolDefinitions.h"
 #include "../ai/MidiEventSerializer.h"
 #include "../ai/ConversationStore.h"
 #include "../ai/ModelFavorites.h"
@@ -1042,17 +1043,19 @@ bool MidiPilotWidget::submitPrompt(const QString &text) {
     // Same lock the send button honours: a Show-mode viewer must not be able
     // to drive the presenter's MidiPilot through a context menu.
     if (_showModeLocked) return false;
-    // Route through the input field + onSendMessage so every guard and the
+    // Route through the input field + sendCurrentPrompt so every guard and the
     // whole context capture stay in ONE place. Park the user's half-written
-    // draft first: on success the field is cleared, on refusal (busy, not
-    // configured) our prompt would sit there instead - either way the draft
-    // comes back. ANALYZE-LATCH-001: that empty-on-success behaviour is the
-    // accept signal callers latch on - every refusal path in onSendMessage
-    // returns BEFORE the clear().
+    // draft first and put it back afterwards - on success the send path clears
+    // the field, on refusal our prompt would sit there instead.
+    // ANALYZE-LATCH-001: the verdict comes from the send path itself (true only
+    // when the request really reached _client / _agentRunner). It must NOT be
+    // inferred from the field being empty: the agent-mode "model has no tool
+    // support" refusal used to run after the clear(), so a request that was
+    // never sent reported "accepted" and left the playability workbench
+    // waiting for a reply that could not arrive.
     const QString draft = _inputField->toPlainText();
     _inputField->setPlainText(text);
-    onSendMessage();
-    const bool accepted = _inputField->toPlainText().trimmed().isEmpty();
+    const bool accepted = sendCurrentPrompt();
     _inputField->setPlainText(draft);
     QTextCursor c = _inputField->textCursor();
     c.movePosition(QTextCursor::End);
@@ -1116,6 +1119,17 @@ void MidiPilotWidget::abortActiveRequest() {
         _sendButton->setEnabled(inputEnabled);
         _sendButton->setVisible(true);
         _stopButton->setVisible(false);
+        // ANALYZE-LATCH-001: a Stop is a terminal outcome too. Simple mode gets
+        // no signal from the client here - AiClient::cancelRequest() disconnects
+        // the reply on purpose (AgentRunner relies on that silence) - so neither
+        // responseReceived nor errorOccurred will fire. Tell the listeners that
+        // latched on their own submitPrompt (the playability workbench, Stop /
+        // New Chat / tab-close during an analysis), or they wait forever and
+        // mis-attribute the NEXT unrelated reply as their answer. The agent
+        // branch above returns early and covers itself via onAgentError.
+        // No chat bubble: assistantReplied only feeds external listeners, and
+        // the chat already carries the "Stopped" status line.
+        emit assistantReplied(tr("MidiPilot request was stopped."));
     }
 }
 
@@ -1204,18 +1218,25 @@ void MidiPilotWidget::onNewChat() {
 }
 
 void MidiPilotWidget::onSendMessage() {
+    // Thin wrapper for the interactive entry points (Send button click,
+    // Enter-to-send): they don't care about the verdict. Programmatic callers go
+    // through submitPrompt, which needs it (ANALYZE-LATCH-001).
+    sendCurrentPrompt();
+}
+
+bool MidiPilotWidget::sendCurrentPrompt() {
     QString text = _inputField->toPlainText().trimmed();
     if (text.isEmpty())
-        return;
+        return false;
 
     if (!_client->isConfigured()) {
         setupSetupPrompt();
-        return;
+        return false;
     }
 
     if (_client->isBusy()) {
         setStatus("Processing...", "orange");
-        return;
+        return false;
     }
 
     // SUBMIT-REENTRY-001: during a multi-step agent run the CLIENT is
@@ -1227,7 +1248,27 @@ void MidiPilotWidget::onSendMessage() {
     // _isAgentRunning can be stale, isRunning() cannot.
     if (_agentRunner && _agentRunner->isRunning()) {
         setStatus("Agent running...", "orange");
-        return;
+        return false;
+    }
+
+    // Agent-mode pre-flight capability check — if we previously observed that
+    // the chosen model has no tool-calling support, don't even try (would just
+    // return HTTP 404 again). Surface a friendly bubble and bail out cleanly.
+    // ANALYZE-LATCH-001: this refusal deliberately runs BEFORE the clear()
+    // below, so the user's draft stays in the box, no user bubble is appended
+    // for a message that is never sent, and PR mode captures no snapshot for a
+    // run that never starts. Neither currentMode() nor
+    // toolsIncapableForCurrentModel() depends on anything computed further down.
+    if ((currentMode() == "agent" || currentMode() == "agent_pr") &&
+        _client->toolsIncapableForCurrentModel()) {
+        setStatus("Model does not support tools", "red");
+        addChatBubble(QStringLiteral("system"),
+            tr("⚠ The selected model does not support tool calling and "
+               "cannot be used in Agent mode.\n\n"
+               "Pick a different model in Settings → AI (look for "
+               "tool/function-calling support), or switch this chat "
+               "to Simple mode."));
+        return false;
     }
 
     _inputField->clear();
@@ -1308,23 +1349,8 @@ void MidiPilotWidget::onSendMessage() {
             _prModeUserMessage = fullMessage;
         }
 #endif
-        // Pre-flight capability check — if we previously observed that
-        // the chosen model has no tool-calling support, don't even try
-        // (would just return HTTP 404 again). Surface a friendly bubble
-        // and bail out cleanly.
-        if (_client->toolsIncapableForCurrentModel()) {
-            setStatus("Model does not support tools", "red");
-            // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
-            _inputField->setEnabled(!_showModeLocked);
-            _sendButton->setEnabled(!_showModeLocked);
-            addChatBubble(QStringLiteral("system"),
-                tr("⚠ The selected model does not support tool calling and "
-                   "cannot be used in Agent mode.\n\n"
-                   "Pick a different model in Settings → AI (look for "
-                   "tool/function-calling support), or switch this chat "
-                   "to Simple mode."));
-            return;
-        }
+        // The tool-capability pre-flight for this mode already ran above, before
+        // the input field was cleared (ANALYZE-LATCH-001).
 
         // Agent Mode: use AgentRunner with tool-calling loop
         // Add user message to history (AgentRunner reads it from there)
@@ -1486,6 +1512,12 @@ void MidiPilotWidget::onSendMessage() {
         userMsg["content"] = fullMessage;
         _conversationHistory.append(userMsg);
     }
+
+    // Both branches above handed the request to _agentRunner / _client, so a
+    // terminal signal (agentFinished/agentError, responseReceived/errorOccurred,
+    // or the abort path's stopped notice) is guaranteed to follow. Only here may
+    // a caller latch on assistantReplied (ANALYZE-LATCH-001).
+    return true;
 }
 
 void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObject &fullResponse) {
@@ -2541,16 +2573,11 @@ void MidiPilotWidget::setStatus(const QString &text, const QString &color) {
     }
 }
 
+// One implementation for the "MidiPilot" / "MidiPilotMCP (client)" prefix that
+// every protocol label carries: the tool layer owns it (and a unit test pins
+// the strings), the widget-routed actions here just reuse it.
 static QString protoPrefix(const QJsonObject &response) {
-    QString src = response["_source"].toString();
-    if (!src.startsWith(QLatin1String("mcp")))
-        return QStringLiteral("MidiPilot");
-
-    // "mcp" -> "MidiPilotMCP", "mcp:ClientName" -> "MidiPilotMCP (ClientName)"
-    int colon = src.indexOf(':');
-    if (colon > 0 && colon + 1 < src.length())
-        return QStringLiteral("MidiPilotMCP (%1)").arg(src.mid(colon + 1));
-    return QStringLiteral("MidiPilotMCP");
+    return ToolDefinitions::protocolActorPrefix(response["_source"].toString());
 }
 
 QJsonObject MidiPilotWidget::dispatchAction(const QJsonObject &response, bool showBubbles) {

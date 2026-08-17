@@ -35,6 +35,15 @@ QString soundFontsDir() {
     return AppPaths::soundFontsDir();
 }
 
+// Every persist in this file goes through AppPaths::settings() - the scope the
+// app READS this state from (MainWindow's out_port, FluidSynthEngine's
+// "FluidSynth" group). A default-constructed QSettings has no organization name
+// (nothing in src/ ever sets one), so on Windows its writes are dropped with an
+// AccessError: the "crash-safe" persists here silently did nothing.
+void persistValue(const QString &key, const QVariant &value) {
+    AppPaths::settings()->setValue(key, value);
+}
+
 QString preferredMicrosoftSynthPort() {
     // Pick the first MIDI output whose name contains "Microsoft" and "Synth".
     QStringList ports = MidiOutput::outputPorts();
@@ -103,7 +112,7 @@ bool requestEnable(QWidget *parent) {
     if (!MidiOutput::isFluidSynthOutput()) {
         previousPort = MidiOutput::outputPort();
         if (MidiOutput::setOutputPort(MidiOutput::FLUIDSYNTH_PORT_NAME)) {
-            QSettings().setValue("out_port", MidiOutput::FLUIDSYNTH_PORT_NAME);
+            persistValue(QStringLiteral("out_port"), MidiOutput::FLUIDSYNTH_PORT_NAME);
             outputSwitched = true;
         }
     }
@@ -122,7 +131,7 @@ bool requestEnable(QWidget *parent) {
     auto abortRestoringOutput = [&]() -> bool {
         if (outputSwitched) {
             MidiOutput::setOutputPort(previousPort);
-            QSettings().setValue("out_port", previousPort);
+            persistValue(QStringLiteral("out_port"), previousPort);
         }
         return false;
     };
@@ -136,7 +145,7 @@ bool requestEnable(QWidget *parent) {
             toSnapshot << p;
         }
     }
-    QSettings().setValue(kSnapshotKey, toSnapshot);
+    persistValue(QLatin1String(kSnapshotKey), toSnapshot);
 
     // 3. Find a FFXIV SoundFont. Look first in the existing stack, then on
     //    disk in <appDir>/soundfonts/, then offer to download.
@@ -226,15 +235,16 @@ bool requestEnable(QWidget *parent) {
                 .arg(MidiOutput::FLUIDSYNTH_PORT_NAME));
     }
 
-    // 6. Persist FluidSynth state (SoundFont paths + disabled set + ffxiv
-    //    flag) immediately so a crash before normal app shutdown does not
-    //    lose the freshly-installed SoundFont.
-    QSettings persistSettings;
-    engine->saveSettings(&persistSettings);
-
-    // 7. Flip the engine flag (also persists via QSettings at caller side).
+    // 6. Flip the engine flag, THEN persist the FluidSynth state (SoundFont
+    //    paths + disabled set + the mode flag) so a crash before normal app
+    //    shutdown loses neither the freshly-installed SoundFont nor the mode.
+    //    Order matters: saveSettings() writes FluidSynth/ffxivSoundFontMode,
+    //    which is the key loadSettings() reads on the next start.
     engine->setFfxivSoundFontMode(true);
-    QSettings().setValue("ffxivSoundFontMode", true);
+    {
+        auto persistSettings = AppPaths::settings();
+        engine->saveSettings(persistSettings.get());
+    }
     return true;
 #else
     Q_UNUSED(parent);
@@ -261,8 +271,8 @@ void requestDisable(QWidget *parent) {
     }
 
     // 2. Restore snapshot if available.
-    QSettings settings;
-    const QStringList snapshot = settings.value(kSnapshotKey).toStringList();
+    const QStringList snapshot =
+        AppPaths::settings()->value(QLatin1String(kSnapshotKey)).toStringList();
     int restored = 0;
     for (const QString &p : snapshot) {
         if (!QFileInfo::exists(p)) continue;
@@ -302,6 +312,7 @@ void requestDisable(QWidget *parent) {
         const QString currentPort = MidiOutput::outputPort();
         if (!msPort.isEmpty() && currentPort != msPort) {
             MidiOutput::setOutputPort(msPort);
+            persistValue(QStringLiteral("out_port"), msPort);
             if (parent) {
                 QMessageBox::information(
                     parent,
@@ -312,9 +323,13 @@ void requestDisable(QWidget *parent) {
         }
     }
 
-    // 5. Flip the engine flag.
+    // 5. Flip the engine flag, then persist (same order and reason as
+    //    requestEnable(); mirrors the C64 helper's disable path).
     engine->setFfxivSoundFontMode(false);
-    QSettings().setValue("ffxivSoundFontMode", false);
+    {
+        auto persist = AppPaths::settings();
+        engine->saveSettings(persist.get());
+    }
 #else
     Q_UNUSED(parent);
 #endif

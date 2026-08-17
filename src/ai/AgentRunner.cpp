@@ -1,6 +1,7 @@
 #include "AgentRunner.h"
 
 #include "AiClient.h"
+#include "EditorContext.h"
 #include "ToolDefinitions.h"
 #include "../AppPaths.h"
 #include "../gui/MidiPilotWidget.h"
@@ -93,6 +94,35 @@ QString firstDeveloperRole(const QJsonArray &messages)
     return role == QStringLiteral("developer") ? QStringLiteral("developer") : QStringLiteral("system");
 }
 
+/// Live FFXIV-mode flag. The tool schemas gate the FFXIV bundle on the same
+/// key (ToolDefinitions::toolSchemas), and set_ffxiv_mode writes it, so this
+/// is the one source of truth for "is the mode on right now".
+bool ffxivModeActive()
+{
+    return AppPaths::settings()
+        ->value(QStringLiteral("AI/ffxiv_mode"), false).toBool();
+}
+
+/// The FFXIV limits sentence carried by the per-turn state layer. Shared by
+/// initialWorkingState() and the mid-run mode switch so the two cannot drift
+/// (the switch also has to be able to REMOVE it again verbatim).
+QString ffxivStateConstraints()
+{
+    return QStringLiteral(
+        " FFXIV Bard Performance: <=16 simultaneous voices, "
+        "<=14 notes/sec per channel, range C3..C6. Call analyze_voice_load "
+        "after dense passages to verify before finishing.");
+}
+
+/// Names of the tools that appear/disappear with FFXIV mode - quoted to the
+/// model when the mode flips so it knows what just changed in its tool list.
+QString ffxivBundleNames()
+{
+    return QStringLiteral("validate_ffxiv, convert_drums_ffxiv, "
+                          "setup_channel_pattern, analyze_voice_load, "
+                          "auto_fit_voice_load");
+}
+
 void logAgentState(int step, const AgentRunner::AgentWorkingState &state)
 {
     QFile file(agentLogFilePath());
@@ -179,12 +209,8 @@ AgentRunner::AgentWorkingState AgentRunner::initialWorkingState(const QString &u
     // Phase 32.6: surface FFXIV game limits whenever FFXIV mode is active so
     // the model is reminded every turn (and gets the analyze_voice_load tool
     // listed in its toolset).
-    if (AppPaths::settings()
-            ->value(QStringLiteral("AI/ffxiv_mode"), false).toBool()) {
-        state.activeConstraints += QStringLiteral(
-            " FFXIV Bard Performance: <=16 simultaneous voices, "
-            "<=14 notes/sec per channel, range C3..C6. Call analyze_voice_load "
-            "after dense passages to verify before finishing.");
+    if (ffxivModeActive()) {
+        state.activeConstraints += ffxivStateConstraints();
     }
     if (state.taskType == TaskType::Composition) {
         state.nextStepHint = QStringLiteral(
@@ -352,6 +378,15 @@ void AgentRunner::run(const QString &systemPrompt,
     _consecutiveIncompleteWrites = 0;
     _workingState = initialWorkingState(userMessage, systemPrompt);
 
+    // Phase 46 follow-up — mid-run FFXIV-mode switching. The caller appends
+    // EditorContext::ffxivContext() to `systemPrompt` exactly when the mode is
+    // on at this point, so the run-start setting also tells us whether the
+    // rules are already in the prompt we were handed.
+    _ffxivModeActiveInRun = ffxivModeActive();
+    _ffxivRulesInBasePrompt = _ffxivModeActiveInRun;
+    _ffxivOverlayIndex = -1;
+    _pendingFfxivMode = -1;
+
     // Phase 31 — compute the model/task policy once per run.
     const bool isCompositionOrEdit =
         _workingState.taskType == TaskType::Composition
@@ -427,9 +462,7 @@ void AgentRunner::run(const QString &systemPrompt,
     }
 
     // Get tool schemas (Phase 31: schema-light for gpt-5.5* composition/edit)
-    ToolDefinitions::ToolSchemaOptions schemaOpts;
-    schemaOpts.includePitchBend = _policy.allowPitchBendEvents;
-    _tools = ToolDefinitions::toolSchemas(schemaOpts);
+    rebuildToolSchemas();
 
     logAgentState(_currentStep, _workingState);
 
@@ -440,6 +473,81 @@ void AgentRunner::run(const QString &systemPrompt,
                          this, &AgentRunner::onApiError);
 
     sendNextRequest();
+}
+
+void AgentRunner::rebuildToolSchemas()
+{
+    // ONE derivation site for the request tool list. run() called this at the
+    // start and the mid-run FFXIV switch calls it again, so both go through
+    // the same options (Phase 31 schema-light) and the same settings read
+    // inside toolSchemas() that gates the FFXIV bundle.
+    ToolDefinitions::ToolSchemaOptions schemaOpts;
+    schemaOpts.includePitchBend = _policy.allowPitchBendEvents;
+    _tools = ToolDefinitions::toolSchemas(schemaOpts);
+}
+
+void AgentRunner::applyFfxivModeChange(bool enabled)
+{
+    // (a) TOOLS. toolSchemas() gates the five FFXIV tools on the live
+    // `AI/ffxiv_mode` setting, which set_ffxiv_mode has already written, so
+    // re-deriving the schemas is all it takes for the bundle to appear (or
+    // disappear) on the next request OF THIS RUN. Without this the panel
+    // checkbox flipped and MCP clients got tools/list_changed while the run
+    // that asked for the switch kept the old 17-tool list to its last step.
+    rebuildToolSchemas();
+
+    if (enabled == _ffxivModeActiveInRun)
+        return; // redundant call - the mode already was what it asks for
+    _ffxivModeActiveInRun = enabled;
+
+    // (b) STATE LAYER. Same sentence initialWorkingState() adds at run start,
+    // so the per-turn reminder matches a run that started in FFXIV mode.
+    if (enabled) {
+        if (!_workingState.activeConstraints.contains(ffxivStateConstraints()))
+            _workingState.activeConstraints += ffxivStateConstraints();
+    } else {
+        _workingState.activeConstraints.remove(ffxivStateConstraints());
+    }
+
+    // (c) RULES. The FFXIV rules + arrangement craft are composed ONCE per run
+    // (by the caller, into the system prompt), so a mode that turns on mid-run
+    // would otherwise never get them. Carry them as one system-side overlay
+    // message we own: appending keeps the system prompt (and its prompt-cache
+    // prefix) untouched, and owning the index lets us drop the overlay again
+    // when the mode is switched back off instead of leaving stale rules in the
+    // conversation.
+    if (_ffxivOverlayIndex >= 0 && _ffxivOverlayIndex < _messages.size()) {
+        _messages.removeAt(_ffxivOverlayIndex);
+        _ffxivOverlayIndex = -1;
+    }
+
+    QString content;
+    if (enabled) {
+        content = QStringLiteral(
+                      "## FFXIV BARD PERFORMANCE MODE SWITCHED ON\n"
+                      "\n"
+                      "The tools %1 are available from your next step. "
+                      "Follow the FFXIV rules for the rest of this task.\n")
+                      .arg(ffxivBundleNames());
+        // Only when the rules are not already in the system prompt - a run
+        // that STARTED in FFXIV mode already carries them.
+        if (!_ffxivRulesInBasePrompt)
+            content += EditorContext::ffxivContext();
+    } else {
+        content = QStringLiteral(
+                      "## FFXIV BARD PERFORMANCE MODE SWITCHED OFF\n"
+                      "\n"
+                      "The tools %1 are no longer available - do not call them. "
+                      "The FFXIV-specific rules (8 tracks, monophonic, C3-C6, "
+                      "instrument track names) no longer apply.\n")
+                      .arg(ffxivBundleNames());
+    }
+
+    QJsonObject overlay;
+    overlay[QStringLiteral("role")] = firstDeveloperRole(_messages);
+    overlay[QStringLiteral("content")] = content;
+    _ffxivOverlayIndex = _messages.size();
+    _messages.append(overlay);
 }
 
 void AgentRunner::setProfileDisallowsPitchBend(bool disallow)
@@ -834,6 +942,19 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         if (result.isEmpty())
             result = ToolDefinitions::executeTool(toolName, args, _file, _widget);
 
+        // Phase 46 follow-up: a set_ffxiv_mode call has to take effect INSIDE
+        // the run that made it. Only remember it here - the re-derivation
+        // appends a message, and an assistant message carrying tool_calls must
+        // be followed directly by the tool results for every one of its call
+        // ids, so nothing may be spliced in before this batch is finished.
+        // `ffxivMode` from the result, not `enabled` from the args: the
+        // executor is what decided the effective mode.
+        if (toolName == QStringLiteral("set_ffxiv_mode")
+            && result.value(QStringLiteral("success")).toBool(false)) {
+            _pendingFfxivMode =
+                result.value(QStringLiteral("ffxivMode")).toBool() ? 1 : 0;
+        }
+
         // Phase 31: bounded-failure stop for gpt-5.5*. Count consecutive
         // write-tool calls that came back as an "incomplete payload"
         // rejection. After the second such miss we abort the whole run with
@@ -897,6 +1018,14 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         toolResultMsg["content"] = QString::fromUtf8(
             QJsonDocument(result).toJson(QJsonDocument::Compact));
         _messages.append(toolResultMsg);
+    }
+
+    // Every tool result of the batch is in place - now it is safe to re-derive
+    // the tool list and the FFXIV rules for the following turns of this run.
+    if (_pendingFfxivMode >= 0) {
+        const bool enabled = _pendingFfxivMode == 1;
+        _pendingFfxivMode = -1;
+        applyFfxivModeChange(enabled);
     }
 
     // Send the next request with tool results

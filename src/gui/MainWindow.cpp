@@ -1307,10 +1307,12 @@ MainWindow::MainWindow(QString initFile)
     _statusUndoLabel->setToolTip(tr("Undo history of the active document and the "
                                     "undo-snapshot memory of all open tabs "
                                     "(structural estimate; Task Manager shows more).\n"
-                                    "The figure does not drop on Undo - undone steps "
-                                    "stay in memory so Redo can restore them. Closed "
-                                    "tabs leave the figure, but their history stays "
-                                    "in memory until the app closes."));
+                                    "It is a running total: it does not drop on Undo "
+                                    "(undone steps stay in memory so Redo can restore "
+                                    "them) and it does not drop when redo steps are "
+                                    "discarded by a new edit - read it as an upper bound. "
+                                    "Closed tabs leave the figure, but their history "
+                                    "stays in memory until the app closes."));
     statusBar()->addPermanentWidget(_statusUndoLabel);
     _memorySampler = new QTimer(this);
     _memorySampler->setInterval(1000);
@@ -1899,7 +1901,11 @@ void MainWindow::broadcastLocalViewState() {
     tracks.reserve(file->numTracks());
     for (int i = 0; i < file->numTracks(); i++) {
         MidiTrack *t = file->track(i);
-        tracks.append(t ? !t->hidden() : true);
+        // hiddenByUser(): broadcast the DOCUMENT's visibility, so a local
+        // view-only overlay (playability focus mode) is not pushed onto every
+        // viewer - and the viewer's setHiddenSilent writes the same flag back
+        // (FOCUS-DEADEYE-001).
+        tracks.append(t ? !t->hiddenByUser() : true);
     }
     channels.reserve(16);
     for (int i = 0; i < 16; i++) {
@@ -4402,7 +4408,10 @@ bool MainWindow::saveas() {
             }
         }
         foreach(MidiTrack* track, *(file->tracks())) {
-            if (track->muted() || track->hidden()) {
+            // hiddenByUser(): a temporary focus overlay is not a property of
+            // the saved file, so it must not raise the "not audible" warning
+            // (FOCUS-DEADEYE-001).
+            if (track->muted() || track->hiddenByUser()) {
                 printMuteWarning = true;
             }
         }
@@ -5748,6 +5757,26 @@ void MainWindow::unmuteAllTracks() {
 void MainWindow::allTracksVisible() {
     if (!file)
         return;
+    // FOCUS-DEADEYE-001: if no track is hidden in the DOCUMENT, the only thing
+    // hiding anything is the playability workbench's view overlay - releasing
+    // that is not an edit, so no protocol action is opened (an empty action
+    // still wipes the redo stack and marks the file modified). As soon as one
+    // track really is hidden, the normal undoable path runs and setHidden()
+    // ends the overlay along the way.
+    bool anyHiddenByUser = false;
+    foreach(MidiTrack* track, *(file->tracks())) {
+        if (track->hiddenByUser()) {
+            anyHiddenByUser = true;
+            break;
+        }
+    }
+    if (!anyHiddenByUser) {
+        foreach(MidiTrack* track, *(file->tracks())) {
+            track->setFocusHidden(false);
+        }
+        updateAll(); // includes _trackWidget->update()
+        return;
+    }
     file->protocol()->startNewAction(tr("Show all tracks"));
     foreach(MidiTrack* track, *(file->tracks())) {
         track->setHidden(false);
@@ -5800,15 +5829,30 @@ void MainWindow::selectAllFromChannel(QAction *action) {
 
     // Collect events for batch selection
     QList<MidiEvent *> eventsToSelect;
+    // SELECTCH-CHURN-001 / FOCUS-DEADEYE-001: un-hide each affected track ONCE
+    // instead of once per event. The old loop asked setHidden(false) per event,
+    // which is a full protocol item plus a track-menu rebuild per event
+    // (thousands on a dense channel) - and under the playability workbench's
+    // focus mode hidden() never converged, because the view overlay stayed on
+    // no matter how often the document flag was cleared. Reading the raw
+    // document flag makes the test converge; setHidden() clears the overlay.
+    QSet<MidiTrack *> tracksToShow;
     foreach(MidiEvent* e, file->channel(channel)->eventMap()->values()) {
-        if (e->track()->hidden()) {
-            e->track()->setHidden(false);
+        if (e->track() && e->track()->hidden()) {
+            tracksToShow.insert(e->track());
         }
 
         // Skip OffEvents
         OffEvent *offevent = dynamic_cast<OffEvent *>(e);
         if (!offevent) {
             eventsToSelect.append(e);
+        }
+    }
+    for (MidiTrack *t : tracksToShow) {
+        if (t->hiddenByUser()) {
+            t->setHidden(false); // ONE protocol item; also ends the overlay
+        } else {
+            t->setFocusHidden(false); // view-only overlay: no undo step needed
         }
     }
 
@@ -6885,7 +6929,10 @@ void MainWindow::askMidiPilotAboutSelection() {
     // for observations, not edits: the selection travels along as serialized
     // events through the normal send path, and specific requests work best
     // as follow-ups once the context is in the conversation.
-    _midiPilotWidget->submitPrompt(
+    // submitPrompt REFUSES while a request or an agent run is in flight - say
+    // so instead of silently dropping the question (same reporting channel as
+    // the "no provider" case above).
+    const bool accepted = _midiPilotWidget->submitPrompt(
         tr("About my selection of %1 note(s) in %2%3, range %4-%5: "
            "what stands out, and is there anything worth improving?")
             .arg(notes.size())
@@ -6893,6 +6940,11 @@ void MainWindow::askMidiPilotAboutSelection() {
             .arg(onWhat)
             .arg(MidiEventSerializer::noteName(loPitch))
             .arg(MidiEventSerializer::noteName(hiPitch)));
+    if (!accepted) {
+        statusBar()->showMessage(
+            tr("MidiPilot is busy - try again when the current request "
+               "finishes."), 8000);
+    }
 }
 
 // Phase 46: compose the full workbench report - the dependency-free
@@ -6982,8 +7034,68 @@ void MainWindow::checkFfxivPlayability() {
     };
 
     connect(dialog, &FfxivPlayabilityDialog::runChecksRequested, this, rerun);
+
+    // --- Focus mode state -------------------------------------------------
+    // Double-click focus mode: show ONLY the affected track, so the finding is
+    // not buried under seven other tracks' notes. FOCUS-UNDO-001: this uses
+    // the _focusHidden overlay, not _hidden - the overlay is never part of an
+    // undo snapshot, so Ctrl+Z while focused can neither bake the focus state
+    // into history nor resurface it later.
+    // FOCUS-REMOVED-001: the overlay is released through the REMEMBERED list
+    // of dimmed track objects instead of walking track(0..numTracks-1) at
+    // close time. A track REMOVED while focus was active has left the file,
+    // but its MidiTrack object stays alive for undo (MidiFile::reloadState
+    // restores the very same pointer) - the close-time walk missed exactly
+    // that track, and it came back permanently invisible after Ctrl+Z. Held
+    // as QPointer, so a track object that really is destroyed leaves a null
+    // rather than a dangling pointer. Tracks ADDED mid-focus are never dimmed
+    // in the first place (FOCUS-NEWTRACK-001).
+    auto focusActive = std::make_shared<bool>(false);
+    auto focusHiddenTracks = std::make_shared<QList<QPointer<MidiTrack>>>();
+    auto clearFocus = [focusActive, focusHiddenTracks]() {
+        for (const QPointer<MidiTrack> &t : *focusHiddenTracks) {
+            if (t) t->setFocusHidden(false);
+        }
+        focusHiddenTracks->clear();
+        *focusActive = false;
+    };
+    auto applyFocus = [checkedFile, focusActive, focusHiddenTracks,
+                       clearFocus](int trackNumber) {
+        clearFocus(); // re-aiming focus releases the previous set first
+        for (int i = 0; i < checkedFile->numTracks(); ++i) {
+            MidiTrack *t = checkedFile->track(i);
+            if (!t || i == trackNumber) continue;
+            t->setFocusHidden(true);
+            focusHiddenTracks->append(t);
+        }
+        *focusActive = true;
+    };
+
+    // FOCUS-SELECT-001: a selection on a focus-hidden track is INVISIBLE
+    // (EventTool::paintSelectedEvents skips hidden tracks) and Delete would
+    // then remove notes the user cannot see. So a click on a finding outside
+    // the focused track re-aims focus at what was just selected: one track ->
+    // focus that track, several tracks (a group row, a file-level finding) ->
+    // leave focus mode altogether. Nothing to do when focus is off.
     connect(dialog, &FfxivPlayabilityDialog::selectEventsRequested, this,
-            [this](const QList<MidiEvent *> &events) {
+            [this, checkedFile, focusActive, clearFocus, applyFocus](
+                const QList<MidiEvent *> &events) {
+                if (*focusActive && file == checkedFile) {
+                    QSet<int> selectedTracks;
+                    bool anyDimmed = false;
+                    for (MidiEvent *ev : events) {
+                        MidiTrack *t = ev ? ev->track() : nullptr;
+                        if (!t) continue;
+                        selectedTracks.insert(t->number());
+                        if (t->focusHidden()) anyDimmed = true;
+                    }
+                    if (anyDimmed) {
+                        if (selectedTracks.size() == 1)
+                            applyFocus(*selectedTracks.constBegin());
+                        else
+                            clearFocus();
+                    }
+                }
                 Selection::instance()->setSelection(events);
                 eventWidget()->reportSelectionChangedByTool();
                 updateAll();
@@ -6998,44 +7110,36 @@ void MainWindow::checkFfxivPlayability() {
     // playback-follow path - it moves the REAL scrollbars via scrollChanged,
     // so the bars never desync from the view (the ZOOM-ANCHOR-001 lesson);
     // ignoreLocked, because an explicit jump is the user's own navigation.
+    // REVEAL-VERTICAL-001: the horizontal jump alone left an out-of-range note
+    // off screen whenever its line sat outside the visible pitch band - which
+    // is precisely the Range finding's own case. revealLine centres the line
+    // (and no-ops when it is already visible); line < 0 = no vertical target.
     connect(dialog, &FfxivPlayabilityDialog::revealTickRequested, this,
-            [this, checkedFile](int tick) {
+            [this, checkedFile](int tick, int line) {
                 if (file != checkedFile) return;
                 if (MatrixWidget *mw = matrixWidget()) {
                     mw->timeMsChanged(checkedFile->msOfTick(tick), true);
+                    if (line >= 0) mw->revealLine(line);
                 }
             });
-    // Double-click focus mode: show ONLY the affected track, so the finding
-    // is not buried under seven other tracks' notes. FOCUS-UNDO-001: this
-    // uses the _focusHidden overlay, not _hidden - the overlay is never part
-    // of an undo snapshot, so Ctrl+Z while focused can neither bake the
-    // focus state into history nor resurface it later. It also fixes
-    // FOCUS-NEWTRACK-001: close() clears the overlay on whatever tracks
-    // exist THEN, so a track added mid-focus cannot stay stuck hidden.
-    auto focusActive = std::make_shared<bool>(false);
+    // Double-click focus mode (state + helpers above).
     connect(dialog, &FfxivPlayabilityDialog::focusTrackRequested, this,
-            [this, checkedFile, focusActive](int trackNumber) {
+            [this, checkedFile, applyFocus](int trackNumber) {
                 if (file != checkedFile) return;
                 if (trackNumber < 0 || trackNumber >= checkedFile->numTracks())
                     return;
-                for (int i = 0; i < checkedFile->numTracks(); ++i) {
-                    if (MidiTrack *t = checkedFile->track(i))
-                        t->setFocusHidden(i != trackNumber);
-                }
-                *focusActive = true;
+                applyFocus(trackNumber);
                 updateAll();
             });
     // finished() fires SYNCHRONOUSLY inside close() - setActiveDocument
     // closes this dialog before any document teardown, so the tracks are
     // still alive here (destroyed() would arrive via deleteLater, too late).
+    // Releasing through the remembered list leaves NO MidiTrack anywhere
+    // carrying the overlay - a removed-but-undoable track included.
     connect(dialog, &QDialog::finished, this,
-            [this, checkedFile, focusActive](int) {
+            [this, focusActive, clearFocus](int) {
                 if (!*focusActive) return;
-                *focusActive = false;
-                for (int i = 0; i < checkedFile->numTracks(); ++i) {
-                    if (MidiTrack *t = checkedFile->track(i))
-                        t->setFocusHidden(false);
-                }
+                clearFocus();
                 updateAll();
             });
     // One-click collision repair (second QA: the button must DELETE, not
@@ -7178,6 +7282,13 @@ void MainWindow::openAutoFitDialog(int startTick, int endTick,
             }
         }
         eventWidget()->reportSelectionChangedByTool();
+        // AUTOFIT-ACTIONS-001: nothing here goes through the Protocol, so the
+        // actionFinished -> checkEnableActionsForSelection chain never fires.
+        // Without this call "Select in editor" hands over a live selection
+        // while Transpose / Quantize / Copy / Delete / the move-to submenus
+        // stay greyed out (and their shortcuts dead) - and after the clearing
+        // branch they would stay ENABLED on an empty selection.
+        checkEnableActionsForSelection();
         if (rc == QDialog::Accepted) {
             statusBar()->showMessage(dialog->resultSummary(), 5000);
         }
@@ -10870,6 +10981,11 @@ void MainWindow::restartForThemeChange() {
     // persisted session on startup instead of just the active file.
     QStringList args;
     args << "--open-settings";
+    // Portable mode can rest on the --portable switch alone (no portable.txt
+    // next to the exe), and this restart just wrote theme + session into the
+    // portable INI. Dropping the switch would bring the new process up on the
+    // system settings store, i.e. without the theme it restarted for.
+    args << AppPaths::relaunchArgs();
 
     QString exePath = QCoreApplication::applicationFilePath();
     QString appDir = QCoreApplication::applicationDirPath();
@@ -12519,9 +12635,24 @@ void MainWindow::updateStatusBar() {
     int tick = file->cursorTick();
     int startOfMeasure = 0, endOfMeasure = 0;
     int measureNum = file->measure(tick, &startOfMeasure, &endOfMeasure);
-    int ticksInMeasure = (endOfMeasure > startOfMeasure) ? (endOfMeasure - startOfMeasure) : 1;
     int tickInMeasure = tick - startOfMeasure;
-    int beat = (tickInMeasure * 4 / ticksInMeasure) + 1;
+    // Derive the beat from the actual meter. Dividing the bar into four (the
+    // former "tickInMeasure * 4 / ticksInMeasure") is only right in 4/4: it
+    // counted 3/4 bars up to 4, 6/8 bars in dotted quarters, and disagreed with
+    // the toolbar's bar/beat display. meterAt() reports the denominator as the
+    // SMF power-of-two EXPONENT, so the printed denominator is 1 << denPow.
+    int num = 4, denPow = 2;
+    file->meterAt(tick, &num, &denPow);
+    const int den = 1 << qBound(0, denPow, 16);
+    const int tpq = file->ticksPerQuarter();
+    int ticksPerBeat = (den > 0 && tpq > 0) ? (tpq * 4 / den) : tpq;
+    if (ticksPerBeat <= 0) {
+        ticksPerBeat = (tpq > 0) ? tpq : 1;
+    }
+    int beat = tickInMeasure / ticksPerBeat + 1;
+    if (num > 0) {
+        beat = qBound(1, beat, num);
+    }
     _statusCursorLabel->setText(QString("M:%1 B:%2 | T:%3").arg(measureNum).arg(beat).arg(tick));
 
     // Selection info + chord detection

@@ -544,6 +544,63 @@ private slots:
     }
 
     // -----------------------------------------------------------------
+    // Phase 46 follow-up: the FFXIV gate is read on EVERY toolSchemas() call,
+    // in both directions. AgentRunner relies on exactly this to re-derive its
+    // tool list mid-run after a set_ffxiv_mode call (the panel checkbox and the
+    // MCP tools/list_changed broadcast already followed along); if the gate
+    // were ever cached, the run that switched the mode would keep the old list
+    // to its last step.
+    void toolSchemas_ffxivGate_isReReadOnEveryCall() {
+        const auto coreCount = ToolDefinitions::toolSchemas().size();
+        QCOMPARE(coreCount, kCoreToolNames.size());
+
+        setFfxivMode(true);
+        QJsonArray on = ToolDefinitions::toolSchemas();
+        QCOMPARE(on.size(), coreCount + kFfxivToolNames.size());
+
+        // ... and back off again, same process, no re-init.
+        setFfxivMode(false);
+        QJsonArray off = ToolDefinitions::toolSchemas();
+        QCOMPARE(off.size(), coreCount);
+        QSet<QString> namesSeen;
+        for (const QJsonValue &v : off) {
+            namesSeen.insert(v.toObject().value(QStringLiteral("function"))
+                                          .toObject().value(QStringLiteral("name")).toString());
+        }
+        for (const QString &name : kFfxivToolNames) {
+            QVERIFY2(!namesSeen.contains(name),
+                     qPrintable(QStringLiteral("FFXIV tool still listed after "
+                                               "disabling the mode: %1").arg(name)));
+        }
+        // set_ffxiv_mode itself must survive both states — it is the only way
+        // back in once the bundle is gone.
+        QVERIFY(namesSeen.contains(QStringLiteral("set_ffxiv_mode")));
+    }
+
+    // -----------------------------------------------------------------
+    // Protocol-panel attribution. These three strings are documented in
+    // manual/mcp-server.html and must stay identical to the static
+    // protoPrefix() in MidiPilotWidget.cpp — the tools that open their own
+    // Protocol action (transpose_events, split_chords_to_tracks,
+    // copy_events_to_track, convert_tempo_preserve_duration) build their
+    // label from this helper instead of a second, drifting format.
+    void protocolActorPrefix_matchesTheDocumentedFormat() {
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(QString()),
+                 QStringLiteral("MidiPilot"));
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(QStringLiteral("mcp")),
+                 QStringLiteral("MidiPilotMCP"));
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(
+                     QStringLiteral("mcp:VS Code Copilot")),
+                 QStringLiteral("MidiPilotMCP (VS Code Copilot)"));
+        // A trailing colon with no client name degrades to the plain MCP form.
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(QStringLiteral("mcp:")),
+                 QStringLiteral("MidiPilotMCP"));
+        // Anything that is not an MCP source is the built-in panel.
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(QStringLiteral("agent")),
+                 QStringLiteral("MidiPilot"));
+    }
+
+    // -----------------------------------------------------------------
     // Phase 31 — public isPitchBendOnlyPayload helper used by AgentRunner.
     void isPitchBendOnlyPayload_detectsAllPitchBend() {
         QJsonArray evs;

@@ -17,6 +17,7 @@
  */
 
 #include "AutoUpdater.h"
+#include "../AppPaths.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -397,6 +398,10 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     // Use --updated-from=X.Y.Z (single arg) so older versions that don't understand it
     // will silently ignore the flag instead of treating the version as a filename.
     args << ("--updated-from=" + QCoreApplication::applicationVersion());
+    // A portable install may be running on the --portable switch alone (no
+    // portable.txt next to the exe). The updated copy has to be told again, or
+    // it starts on the system settings store and looks freshly installed.
+    args << AppPaths::relaunchArgs();
 
     qDebug() << "  Step 6: Launching:" << newExePath << args;
     bool launched = QProcess::startDetached(newExePath, args, appDir);

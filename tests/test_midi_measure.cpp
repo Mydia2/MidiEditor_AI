@@ -24,6 +24,19 @@
  *      display showed "4/2" and counted half-note beats.
  *   8. A mid-song meter change keeps the numbering continuous and switches to
  *      the new measure length (guards the accumulate loop).
+ *   9. measureCount() is the bar count of the SONG, so it does not gain a
+ *      phantom bar when the file ends exactly on a bar line (a fresh file is
+ *      7680 ticks = exactly 10 bars, and measure(endTick()) says 11).
+ *  10. deleteMeasures() leaves the file with a meter: exactly one
+ *      TimeSignatureEvent survives at tick 0 with the meter of the first
+ *      undeleted bar, and the readers still work afterwards. The re-anchor may
+ *      not be decided by comparing num/denom against meterAt()'s no-event
+ *      fallback, because that fallback IS a valid 4/4.
+ *  11. Nothing in this family dereferences a null TimeSignatureEvent: with
+ *      channel 18 emptied, measure() (both overloads), startTickOfMeasure(),
+ *      measureCount(), insertMeasures() and deleteMeasures() fall back to 4/4
+ *      instead of crashing. The measure tool asks measure() on every paint, so
+ *      a null here is an access violation on the next mouse move.
  *
  * NOT testable here: measure() dereferences BOTH out-params unconditionally,
  * so passing nullptr is an access violation, not a soft failure. That is now
@@ -43,6 +56,7 @@
 #include "../src/midi/MidiTrack.h"
 #include "../src/protocol/Protocol.h"
 #include "../src/MidiEvent/MidiEvent.h"
+#include "../src/MidiEvent/TempoChangeEvent.h"
 #include "../src/MidiEvent/TimeSignatureEvent.h"
 
 // ---- ODR shims: Appearance colors (statics used by midi core / events) ---
@@ -87,6 +101,40 @@ private:
             new TimeSignatureEvent(18, num, denPow, 24, 8, f->track(0));
         f->channel(18)->insertEvent(ev, tick);
         f->protocol()->endAction();
+    }
+
+    // Replaces the tick-0 4/4 the ctor plants. Insert first, then drop the old
+    // one: MidiChannel::removeEvent() refuses to remove the LAST event at tick 0
+    // on channels 17/18, so the order matters.
+    static void setInitialMeter(MidiFile *f, int num, int denPow) {
+        f->protocol()->startNewAction("initial meter");
+        const QList<MidiEvent *> before = f->channel(18)->eventMap()->values(0);
+        TimeSignatureEvent *ev =
+            new TimeSignatureEvent(18, num, denPow, 24, 8, f->track(0));
+        f->channel(18)->insertEvent(ev, 0);
+        foreach (MidiEvent *old, before) {
+            f->channel(18)->removeEvent(old);
+        }
+        f->protocol()->endAction();
+    }
+
+    // Empties channel 18 completely - the state every null-deref guard exists
+    // for. Same insert-then-remove dance is not possible here (the guard keeps
+    // the last tick-0 event), so this goes through the map directly, which is
+    // exactly what a caller that bypasses MidiChannel would do.
+    static void stripAllTimeSignatures(MidiFile *f) {
+        f->channel(18)->eventMap()->clear();
+    }
+
+    static QList<TimeSignatureEvent *> timeSigs(MidiFile *f) {
+        QList<TimeSignatureEvent *> out;
+        foreach (MidiEvent *ev, f->channel(18)->eventMap()->values()) {
+            TimeSignatureEvent *ts = dynamic_cast<TimeSignatureEvent *>(ev);
+            if (ts) {
+                out.append(ts);
+            }
+        }
+        return out;
     }
 
 private slots:
@@ -220,6 +268,188 @@ private slots:
         QCOMPARE(e - s, threeFour);
         QCOMPARE(f.measure(switchTick + threeFour, &s, &e), 6);
         QCOMPARE(f.measure(switchTick + threeFour * 2, &s, &e), 7);
+    }
+
+    // --- 9. measureCount(): the song's bar count, no phantom bar ------------
+    // measure(endTick()) is one too high for every file that ends exactly on a
+    // bar line, because endTick() is the EXCLUSIVE end and therefore already
+    // lies in the next bar. A fresh file is exactly 10 bars.
+    void measureCountHasNoPhantomBar() {
+        MidiFile f;
+        const int bar = expectedTicksPerMeasure(&f, 0);
+        QCOMPARE(f.endTick(), bar * 10);
+        QCOMPARE(f.measureCount(), 10);
+
+        // The trap this method exists to avoid - still true of measure() itself.
+        int s = 0, e = 0;
+        QCOMPARE(f.measure(f.endTick(), &s, &e), 11);
+
+        // One tick INTO bar 11 really is 11 bars.
+        f.protocol()->startNewAction("end");
+        f.setEndTick(bar * 10 + 1);
+        f.protocol()->endAction();
+        QCOMPARE(f.measureCount(), 11);
+
+        // Ends in the middle of a bar are unaffected.
+        f.protocol()->startNewAction("end2");
+        f.setEndTick(bar * 7 + bar / 2);
+        f.protocol()->endAction();
+        QCOMPARE(f.measureCount(), 8);
+    }
+
+    void measureCountOfZeroLengthFileIsOne() {
+        MidiFile f;
+        f.protocol()->startNewAction("empty");
+        f.setEndTick(0);
+        f.protocol()->endAction();
+        QCOMPARE(f.endTick(), 0);
+        QCOMPARE(f.measureCount(), 1);
+    }
+
+    // --- 10. deleteMeasures() must leave the file with a meter --------------
+    void deletingFirstMeasureKeepsTimeSignature() {
+        MidiFile f;
+        const int bar = expectedTicksPerMeasure(&f, 0);
+
+        // The safety net that makes this survivable at all: channel 18 refuses
+        // to give up its last event at tick 0. Assert it, because the
+        // re-anchoring rule below must not silently depend on it.
+        QCOMPARE(timeSigs(&f).size(), 1);
+        QCOMPARE(f.channel(18)->removeEvent(timeSigs(&f).first()), false);
+
+        f.protocol()->startNewAction("Remove measures");
+        f.deleteMeasures(1, 1);
+        f.protocol()->endAction();
+
+        const QList<TimeSignatureEvent *> after = timeSigs(&f);
+        QCOMPARE(after.size(), 1);
+        QCOMPARE(after.first()->midiTime(), 0);
+        QCOMPARE(after.first()->num(), 4);
+        QCOMPARE(after.first()->denom(), 2);
+
+        // ... and the readers, which dereference that event, still work.
+        int s = -1, e = -1;
+        QCOMPARE(f.measure(0, &s, &e), 1);
+        QCOMPARE(s, 0);
+        QCOMPARE(e, bar);
+        QCOMPARE(f.startTickOfMeasure(1), 0);
+        QCOMPARE(f.startTickOfMeasure(3), bar * 2);
+        QCOMPARE(f.measureCount(), 9);   // 10 bars minus the deleted one
+    }
+
+    void deletingFirstMeasureKeepsThreeFourMeter() {
+        MidiFile f;
+        setInitialMeter(&f, 3, 2);
+        const int bar = expectedTicksPerMeasure(&f, 0);
+        QCOMPARE(bar, f.ticksPerQuarter() * 3);
+        QCOMPARE(timeSigs(&f).size(), 1);
+
+        f.protocol()->startNewAction("Remove measures");
+        f.deleteMeasures(1, 1);
+        f.protocol()->endAction();
+
+        int num = 0, denPow = 0;
+        TimeSignatureEvent *anchor = nullptr;
+        f.meterAt(0, &num, &denPow, &anchor);
+        QVERIFY2(anchor, "no TimeSignatureEvent left to anchor the meter");
+        QCOMPARE(anchor->midiTime(), 0);
+        QCOMPARE(num, 3);
+        QCOMPARE(denPow, 2);
+        QCOMPARE(timeSigs(&f).size(), 1);
+
+        int s = -1, e = -1;
+        QCOMPARE(f.measure(0, &s, &e), 1);
+        QCOMPARE(e - s, bar);
+    }
+
+    // Deleting a range that ENDS on a meter change moves that meter to the
+    // start. The old tick-0 event survives (channel 18 keeps its last tick-0
+    // event), so the new meter must be written INTO it - a second event on tick
+    // 0 would shadow it, since the map iterates the newest first and meterAt()
+    // keeps the last one it sees.
+    void deletingUpToAMeterChangeRetunesTheAnchor() {
+        MidiFile f;
+        const int fourFour = expectedTicksPerMeasure(&f, 0);
+        const int switchTick = f.startTickOfMeasure(3);
+        insertMeter(&f, switchTick, 3, 2);
+        QCOMPARE(timeSigs(&f).size(), 2);
+
+        f.protocol()->startNewAction("Remove measures");
+        f.deleteMeasures(1, 2);
+        f.protocol()->endAction();
+
+        QCOMPARE(timeSigs(&f).size(), 1);
+        int num = 0, denPow = 0;
+        f.meterAt(0, &num, &denPow);
+        QCOMPARE(num, 3);
+        QCOMPARE(denPow, 2);
+        int s = -1, e = -1;
+        QCOMPARE(f.measure(0, &s, &e), 1);
+        QCOMPARE(e - s, fourFour * 3 / 4);
+    }
+
+    // --- 11. no null TimeSignatureEvent dereference anywhere ----------------
+    void emptyTimeSignatureChannelDoesNotCrash() {
+        MidiFile f;
+        const int bar = f.ticksPerQuarter() * 4;   // the 4/4 fallback
+        // Kept as a non-null sentinel for the out-param check below; the strip
+        // only drops it out of the map, the object stays alive.
+        TimeSignatureEvent *sentinel = timeSigs(&f).value(0);
+        QVERIFY(sentinel);
+        stripAllTimeSignatures(&f);
+        QVERIFY(f.channel(18)->eventMap()->isEmpty());
+
+        // meterAt() reports 4/4 AND a null event - the null is the only way a
+        // caller can tell "no meter at all" from "a real 4/4".
+        int num = 0, denPow = 0;
+        TimeSignatureEvent *anchor = sentinel;
+        f.meterAt(0, &num, &denPow, &anchor);
+        QCOMPARE(num, 4);
+        QCOMPARE(denPow, 2);
+        QVERIFY2(anchor == nullptr, "meterAt() left the event out-param untouched");
+
+        int s = -1, e = -1;
+        QCOMPARE(f.measure(0, &s, &e), 1);
+        QCOMPARE(s, 0);
+        QCOMPARE(e, bar);
+        QCOMPARE(f.measure(bar * 3 + 5, &s, &e), 4);
+        QCOMPARE(s, bar * 3);
+        QCOMPARE(e, bar * 4);
+
+        QCOMPARE(f.startTickOfMeasure(1), 0);
+        QCOMPARE(f.startTickOfMeasure(5), bar * 4);
+        QCOMPARE(f.measureCount(), 10);
+
+        // The list-returning overload too.
+        QList<TimeSignatureEvent *> *list = nullptr;
+        int tickInMeasure = -1;
+        QCOMPARE(f.measure(bar * 2, bar * 4, &list, &tickInMeasure), 3);
+        QCOMPARE(tickInMeasure, 0);
+        QVERIFY(list && list->isEmpty());
+        delete list;
+    }
+
+    void insertAndDeleteMeasuresSurviveAnEmptyMeterChannel() {
+        MidiFile f;
+        const int bar = f.ticksPerQuarter() * 4;
+        stripAllTimeSignatures(&f);
+
+        f.protocol()->startNewAction("Insert measures");
+        f.insertMeasures(1, 2);            // used to read an uninitialised ptr
+        f.protocol()->endAction();
+        QCOMPARE(f.endTick(), bar * 12);
+
+        MidiFile g;
+        stripAllTimeSignatures(&g);
+        g.protocol()->startNewAction("Remove measures");
+        g.deleteMeasures(1, 1);
+        g.protocol()->endAction();
+        QCOMPARE(g.endTick(), bar * 9);
+        // The delete re-anchors a meter, so the file is no longer meterless.
+        QCOMPARE(timeSigs(&g).size(), 1);
+        QCOMPARE(timeSigs(&g).first()->midiTime(), 0);
+        QCOMPARE(timeSigs(&g).first()->num(), 4);
+        QCOMPARE(timeSigs(&g).first()->denom(), 2);
     }
 };
 

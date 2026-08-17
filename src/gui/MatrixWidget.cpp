@@ -171,6 +171,21 @@ void MatrixWidget::timeMsChanged(int ms, bool ignoreLocked) {
     update();
 }
 
+void MatrixWidget::revealLine(int line) {
+    if (!file || line < 0 || line >= NUM_LINES)
+        return;
+    const int visibleLines = qMax(1, endLineY - startLineY);
+    if (line >= startLineY && line < endLineY)
+        return; // already on screen - don't move the view
+    int newStartLine = line - visibleLines / 2;
+    if (newStartLine < 0)
+        newStartLine = 0;
+    // Overshoot at the bottom is clamped inside scrollYChanged().
+    scrollYChanged(newStartLine);
+    emit scrollChanged(startTimeX, file->maxTime() - endTimeX + startTimeX,
+                       startLineY, NUM_LINES - (endLineY - startLineY));
+}
+
 void MatrixWidget::scrollXChanged(int scrollPositionX) {
     if (!file)
         return;

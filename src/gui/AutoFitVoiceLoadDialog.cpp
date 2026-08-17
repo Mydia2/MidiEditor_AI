@@ -277,7 +277,10 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
             // remaining tracks is visible behind the dialog.
             QToolButton *eye = new QToolButton(trackListWidget);
             eye->setCheckable(true);
-            eye->setChecked(!t->hidden());
+            // hiddenByUser(), not hidden(): this eye WRITES the document flag
+            // (setHidden below), so it must show that flag - a workbench focus
+            // overlay must not make it read "hidden" (FOCUS-DEADEYE-001).
+            eye->setChecked(!t->hiddenByUser());
             eye->setIcon(Appearance::adjustIconForDarkMode(
                 ":/run_environment/graphics/trackwidget/visible.png"));
             eye->setToolTip(tr("Show/hide this track in the editor (undoable)"));
@@ -338,9 +341,10 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     });
     connect(visibleButton, &QPushButton::clicked, this, [this]() {
         // Reads the LIVE visibility - the eyes can change it mid-dialog.
+        // Same document flag the eyes show (FOCUS-DEADEYE-001).
         for (int i = 0; i < _trackChecks.size(); ++i) {
             const QSignalBlocker b(_trackChecks[i]);
-            _trackChecks[i]->setChecked(_tracks[i] && !_tracks[i]->hidden());
+            _trackChecks[i]->setChecked(_tracks[i] && !_tracks[i]->hiddenByUser());
         }
         refreshPreview();
     });

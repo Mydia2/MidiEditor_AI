@@ -409,9 +409,10 @@ so state and edits stay in step even if you switch tabs in the editor meanwhile.
 <h2 id="protocol-panel">Protocol Panel &amp; Client Identification</h2>
 
 <p>
-Every tool call made via MCP appears in the <b>Protocol panel</b> with a special prefix that identifies
-the source client. During the MCP <code>initialize</code> handshake, the client sends its name and version
-in the <code>clientInfo</code> field. MidiEditor AI displays this in the Protocol panel:
+Tool calls that change the file are recorded in the <b>Protocol panel</b>, and the entry starts with a
+prefix that identifies the source client. During the MCP <code>initialize</code> handshake, the client
+sends its name and version in the <code>clientInfo</code> field. MidiEditor AI displays this in the
+Protocol panel:
 </p>
 
 <ul>

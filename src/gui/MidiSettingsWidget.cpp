@@ -773,9 +773,12 @@ void MidiSettingsWidget::showDownloadSoundFontDialog() {
         engine->addPendingSoundFontPaths(QStringList{path});
         engine->loadSoundFont(path);
         // Persist immediately so the new SoundFont survives a crash before
-        // normal app shutdown.
-        QSettings settings;
-        engine->saveSettings(&settings);
+        // normal app shutdown. Through AppPaths::settings(), because that is
+        // where MainWindow READS this state from (a default-constructed
+        // QSettings has no organization name and its writes are dropped with
+        // an AccessError on Windows - the persist never happened).
+        auto settings = AppPaths::settings();
+        engine->saveSettings(settings.get());
         refreshSoundFontList();
     });
     dialog->exec();

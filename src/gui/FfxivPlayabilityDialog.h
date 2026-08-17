@@ -91,8 +91,12 @@ signals:
 
     /** Double-click: additionally SCROLL the piano roll so the spot is on
      *  screen (single click only selects and moves the cursor, which may be
-     *  outside the visible range). */
-    void revealTickRequested(int tick);
+     *  outside the visible range). `line` is the pitch line to bring on screen
+     *  as well - without it a reveal scrolls to the right bar and still leaves
+     *  an out-of-range note above or below the visible pitch band. -1 means
+     *  "leave the vertical scroll alone": findings that span several tracks or
+     *  the whole file have no single meaningful line. */
+    void revealTickRequested(int tick, int line);
 
     /** Double-click: focus mode - show ONLY the affected track so the
      *  finding is not buried under seven other tracks' notes. MainWindow

@@ -20,6 +20,8 @@
 
 #include "ExportDialog.h"
 
+#include "../AppPaths.h"
+
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
@@ -59,21 +61,26 @@ ExportDialog::ExportDialog(MidiFile *file, QWidget *parent)
 
     setupUi();
 
-    // Restore last-used settings
-    QSettings settings;
-    settings.beginGroup("Export");
-    int fmtIdx = _formatCombo->findText(settings.value("format").toString(),
+    // Restore last-used settings. Through AppPaths::settings(), like every
+    // other persisted setting: a default-constructed QSettings has no
+    // organization name (nothing in src/ ever sets one), so on Windows both the
+    // read here and the write-back in onExportClicked() landed nowhere - the
+    // dialog never actually remembered anything. Keys stay in the "Export"
+    // group, so they cannot collide with the flat top-level keys.
+    auto settings = AppPaths::settings();
+    settings->beginGroup("Export");
+    int fmtIdx = _formatCombo->findText(settings->value("format").toString(),
                                         Qt::MatchContains);
     if (fmtIdx >= 0) _formatCombo->setCurrentIndex(fmtIdx);
-    int qIdx = settings.value("qualityPreset", 1).toInt();
+    int qIdx = settings->value("qualityPreset", 1).toInt();
     if (qIdx >= 0 && qIdx < _qualityPresetCombo->count())
         _qualityPresetCombo->setCurrentIndex(qIdx);
-    _reverbTailCheck->setChecked(settings.value("reverbTail", true).toBool());
+    _reverbTailCheck->setChecked(settings->value("reverbTail", true).toBool());
     _oggQualitySlider->setValue(
-        static_cast<int>(settings.value("oggQuality", 50).toInt()));
-    int mp3Idx = _mp3BitrateCombo->findData(settings.value("mp3Bitrate", 192).toInt());
+        static_cast<int>(settings->value("oggQuality", 50).toInt()));
+    int mp3Idx = _mp3BitrateCombo->findData(settings->value("mp3Bitrate", 192).toInt());
     if (mp3Idx >= 0) _mp3BitrateCombo->setCurrentIndex(mp3Idx);
-    settings.endGroup();
+    settings->endGroup();
 
     onFormatChanged(_formatCombo->currentIndex());
     onRangeChanged();
@@ -143,11 +150,12 @@ void ExportDialog::setupUi() {
     _toMeasure->setMaximum(9999);
     _toMeasure->setValue(1);
     if (_file) {
-        // measure() is 1-based (see MidiFile.h): the value for the last tick
-        // IS the number of measures. The former +1 offered one bar that does
-        // not exist and disagreed with the status bar's numbering.
-        int dummy1, dummy2;
-        int totalMeasures = _file->measure(_file->endTick(), &dummy1, &dummy2);
+        // measureCount() is the bar of the last SOUNDING tick. Asking
+        // measure(endTick()) instead offered one bar that does not exist
+        // whenever the song ends exactly on a bar line - which is every fresh
+        // file - because endTick() is the exclusive end and therefore already
+        // sits in the next bar.
+        int totalMeasures = _file->measureCount();
         _fromMeasure->setMaximum(totalMeasures);
         _toMeasure->setMaximum(totalMeasures);
         _toMeasure->setValue(totalMeasures);
@@ -362,11 +370,11 @@ void ExportDialog::updateEstimatedSize() {
 
 void ExportDialog::onExportClicked() {
     // Build default path
-    QSettings settings;
-    settings.beginGroup("Export");
-    QString lastDir = settings.value("lastDirectory",
+    auto settings = AppPaths::settings();
+    settings->beginGroup("Export");
+    QString lastDir = settings->value("lastDirectory",
         QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).toString();
-    settings.endGroup();
+    settings->endGroup();
 
     QString baseName = _file ? QFileInfo(_file->path()).baseName() : "export";
     if (baseName.isEmpty()) baseName = "export";
@@ -381,14 +389,14 @@ void ExportDialog::onExportClicked() {
     }
 
     // Save settings for next time
-    settings.beginGroup("Export");
-    settings.setValue("format", _formatCombo->currentText());
-    settings.setValue("qualityPreset", _qualityPresetCombo->currentIndex());
-    settings.setValue("reverbTail", _reverbTailCheck->isChecked());
-    settings.setValue("oggQuality", _oggQualitySlider->value());
-    settings.setValue("mp3Bitrate", _mp3BitrateCombo->currentData().toInt());
-    settings.setValue("lastDirectory", QFileInfo(_outputFilePath).absolutePath());
-    settings.endGroup();
+    settings->beginGroup("Export");
+    settings->setValue("format", _formatCombo->currentText());
+    settings->setValue("qualityPreset", _qualityPresetCombo->currentIndex());
+    settings->setValue("reverbTail", _reverbTailCheck->isChecked());
+    settings->setValue("oggQuality", _oggQualitySlider->value());
+    settings->setValue("mp3Bitrate", _mp3BitrateCombo->currentData().toInt());
+    settings->setValue("lastDirectory", QFileInfo(_outputFilePath).absolutePath());
+    settings->endGroup();
 
     accept();
 }
