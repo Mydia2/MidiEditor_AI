@@ -74,7 +74,7 @@
 
 <main id="main-content">
 
-<h1 id="ffxiv-playability">&#x1F50E; Check FFXIV Playability</h1>
+<h1 id="ffxiv-playability"><img src="tools/ffxiv_check.png" alt="Check FFXIV Playability" style="height:1.1em;vertical-align:middle;"> Check FFXIV Playability</h1>
 
 <p>
 A file can look perfect in the editor and still lose notes in game. <b>Check FFXIV Playability</b>
@@ -94,14 +94,15 @@ optional.
 </p>
 
 <div class="highlight-box">
-<p>&#x1F50E; <b>Find it in:</b> menu <b>Tools &rarr; Check FFXIV Playability&hellip;</b> or the
-check button in the toolbar, next to <b>Fix X|V Channels</b> and the drum split. The window is
+<p>&#x1F4A1; <b>Find it in:</b> Toolbar button <img src="tools/ffxiv_check.png" alt="Check FFXIV Playability" style="height:1.1em;vertical-align:middle;"> or menu <b>Tools &rarr; Check FFXIV Playability&hellip;</b>. The button sits next to <b>Fix X|V Channels</b> and the drum split. The window is
 modeless, so the editor stays fully usable while it is open, and it belongs to one tab - switching
 documents closes it.</p>
 </div>
 
-<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_workbench.png">What to capture: the Check FFXIV Playability window over the editor on a file with real findings - the row of seven check boxes, the summary line, and the findings tree with the "Simultaneous notes" and "Stacked duplicates" groups expanded and the repair buttons visible at the bottom. Why: this page describes a window nobody has seen yet; one picture places the checks, the tree and the repairs at once.
-<span class="media-file">Save as <span class="media-dir">manual/screenshots/</span><code class="media-name">ffxiv-playability_workbench.png</code></span></div>
+<div class="screenshot-single">
+<a href="screenshots/ffxiv-playability_workbench.png" class="lightbox-link"><img src="screenshots/ffxiv-playability_workbench.png" class="lightbox-thumb" alt="The Check FFXIV Playability window over the piano roll: the row of seven checks, the summary line, and the findings tree grouped by type" loading="lazy"></a>
+<p class="caption">The workbench on a real arrangement - checks across the top, findings grouped below, the matching repairs offered underneath.</p>
+</div>
 
 <hr>
 
@@ -216,8 +217,13 @@ findings start collapsed so a broken file does not open as a wall of text; <b>Ex
     selection, ready for any editor operation.</li>
 </ul>
 
-<div class="media-todo" data-media="video" data-file="ffxiv-playability_focus-mode.webm">What to capture: a double-click on a single finding in a multi-track file - the piano roll scrolls to the tick, every other track disappears, the notes stay selected, then closing the window brings all tracks back. Why: focus mode is a state change in the editor, not in the dialog, and a still cannot show that it undoes itself on close.
-<span class="media-file">Save as <span class="media-dir">manual/screenshots/</span><code class="media-name">ffxiv-playability_focus-mode.webm</code></span></div>
+<div class="screenshot-single">
+<video controls autoplay loop muted playsinline preload="metadata" style="width:100%; max-width:1200px; height:auto; display:block; margin:0 auto; background:#000;" aria-label="A full playability pass: running the checks, clicking findings to select their notes, double-clicking to focus the affected track, and deleting the stacked duplicates">
+  <source src="screenshots/ffxiv-playability_workflow.webm" type="video/webm">
+  Sorry, your browser doesn't support embedded video. <a href="screenshots/ffxiv-playability_workflow.webm">Download the clip</a>.
+</video>
+<p class="caption">A complete pass: run the checks, click a finding to select its notes and move the cursor, double-click to show only that track, then select the stacked duplicates and delete them in one step.</p>
+</div>
 
 <hr>
 
@@ -265,8 +271,10 @@ selected</b>, with its own count - also sit in the tree's right-click menu, next
 collapse.
 </p>
 
-<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_delete-selected.png">What to capture: the findings tree with the "Stacked duplicates" group row selected (its children highlighted) and the repair button below reading "Delete selected (N notes)". Why: the selection-scoped delete is the tool's most useful gesture and its whole feedback is the changed button label.
-<span class="media-file">Save as <span class="media-dir">manual/screenshots/</span><code class="media-name">ffxiv-playability_delete-selected.png</code></span></div>
+<div class="screenshot-single">
+<a href="screenshots/ffxiv-playability_delete-selected.png" class="lightbox-link"><img src="screenshots/ffxiv-playability_delete-selected.png" class="lightbox-thumb" alt="The findings tree with the Stacked duplicates group selected and the button reading Delete selected with the note count" loading="lazy"></a>
+<p class="caption">Select a whole group - here the stacked duplicates - and the delete button scopes itself to exactly those notes.</p>
+</div>
 
 <p>
 Whatever you do, the window stays open and re-checks after every change - your own edits included
@@ -286,8 +294,10 @@ matching tools named. The request goes through the normal chat, so the panel ope
 keeps the conversation. Without a configured provider the button is simply not there.
 </p>
 
-<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_analysis.png">What to capture: the workbench after an analysis, with the AI's prioritized verdict filling the analysis pane between the findings tree and the button row. Why: the pane only exists once an answer has arrived, so no other screenshot of the window can show it.
-<span class="media-file">Save as <span class="media-dir">manual/screenshots/</span><code class="media-name">ffxiv-playability_analysis.png</code></span></div>
+<div class="screenshot-single">
+<a href="screenshots/ffxiv-playability_analysis.png" class="lightbox-link"><img src="screenshots/ffxiv-playability_analysis.png" class="lightbox-thumb" alt="The workbench after Analyze with MidiPilot: the AI assessment shown in the pane between the findings tree and the button row" loading="lazy"></a>
+<p class="caption">After Analyze with MidiPilot the assessment appears right in the window, prioritised and tied to the findings above it.</p>
+</div>
 
 <hr>
 
