@@ -78,7 +78,7 @@ void WebRtcLiveServer::onTransportDisconnected(const QString &joinerId) {
     auto trIt = _transports.find(joinerId);
     if (trIt == _transports.end()) return;
     WebRtcTransport *t = trIt.value();
-    bool wasConnected = _connected.remove(joinerId) > 0;
+    const bool wasConnected = _connected.remove(joinerId); // QHash::remove returns bool in Qt 6
     _transports.erase(trIt);
     qCInfo(rtcLog) << "WebRtcLiveServer: joiner" << joinerId.left(8)
                    << "disconnected (was-connected=" << wasConnected

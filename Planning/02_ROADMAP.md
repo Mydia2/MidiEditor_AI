@@ -12763,7 +12763,11 @@ Mac for testing.
 
 ---
 
-# v2.2 PLAN (scoped 2026-07-25, everything still open to change)
+# v2.2 PLAN (scoped 2026-07-25) — ✅ SHIPPED as v2.2.0 on 2026-08-17
+
+All four items plus Phases 44-47 landed; release day added two multi-agent review passes
+(general pre-release review + a dedicated OpenGL/GPU bug run) whose findings were all fixed the
+same day - the record is in 03_bugs.md (top two entries).
 
 Four items picked from the 2.2 candidates. Deliberately mixed: two small wins,
 one measurement task, one technical-debt block. Order is by risk, smallest
@@ -13029,7 +13033,7 @@ status hint.
 
 ---
 
-## Phase 47: Prompt-profile "no pitch_bend" switch - schema-level, per model (2.2)
+## Phase 47: Prompt-profile "no pitch_bend" switch - schema-level, per model — ✅ SHIPPED 2026-08-17 (v2.2.0)
 
 **Origin - a user's local Qwen3-14B over Ollama, 2026-08-10.** The model reasoned
 14,000 characters of a perfectly correct plan (program_change at tick 0, notes at
@@ -13099,7 +13103,7 @@ phase.
 
 ---
 
-## Phase 46: AI arrangement capability - close the MCP gaps (2.2)
+## Phase 46: AI arrangement capability - close the MCP gaps — ✅ SHIPPED 2026-08-17 (v2.2.0)
 
 **Origin - the octet experiment, 2026-07-25.** An external AI client was given a
 loaded 8-track metal GP file ("untitled", 150 BPM, 133 bars, 6257

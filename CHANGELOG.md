@@ -5,13 +5,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [2.2.0] - Unreleased
-
-> The next release, being prepared on the feature/v2.2 branch. On release day:
-> set the real date (drop "Unreleased"), then run scripts/build_changelog.py -
-> the website generator skips every entry whose date field starts with
-> "Unreleased". Experimental merges that are part of NO release live in
-> PLAYGROUND.md.
+## [2.2.0] - 2026-08-17 - FFXIV Playability, Portable Mode, Manual Bot
 
 ### New Features
 * **"Ask MidiPilot about the selection" in the note context menu** - right-click selected notes and the AI looks at them immediately: the question describes what you are pointing at (how many notes, which bars, which track, the pitch range), the notes themselves travel along, and the answer lands in the MidiPilot panel without any typing. For something specific, ask a follow-up - the selection is already part of the conversation. A draft you were writing in the chat box is kept, and the entry appears only once an AI provider is set up.
