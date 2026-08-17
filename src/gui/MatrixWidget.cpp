@@ -171,6 +171,21 @@ void MatrixWidget::timeMsChanged(int ms, bool ignoreLocked) {
     update();
 }
 
+void MatrixWidget::revealLine(int line) {
+    if (!file || line < 0 || line >= NUM_LINES)
+        return;
+    const int visibleLines = qMax(1, endLineY - startLineY);
+    if (line >= startLineY && line < endLineY)
+        return; // already on screen - don't move the view
+    int newStartLine = line - visibleLines / 2;
+    if (newStartLine < 0)
+        newStartLine = 0;
+    // Overshoot at the bottom is clamped inside scrollYChanged().
+    scrollYChanged(newStartLine);
+    emit scrollChanged(startTimeX, file->maxTime() - endTimeX + startTimeX,
+                       startLineY, NUM_LINES - (endLineY - startLineY));
+}
+
 void MatrixWidget::scrollXChanged(int scrollPositionX) {
     if (!file)
         return;
@@ -2175,6 +2190,17 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     // regions/voices can be thinned without touching the rest.
     QAction *autoFitAct = menu.addAction(tr("Auto-Fit Voice Load (selection)..."));
     connect(autoFitAct, &QAction::triggered, mw, &MainWindow::autoFitVoiceLoadSelection);
+
+    // v2.2 — ask the AI about what is selected: sends an analysis question
+    // immediately (no ellipsis - the action acts, it does not open anything
+    // to fill in), with the selected notes travelling along. Only offered
+    // when an AI provider is actually configured: otherwise MidiPilot shows
+    // its setup prompt with a disabled input, and the entry would promise
+    // something it cannot deliver.
+    if (mw->isMidiPilotUsable()) {
+        QAction *askAiAct = menu.addAction(tr("Ask MidiPilot about the selection"));
+        connect(askAiAct, &QAction::triggered, mw, &MainWindow::askMidiPilotAboutSelection);
+    }
 
     menu.addSeparator();
 

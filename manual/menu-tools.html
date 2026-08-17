@@ -29,7 +29,11 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-playability.html">Check FFXIV Playability</a>
+                <a href="ffxiv-drum-split.html">FFXIV Drum Split</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
                 <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -298,7 +302,32 @@
 			or <b>Preserve</b> (minimal changes) mode. Shows a rich result summary with channel mapping table,
 			program change statistics, and track renames.
 			The entire operation is wrapped in a single undo action.
-			<a href="midipilot.html#fix-xv-channels">Click here for details</a>
+			<a href="ffxiv-channel-fixer.html">Click here for details</a>
+		</td>
+	</tr>
+	<tr>
+		<td valign="top"><img src="tools/ffxiv_fix_drums.png" width="20px" height="20px"/></td>
+		<td>
+			<i>FFXIV drum split</i><br>
+			Splits a GM drum track into the named FFXIV percussion tracks (Bass Drum, Snare Drum,
+			Cymbal, Bongo) that the channel fixer then routes automatically. The kit mapping is
+			editable, with an audio preview for auditioning a hit before committing.
+			The whole split is a single undo action. -
+			<a href="ffxiv-drum-split.html">dedicated reference page</a>.
+		</td>
+	</tr>
+	<tr>
+		<td valign="top"><img src="tools/ffxiv_check.png" width="20px" height="20px"/></td>
+		<td>
+			<i>Check FFXIV Playability&hellip;</i><br>
+			Examines the file the way the game will play it and lists what would go wrong -
+			chords and stacked duplicate notes on a monophonic performer, notes outside C3-C6,
+			track names matching no FFXIV instrument, channel spread, empty instrument tracks and
+			the voice load. Each check can be switched off individually. Click a finding to select
+			its notes in the editor, double-click to jump there with only that track shown, and use
+			the buttons for the matching repair. The window stays open and re-checks after every
+			change. -
+			<a href="ffxiv-playability.html">dedicated reference page</a>.
 		</td>
 	</tr>
 	<tr>

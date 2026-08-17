@@ -2,7 +2,12 @@
 #include "FFXIVChannelFixer.h"
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "../converter/AutoFitVoiceLoadService.h"
+#include "../converter/TempoConversionService.h"
+#include "../MidiEvent/TempoChangeEvent.h"
+#include "FfxivPlayabilityValidator.h"
 #endif
+#include "HelpDatabase.h" // pure QtCore - fine in the schema-test stub build too
+#include "../AppPaths.h"  // Phase 45: settings scope decided in ONE place
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "FfxivVoiceAnalyzer.h"
 #endif
@@ -439,15 +444,231 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"})));
     }
 
+    // convert_tempo_preserve_duration (v2.2 #2, Phase 33.5) — deliberately a
+    // CORE tool, not FFXIV-gated: tempo conversion is generic, and core tools
+    // are also what the MCP server exposes.
+    {
+        QJsonObject props;
+        props["sourceBpm"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "number"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Current musical tempo of the material in BPM. Use null to "
+                            "auto-detect from the file's first tempo event."}};
+        props["targetBpm"] = QJsonObject{
+            {"type", "number"},
+            {"description", "Tempo to convert to, in BPM (e.g. the project tempo from "
+                            "get_editor_state)."}};
+        props["scope"] = QJsonObject{
+            {"type", "string"},
+            {"enum", QJsonArray{"whole", "selected_tracks", "selected_channels", "selected_events"}},
+            {"description", "What to convert: the whole file, specific tracks (trackIds), "
+                            "specific channels (channelIds), or the user's current selection."}};
+        props["trackIds"] = QJsonObject{
+            {"anyOf", QJsonArray{
+                 QJsonObject{{"type", "array"}, {"items", QJsonObject{{"type", "integer"}}}},
+                 QJsonObject{{"type", "null"}}}},
+            {"description", "Track numbers to convert. Required when scope == selected_tracks, "
+                            "ignored otherwise."}};
+        props["channelIds"] = QJsonObject{
+            {"anyOf", QJsonArray{
+                 QJsonObject{{"type", "array"}, {"items", QJsonObject{{"type", "integer"}}}},
+                 QJsonObject{{"type", "null"}}}},
+            {"description", "MIDI channels (0-15) to convert. Required when scope == "
+                            "selected_channels, ignored otherwise."}};
+        props["tempoMode"] = QJsonObject{
+            {"anyOf", QJsonArray{
+                 QJsonObject{{"type", "string"},
+                             {"enum", QJsonArray{"replace", "scale_map", "events_only"}}},
+                 QJsonObject{{"type", "null"}}}},
+            {"description", "How to update the tempo map: replace = collapse to one tempo event "
+                            "at the target BPM (default for scope=whole), scale_map = keep the "
+                            "tempo curve's shape, events_only = only re-tick the scoped events. "
+                            "Partial scopes REQUIRE events_only (default there): the tempo map is "
+                            "shared, so replacing it from a partial scope would retime everything "
+                            "outside the scope too. null = the scope's default."}};
+        props["dryRun"] = QJsonObject{
+            {"type", "boolean"},
+            {"description", "true = report what would change WITHOUT modifying the file. "
+                            "ALWAYS run with dryRun=true first, show the user the summary and ask "
+                            "for confirmation before running with dryRun=false."}};
+        tools.append(makeTool(
+            "convert_tempo_preserve_duration",
+            "Scale event ticks and update the tempo map so the material plays back with the SAME "
+            "real-time duration but lives at a different musical tempo - e.g. fit a 90 BPM vocal "
+            "line into a 180 BPM project so bars line up again. One undoable step. MUST be "
+            "confirmed by the user: call with dryRun=true, present the summary, and only call "
+            "with dryRun=false after explicit user approval.",
+            // STRICT-SCHEMA-001: strict function schemas (what the Responses
+            // API enforces BY DEFAULT) require `required` to list EVERY key in
+            // `properties` - optionality is expressed by an anyOf[<type>, null]
+            // branch, never by leaving a key out. One violating tool fails the
+            // WHOLE request; see auto_fit_voice_load below for the reference.
+            makeParams(props, {"sourceBpm", "targetBpm", "scope", "trackIds",
+                               "channelIds", "tempoMode", "dryRun"})));
+    }
+
+    // set_ffxiv_mode (Phase 46) - CORE, deliberately OUTSIDE the FFXIV gate
+    // below: the whole point is that an agent can turn the mode ON to reach
+    // the gated bundle. Octet finding #1: a client saw 17 tools, had no hint
+    // 5 more existed, and no way to ask for them.
+    {
+        QJsonObject props;
+        props["enabled"] = QJsonObject{
+            {"type", "boolean"},
+            {"description", "true = enable FFXIV Bard Performance mode, false = disable."}};
+        tools.append(makeTool(
+            "set_ffxiv_mode",
+            "Enable or disable FFXIV Bard Performance mode. The mode gates the FFXIV tool "
+            "bundle (validate_ffxiv, convert_drums_ffxiv, setup_channel_pattern, "
+            "analyze_voice_load, auto_fit_voice_load): enabling adds them to the tool list, "
+            "disabling removes them. The change takes effect from your next step - in an "
+            "agent run the tool list and the FFXIV rules are re-derived automatically, and "
+            "MCP clients receive notifications/tools/list_changed. The current mode is "
+            "reported by get_editor_state as ffxivMode.",
+            makeParams(props, {"enabled"})));
+    }
+
+    // --- Phase 44: the "Manual Bot" - search->read->answer over the manual.
+    // MidiPilot could edit music but only GUESS about the editor itself;
+    // these two tools ground "how do I ..." answers in manual/*.html
+    // (help_db.json, regenerated from the manual so it cannot drift).
+
+    // search_help
+    {
+        QJsonObject props;
+        props["query"] = QJsonObject{
+            {"type", "string"},
+            {"description", "Free-text question or keywords about the editor, e.g. "
+                            "'how do I split drums' or 'tempo curve'."}};
+        tools.append(makeTool(
+            "search_help",
+            "Search the built-in manual. Use this FIRST for any question about the editor "
+            "itself (features, dialogs, menus, 'how do I ...'), then read the best match "
+            "with get_help_section and answer from it, citing the manual page. Returns the "
+            "top matching sections with page, anchor, title and a snippet.",
+            makeParams(props, {"query"})));
+    }
+
+    // get_help_section
+    {
+        QJsonObject props;
+        props["page"] = QJsonObject{
+            {"type", "string"},
+            {"description", "Manual page file name from a search_help result, e.g. "
+                            "'ffxiv-drum-split.html'."}};
+        props["anchor"] = QJsonObject{
+            {"type", "string"},
+            {"description", "Section anchor from the search_help result. Empty string = "
+                            "the page's intro section."}};
+        tools.append(makeTool(
+            "get_help_section",
+            "Read one manual section's full text (found via search_help). Answer the user "
+            "from this text and cite the page.",
+            makeParams(props, {"page", "anchor"})));
+    }
+
+    // --- Phase 46 pt 3: the three arrangement tools (octet finding #2). ---
+    // The GUI has had all three for years (Transpose, Explode Chords, copy
+    // via explode's keep-original); the octet experiment had to re-insert
+    // 4248 notes by hand because the tool surface had none of them. CORE:
+    // transposing/splitting/copying is generic, not FFXIV-specific.
+
+    // transpose_events
+    {
+        QJsonObject props;
+        props["trackIndex"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Track to transpose. null = all tracks."}};
+        props["startTick"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Inclusive start tick. null = from the beginning."}};
+        props["endTick"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Inclusive end tick. null = to the end."}};
+        props["semitones"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Semitones to transpose by: positive = up, negative = down, "
+                            "12 = one octave. 0 is allowed with foldToRange=true for a "
+                            "pure range fold."}};
+        props["foldToRange"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "After transposing, fold each note by octaves into the FFXIV "
+                            "bard range C3-C6 (MIDI 48-84). Default false."}};
+        tools.append(makeTool(
+            "transpose_events",
+            "Transpose notes by semitones - a track, a tick range, or the whole file - as one "
+            "undoable step. Much cheaper than re-inserting notes: 'move the bass up an octave' "
+            "is one call instead of re-writing every event. With foldToRange=true the result "
+            "is folded octave-wise into C3-C6; notes that would leave the MIDI range 0-127 "
+            "are left unchanged and reported as skipped.",
+            makeParams(props, {"trackIndex", "startTick", "endTick", "semitones",
+                               "foldToRange"})));
+    }
+
+    // split_chords_to_tracks
+    {
+        QJsonObject props;
+        props["trackIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Track whose chords to split."}};
+        props["minNotes"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Minimum simultaneous notes to count as a chord (default 2)."}};
+        props["keepOriginal"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "true = copy the chord notes to the new tracks and keep the "
+                            "originals; false (default) = move them."}};
+        tools.append(makeTool(
+            "split_chords_to_tracks",
+            "Split a track's chords voice-wise onto NEW tracks: notes starting on the same "
+            "tick are grouped, and voice 1 (highest note) goes to the first new track, voice "
+            "2 to the second, and so on - the standard way to turn a chordal part into "
+            "monophonic FFXIV performers (each new track = one performer). Track names get "
+            "' - Voice N' suffixes; rename them to FFXIV instruments and run "
+            "setup_channel_pattern afterwards. One undoable step.",
+            makeParams(props, {"trackIndex", "minNotes", "keepOriginal"})));
+    }
+
+    // copy_events_to_track
+    {
+        QJsonObject props;
+        props["sourceTrackIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Track to copy notes from (they stay untouched)."}};
+        props["targetTrackIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Track the copies are assigned to."}};
+        props["startTick"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Inclusive start tick. null = from the beginning."}};
+        props["endTick"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Inclusive end tick. null = to the end."}};
+        tools.append(makeTool(
+            "copy_events_to_track",
+            "Copy notes from one track to another (optionally restricted to a tick range) as "
+            "one undoable step - e.g. double a melody onto a second performer, then transpose "
+            "the copy. Notes only; the copies keep their channel and timing and are assigned "
+            "to the target track. Use move_events_to_track to move instead.",
+            makeParams(props, {"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"})));
+    }
+
     // --- FFXIV tools (only when FFXIV mode is active) ---
-    if (QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool()) {
+    if (AppPaths::settings()->value("AI/ffxiv_mode", false).toBool()) {
 
         // validate_ffxiv (no parameters)
         {
             tools.append(makeTool(
                 "validate_ffxiv",
                 "Check if the current MIDI file meets FFXIV Bard Performance constraints. "
-                "Reports issues: polyphony, out-of-range notes, invalid track names, too many tracks.",
+                "Reports ALL issues with their ticks: simultaneous notes STARTING on the same "
+                "tick on one performer (performers are monophonic; a held note overlapped by "
+                "later notes is fine in game and NOT flagged; guitar tracks spread notes over "
+                "several channels for variant switches, so only same-channel groups count "
+                "there), stacked duplicate notes (same pitch, same tick), notes outside C3-C6, "
+                "and track names matching no FFXIV instrument (the legal spellings are "
+                "returned as legalInstruments). NOTE: in game the TRACK NAME selects the "
+                "instrument - program changes only affect the editor's SoundFont playback and "
+                "are not validated here.",
                 makeParams(QJsonObject(), QJsonArray())));
         }
 
@@ -488,9 +709,12 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             tools.append(makeTool(
                 "analyze_voice_load",
                 "Read-only check of the FFXIV 16-voice ceiling and 14 notes/sec/channel rate ceiling. "
-                "Returns globalPeak (max simultaneous voices), overflowRanges (tick spans where voices > 16), "
-                "and rateHotspots (per-channel passages exceeding the rate cap). Use BEFORE finishing dense "
-                "compositions to confirm the file will play in FFXIV without dropped notes.",
+                "TWO models are reported: rawPeak/rawOverflowRangeCount count notes really ON at once "
+                "- the number the game enforces and what auto_fit_voice_load uses; JUDGE BY THESE. "
+                "globalPeak/overflowRanges use the tail-extended display model (release tails count as "
+                "sounding), which reads higher on a perfectly fine file - do NOT 'fix' a file because "
+                "only the display numbers are high. Also returns rateHotspots (per-channel passages "
+                "exceeding the rate cap).",
                 makeParams(props, {"startTick", "endTick"})));
         }
 
@@ -528,9 +752,12 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             props["ratePercent"] = QJsonObject{
                 {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
                 {"description", "Density target: thin about this percent of each track's notes, densest "
-                                "passages first (default 10, clamped 0-85, 0 = off). Percent-of-track "
-                                "instead of an absolute rate because density is relative to tempo and "
-                                "instrument - the tool auto-tunes the cutoff per track."}};
+                                "passages first (clamped 0-85). For THIS tool the default is 0 (off): "
+                                "fix only real overflows, opt in to density thinning explicitly. (The "
+                                "GUI dialog defaults to 10 - density-as-tone is a human choice.) "
+                                "Percent-of-track instead of an absolute rate because density is "
+                                "relative to tempo and instrument - the tool auto-tunes the cutoff "
+                                "per track."}};
             props["rateKeepOneOf"] = QJsonObject{
                 {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
                 {"description", "Keep 1 of N notes in dense passages: 2 = halve (default), 3 = third, "
@@ -566,6 +793,23 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
     }
 
     return tools;
+}
+
+// ---------------------------------------------------------------------------
+// protocolActorPrefix — who gets the credit in the Protocol panel
+// ---------------------------------------------------------------------------
+// MUST stay byte-identical to the static protoPrefix() in MidiPilotWidget.cpp
+// (the widget-routed tools' path) - the two forms are documented as ONE format
+// in manual/mcp-server.html, and test_tool_definitions locks these strings.
+QString ToolDefinitions::protocolActorPrefix(const QString &source) {
+    if (!source.startsWith(QLatin1String("mcp")))
+        return QStringLiteral("MidiPilot");
+
+    // "mcp" -> "MidiPilotMCP", "mcp:ClientName" -> "MidiPilotMCP (ClientName)"
+    const int colon = source.indexOf(QLatin1Char(':'));
+    if (colon > 0 && colon + 1 < source.length())
+        return QStringLiteral("MidiPilotMCP (%1)").arg(source.mid(colon + 1));
+    return QStringLiteral("MidiPilotMCP");
 }
 
 // ---------------------------------------------------------------------------
@@ -757,22 +1001,43 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         if (!source.isEmpty()) actionObj["_source"] = source;
         return widget->executeAction(actionObj);
     }
+    if (toolName == "convert_tempo_preserve_duration") {
+        return execConvertTempoPreserveDuration(args, file, source);
+    }
+    if (toolName == "set_ffxiv_mode") {
+        return execSetFfxivMode(args, widget);
+    }
+    if (toolName == "search_help") {
+        return execSearchHelp(args);
+    }
+    if (toolName == "get_help_section") {
+        return execGetHelpSection(args);
+    }
+    if (toolName == "transpose_events") {
+        return execTransposeEvents(args, file, source);
+    }
+    if (toolName == "split_chords_to_tracks") {
+        return execSplitChordsToTracks(args, file, source);
+    }
+    if (toolName == "copy_events_to_track") {
+        return execCopyEventsToTrack(args, file, source);
+    }
 
     // FFXIV tools
     if (toolName == "validate_ffxiv") {
         return execValidateFFXIV(file);
     }
     if (toolName == "convert_drums_ffxiv") {
-        return execConvertDrumsFFXIV(args, file, widget);
+        return execConvertDrumsFFXIV(args, file, widget, source);
     }
     if (toolName == "setup_channel_pattern") {
-        return execSetupChannelPattern(file, widget);
+        return execSetupChannelPattern(file, widget, source);
     }
     if (toolName == "analyze_voice_load") {
         return execAnalyzeVoiceLoad(args, file);
     }
     if (toolName == "auto_fit_voice_load") {
-        return execAutoFitVoiceLoad(args, file);
+        return execAutoFitVoiceLoad(args, file, source);
     }
 
     QJsonObject result;
@@ -926,130 +1191,100 @@ QJsonObject ToolDefinitions::execWriteAction(const QString &action,
 // FFXIV tools
 // ---------------------------------------------------------------------------
 
-static const QSet<QString> FFXIV_INSTRUMENT_NAMES = {
-    "Piano", "Harp", "Fiddle", "Lute", "Fife", "Flute", "Oboe", "Panpipes",
-    "Clarinet", "Trumpet", "Saxophone", "Trombone", "Horn", "Tuba",
-    "Violin", "Viola", "Cello", "Double Bass",
-    "Timpani", "Bongo", "Bass Drum", "Snare Drum", "Cymbal",
-    "ElectricGuitarClean", "ElectricGuitarMuted", "ElectricGuitarOverdriven",
-    "ElectricGuitarPowerChords", "ElectricGuitarSpecial"
-};
-
-static bool isGuitarInstrument(const QString &name) {
-    QString base = name;
-    QRegularExpression suffixRe("[+-]\\d+$");
-    base.remove(suffixRe);
-    return base.startsWith("ElectricGuitar");
-}
+// Phase 46: the instrument table and classifiers live in FFXIVChannelFixer
+// (the canonical source); the validation logic itself moved to
+// FfxivPlayabilityValidator, shared with the GUI's playability dialog.
 
 QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(file);
     QJsonObject result;
-    if (!file) {
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: validate_ffxiv is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    // VALIDATE-TYPES-001: the tool's contract is IN-GAME playability - the
+    // editor-playback (channelSpread) and informational (emptyTracks) checks
+    // are workbench-only. Running them here mislabeled their findings as
+    // "polyphonic" and flipped `valid` to false on healthy files, sending
+    // agents off to "fix" chords that never existed.
+    FfxivPlayabilityChecks toolChecks;
+    toolChecks.channelSpread = false;
+    toolChecks.emptyTracks = false;
+    const FfxivPlayabilityReport report =
+        FfxivPlayabilityValidator::validate(file, toolChecks);
+    if (!report.ok) {
         result["success"] = false;
-        result["error"] = QString("No file loaded.");
+        result["error"] = report.error;
         return result;
     }
 
+    auto typeString = [](FfxivPlayabilityIssue::Type t) -> QString {
+        switch (t) {
+        case FfxivPlayabilityIssue::Type::TrackName:
+            return QStringLiteral("track_name");
+        case FfxivPlayabilityIssue::Type::OutOfRange:
+            return QStringLiteral("out_of_range");
+        case FfxivPlayabilityIssue::Type::DuplicateNote:
+            return QStringLiteral("duplicate_note");
+        case FfxivPlayabilityIssue::Type::Overlap:
+            break;
+        }
+        // "polyphonic" kept for Overlap - the name agents have always seen.
+        return QStringLiteral("polyphonic");
+    };
+
+    // The validator reports ALL findings (the old inline code stopped at the
+    // first overlap per track); cap the JSON so a badly broken file cannot
+    // blow up the model's context.
     QJsonArray issues;
-    int trackCount = file->numTracks();
-
-    // Note: track count is informational — more than 8 tracks is fine
-    // when using guitar switches or additional instrument channels.
-
-    for (int t = 0; t < trackCount; t++) {
-        MidiTrack *track = file->track(t);
-        QString name = track->name();
-
-        // Check track name — strip +N/-N suffix for validation
-        QString baseName = name;
-        QRegularExpression suffixRe("[+-]\\d+$");
-        baseName.remove(suffixRe);
-        if (!baseName.isEmpty() && !FFXIV_INSTRUMENT_NAMES.contains(baseName)) {
-            QJsonObject issue;
-            issue["track"] = t;
-            issue["issue"] = QString("track_name");
-            issue["details"] = QString("Track name '%1' doesn't match any FFXIV instrument").arg(name);
-            issues.append(issue);
-        }
-
-        // Collect NoteOn events on this track to check range and polyphony
-        struct NoteInfo { int tick; int note; int endTick; int channel; };
-        QList<NoteInfo> notes;
-        bool trackIsGuitar = isGuitarInstrument(name);
-
-        for (int ch = 0; ch < 16; ch++) {
-            MidiChannel *channel = file->channel(ch);
-            if (!channel) continue;
-            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-            for (auto it = map->begin(); it != map->end(); ++it) {
-                MidiEvent *ev = it.value();
-                if (ev->track() != track) continue;
-                auto *noteOn = dynamic_cast<NoteOnEvent *>(ev);
-                if (!noteOn) continue;
-
-                int note = noteOn->note();
-                int tick = noteOn->midiTime();
-
-                // Check range (C3-C6 = MIDI 48-84)
-                if (note < 48 || note > 84) {
-                    static const char *noteNames[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-                    QString noteName = QString("%1%2").arg(noteNames[note % 12]).arg(note / 12 - 1);
-                    QJsonObject issue;
-                    issue["track"] = t;
-                    issue["issue"] = QString("out_of_range");
-                    issue["details"] = QString("Note %1 (%2) outside C3-C6 (MIDI 48-84) at tick %3")
-                                           .arg(noteName).arg(note).arg(tick);
-                    issues.append(issue);
-                }
-
-                // Find end tick for polyphony check
-                int endTick = tick;
-                MidiEvent *offEv = noteOn->offEvent();
-                if (offEv) endTick = offEv->midiTime();
-                notes.append({tick, note, endTick, ch});
-            }
-        }
-
-        // Check polyphony (overlapping notes)
-        // Sort by tick so the first overlap found is chronologically first (AI-006)
-        std::sort(notes.begin(), notes.end(),
-                  [](const NoteInfo &a, const NoteInfo &b) { return a.tick < b.tick; });
-        // For guitar tracks: only flag overlaps on the SAME channel (different
-        // channels are intentional guitar switches)
-        for (int i = 0; i < notes.size(); i++) {
-            for (int j = i + 1; j < notes.size(); j++) {
-                // Notes are sorted by tick — if next note starts after this one ends, skip rest
-                if (notes[j].tick >= notes[i].endTick)
-                    break;
-                if (trackIsGuitar && notes[i].channel != notes[j].channel)
-                    continue; // different guitar switch channels — OK
-                if (notes[i].endTick > notes[j].tick && notes[j].endTick > notes[i].tick) {
-                    QJsonObject issue;
-                    issue["track"] = t;
-                    issue["issue"] = QString("polyphonic");
-                    issue["details"] = QString("Overlapping notes at tick %1 and %2")
-                                           .arg(notes[i].tick).arg(notes[j].tick);
-                    issues.append(issue);
-                    // Only report first overlap per track to avoid flooding
-                    goto nextTrack;
-                }
-            }
-        }
-        nextTrack:;
+    const int cap = 100;
+    bool hasNameIssue = false;
+    for (const FfxivPlayabilityIssue &i : report.issues) {
+        if (i.type == FfxivPlayabilityIssue::Type::TrackName)
+            hasNameIssue = true;
+        if (issues.size() >= cap)
+            continue;
+        QJsonObject issue;
+        issue["track"] = i.track;
+        issue["issue"] = typeString(i.type);
+        issue["tick"] = i.tick;
+        issue["details"] = i.details;
+        issues.append(issue);
     }
 
     result["success"] = true;
-    result["valid"] = issues.isEmpty();
+    result["valid"] = report.issues.isEmpty();
     result["issues"] = issues;
-    result["summary"] = issues.isEmpty()
-        ? QString("File is FFXIV-compliant")
-        : QString("%1 issue(s) found").arg(issues.size());
+    if (report.issues.size() > cap)
+        result["issuesTruncated"] = report.issues.size() - cap;
+    // Octet finding #6: a rejected track name used to leave the agent
+    // guessing spellings. Quote the canonical list when a name failed.
+    if (hasNameIssue)
+        result["legalInstruments"] =
+            QJsonArray::fromStringList(FFXIVChannelFixer::instrumentNames());
+
+    if (report.issues.isEmpty()) {
+        result["summary"] = QStringLiteral("File is FFXIV-compliant");
+    } else {
+        result["summary"] = QStringLiteral(
+            "%1 issue(s): %2 simultaneous-note chord(s), %3 stacked "
+            "duplicate(s), %4 out of range, %5 track name(s)")
+            .arg(report.issues.size())
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::Overlap))
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::DuplicateNote))
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::OutOfRange))
+            .arg(report.countOf(FfxivPlayabilityIssue::Type::TrackName));
+    }
     return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
 QJsonObject ToolDefinitions::execConvertDrumsFFXIV(const QJsonObject &args,
                                                     MidiFile *file,
-                                                    MidiPilotWidget *widget) {
+                                                    MidiPilotWidget *widget,
+                                                    const QString &source) {
     QJsonObject result;
     if (!file) {
         result["success"] = false;
@@ -1130,6 +1365,7 @@ QJsonObject ToolDefinitions::execConvertDrumsFFXIV(const QJsonObject &args,
         createAction["trackName"] = name;
         createAction["channel"] = 0;
         createAction["explanation"] = QString("FFXIV drum: %1").arg(name);
+        if (!source.isEmpty()) createAction["_source"] = source;
         QJsonObject createResult = widget->executeAction(createAction);
         int newTrackIdx = createResult["trackIndex"].toInt(-1);
         if (newTrackIdx < 0) return -1;
@@ -1153,6 +1389,7 @@ QJsonObject ToolDefinitions::execConvertDrumsFFXIV(const QJsonObject &args,
         insertAction["track"] = newTrackIdx;
         insertAction["channel"] = 0;
         insertAction["explanation"] = QString("FFXIV drum events: %1").arg(name);
+        if (!source.isEmpty()) insertAction["_source"] = source;
         widget->executeAction(insertAction);
         return newTrackIdx;
     };
@@ -1212,7 +1449,8 @@ static int ffxivProgramNumber(const QString &instrumentName) {
 // setup_channel_pattern — delegates to FFXIVChannelFixer
 // ---------------------------------------------------------------------------
 QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
-                                                      MidiPilotWidget * /*widget*/) {
+                                                      MidiPilotWidget * /*widget*/,
+                                                      const QString &source) {
     // V131-P2-04: FFXIVChannelFixer::fixChannels() calls
     // MidiChannel::removeEvent(..., true) in its CLEAN phase, which routes
     // through Protocol::enterUndoStep(). If no action is open, every undo
@@ -1221,7 +1459,9 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
     // this AI-tool entry point previously did not. Wrap here so the fix runs
     // under a Protocol action regardless of caller.
     if (file && file->protocol())
-        file->protocol()->startNewAction(QStringLiteral("Agent: setup channel pattern"));
+        file->protocol()->startNewAction(
+            protocolActorPrefix(source)
+            + QStringLiteral(": Agent setup channel pattern"));
     QJsonObject result = FFXIVChannelFixer::fixChannels(file);
     if (file && file->protocol())
         file->protocol()->endAction();
@@ -1231,6 +1471,30 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
 // ---------------------------------------------------------------------------
 // analyze_voice_load — read-only FFXIV voice / rate ceiling report (Phase 32.6)
 // ---------------------------------------------------------------------------
+QJsonObject ToolDefinitions::execSetFfxivMode(const QJsonObject &args,
+                                              MidiPilotWidget *widget) {
+    const bool enabled = args.value("enabled").toBool();
+    if (widget) {
+        // Through the checkbox: persists the setting AND raises
+        // ffxivModeChanged, which MainWindow forwards to the MCP server's
+        // tools/list_changed broadcast.
+        widget->setFfxivMode(enabled);
+    } else {
+        AppPaths::settings()->setValue("AI/ffxiv_mode", enabled);
+    }
+    QJsonObject result;
+    result["success"] = true;
+    result["ffxivMode"] = enabled;
+    result["summary"] = enabled
+        ? QStringLiteral("FFXIV mode enabled - the FFXIV tools (validate_ffxiv, "
+                         "convert_drums_ffxiv, setup_channel_pattern, analyze_voice_load, "
+                         "auto_fit_voice_load) and the FFXIV rules are available from your "
+                         "next step.")
+        : QStringLiteral("FFXIV mode disabled - the FFXIV tools are no longer available "
+                         "from your next step.");
+    return result;
+}
+
 QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiFile *file) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
     Q_UNUSED(args);
@@ -1319,7 +1583,37 @@ QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiF
         rateHotspots.append(hotspot);
     }
 
+    // Octet finding #3: this report used the tail-extended DISPLAY model
+    // (release tails keep sounding after note-off) while auto_fit_voice_load
+    // judges RAW concurrency - the two contradicted each other (display 24-30
+    // vs raw 7 on a fine file), and an agent reading only this tool "fixed"
+    // files that were never broken. Compute the raw truth alongside via the
+    // same engine auto_fit uses (a dry run with every removal pass off) and
+    // base the verdict on it.
+    int rawPeak = -1;
+    int rawOverflowRanges = -1;
+    {
+        AutoFitOptions rawOpts;
+        rawOpts.dryRun = true;
+        rawOpts.ratePercent = 0;
+        rawOpts.chordLimit = 0;        // 0 = chord pass off
+        rawOpts.desaturateRates = false;
+        if (hasStart) rawOpts.startTick = startTick;
+        if (hasEnd) rawOpts.endTick = endTick;
+        const AutoFitResult rawR = AutoFitVoiceLoadService::apply(file, rawOpts);
+        if (rawR.ok) {
+            rawPeak = rawR.peakBefore;
+            rawOverflowRanges = rawR.overflowRangeCount;
+        }
+    }
+
     result["success"] = true;
+    result["rawPeak"] = rawPeak;
+    result["rawOverflowRangeCount"] = rawOverflowRanges;
+    result["displayModelNote"] = QStringLiteral(
+        "globalPeak/overflowRanges use the tail-extended DISPLAY model (release tails "
+        "count as sounding). rawPeak counts notes that are really on - the number the "
+        "game enforces and the one auto_fit_voice_load uses. Judge by rawPeak.");
     result["voiceCeiling"] = FfxivVoiceAnalyzer::kVoiceCeiling;
     result["noteRateCeilingPerChannel"] = FfxivVoiceAnalyzer::kNoteRateCeilingPerChannel;
     result["noteRateWindowMs"] = FfxivVoiceAnalyzer::kNoteRateWindowMs;
@@ -1330,9 +1624,24 @@ QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiF
     result["rateHotspots"] = rateHotspots;
     if (hasStart) result["startTick"] = startTick;
     if (hasEnd) result["endTick"] = endTick;
+    // Verdict by the RAW model - the physical truth the game enforces.
     QString summary;
-    if (peak == 0) {
+    const bool rawKnown = rawPeak >= 0;
+    const bool rawOk = rawKnown && rawOverflowRanges == 0;
+    if (peak == 0 && (!rawKnown || rawPeak == 0)) {
         summary = QStringLiteral("No notes in range; voice-load is 0/16.");
+    } else if (rawKnown && rawOk && rateHotspots.isEmpty()) {
+        summary = QStringLiteral("OK: raw peak %1/16 voices (display model shows %2 with "
+                                 "release tails - that is normal), no rate hotspots.")
+                      .arg(rawPeak).arg(peak);
+    } else if (rawKnown) {
+        summary = QStringLiteral("WARNING: raw peak %1/16 voices, %2 raw overflow range(s), "
+                                 "%3 rate hotspot(s). (Display model: peak %4, %5 range(s).)")
+                      .arg(rawPeak)
+                      .arg(rawOverflowRanges)
+                      .arg(rateHotspots.size())
+                      .arg(peak)
+                      .arg(overflowRanges.size());
     } else if (overflowRanges.isEmpty() && rateHotspots.isEmpty()) {
         summary = QStringLiteral("OK: peak %1/16 voices, no rate hotspots.").arg(peak);
     } else {
@@ -1346,10 +1655,13 @@ QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiF
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
-QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiFile *file) {
+QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args,
+                                                  MidiFile *file,
+                                                  const QString &source) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
     Q_UNUSED(args);
     Q_UNUSED(file);
+    Q_UNUSED(source);
     QJsonObject result;
     result["success"] = false;
     result["error"] = QStringLiteral("Stub build: auto_fit_voice_load is unavailable.");
@@ -1373,6 +1685,11 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
         opts.chordLimit = args.value("chordLimit").toInt();
     if (args.contains("desaturateRates"))
         opts.desaturateRates = args.value("desaturateRates").toBool(true);
+    // Octet finding #4: the service default (10) is a GUI-dialog default -
+    // for the AI tool a dry run on a perfectly fine file reported "would
+    // remove 734 notes", which reads as "your file is broken". The agent
+    // fixes real overflows by default and OPTS IN to density thinning.
+    opts.ratePercent = 0;
     if (args.contains("ratePercent") && !args.value("ratePercent").isNull())
         opts.ratePercent = args.value("ratePercent").toInt();
     if (args.contains("rateKeepOneOf") && !args.value("rateKeepOneOf").isNull())
@@ -1380,6 +1697,13 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
     if (args.contains("preferLoudest"))
         opts.preferLoudest = args.value("preferLoudest").toBool(false);
     opts.dryRun = args.value("dryRun").toBool(true); // safe default: dry run
+
+    // Protocol-panel attribution. The label is built HERE (not in the service)
+    // so it uses the same "<actor>: Agent <verb>" format as every other
+    // agent/MCP action; the service keeps its own label for the dialog.
+    // Prefix concatenated, not .arg()-substituted - see execTransposeEvents.
+    opts.actionLabel = protocolActorPrefix(source)
+                       + QStringLiteral(": Agent auto-fit voice load");
 
     const AutoFitResult r = AutoFitVoiceLoadService::apply(file, opts);
     if (!r.ok) {
@@ -1466,4 +1790,633 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
     result["summary"] = summary;
     return result;
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execConvertTempoPreserveDuration(const QJsonObject &args,
+                                                              MidiFile *file,
+                                                              const QString &source) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    Q_UNUSED(source);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: convert_tempo_preserve_duration is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+
+    TempoConversionOptions opts;
+
+    // Scope first - it decides the tempoMode default and which id lists matter.
+    const QString scopeStr = args.value("scope").toString();
+    if (scopeStr == QLatin1String("whole")) {
+        opts.scope = TempoConversionScope::WholeProject;
+    } else if (scopeStr == QLatin1String("selected_tracks")) {
+        opts.scope = TempoConversionScope::SelectedTracks;
+    } else if (scopeStr == QLatin1String("selected_channels")) {
+        opts.scope = TempoConversionScope::SelectedChannels;
+    } else if (scopeStr == QLatin1String("selected_events")) {
+        opts.scope = TempoConversionScope::SelectedEvents;
+    } else {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid scope '%1'. Use whole, selected_tracks, "
+                                         "selected_channels or selected_events.").arg(scopeStr);
+        return result;
+    }
+    const bool partialScope = opts.scope != TempoConversionScope::WholeProject;
+
+    // Tempo-map mode. The tempo map is SHARED: replacing or rescaling it from
+    // a partial scope would retime every event OUTSIDE the scope too, so
+    // partial scopes only re-tick their own events (events_only).
+    if (args.contains("tempoMode") && !args.value("tempoMode").isNull()) {
+        const QString modeStr = args.value("tempoMode").toString();
+        if (modeStr == QLatin1String("replace")) {
+            opts.tempoMode = TempoConversionTempoMode::ReplaceFixed;
+        } else if (modeStr == QLatin1String("scale_map")) {
+            opts.tempoMode = TempoConversionTempoMode::ScaleTempoMap;
+        } else if (modeStr == QLatin1String("events_only")) {
+            opts.tempoMode = TempoConversionTempoMode::EventsOnly;
+        } else {
+            result["success"] = false;
+            result["error"] = QStringLiteral("Invalid tempoMode '%1'. Use replace, scale_map "
+                                             "or events_only.").arg(modeStr);
+            return result;
+        }
+        if (partialScope && opts.tempoMode != TempoConversionTempoMode::EventsOnly) {
+            result["success"] = false;
+            result["error"] = QStringLiteral(
+                "tempoMode '%1' is only valid with scope=whole: the tempo map is shared, so "
+                "changing it from a partial scope would retime everything outside the scope. "
+                "Use tempoMode=events_only (or omit it) for partial scopes.").arg(modeStr);
+            return result;
+        }
+    } else {
+        opts.tempoMode = partialScope ? TempoConversionTempoMode::EventsOnly
+                                      : TempoConversionTempoMode::ReplaceFixed;
+    }
+
+    // BPM pair. sourceBpm auto-detects from the file's first tempo event so
+    // the agent can say "fit this into the project tempo" without reading the
+    // map first (same detection the Convert Tempo dialog uses).
+    opts.targetBpm = args.value("targetBpm").toDouble();
+    if (args.contains("sourceBpm") && !args.value("sourceBpm").isNull()) {
+        opts.sourceBpm = args.value("sourceBpm").toDouble();
+    } else {
+        QMultiMap<int, MidiEvent *> *tempoMap = file->tempoEvents();
+        int bestTick = -1;
+        int bpm = 0;
+        if (tempoMap) {
+            for (auto it = tempoMap->begin(); it != tempoMap->end(); ++it) {
+                if (it.key() < 0) continue;
+                if (bestTick < 0 || it.key() < bestTick) {
+                    if (auto *tc = dynamic_cast<TempoChangeEvent *>(it.value())) {
+                        bestTick = it.key();
+                        bpm = tc->beatsPerQuarter();
+                    }
+                }
+            }
+        }
+        if (bpm <= 0) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("Could not auto-detect the source tempo (no tempo "
+                                             "event found) - pass sourceBpm explicitly.");
+            return result;
+        }
+        opts.sourceBpm = static_cast<double>(bpm);
+        result["detectedSourceBpm"] = opts.sourceBpm;
+    }
+
+    // Scope id lists.
+    if (opts.scope == TempoConversionScope::SelectedTracks) {
+        const QJsonArray ids = args.value("trackIds").toArray();
+        for (const QJsonValue &v : ids) opts.trackIds.insert(v.toInt());
+        if (opts.trackIds.isEmpty()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("scope=selected_tracks needs a non-empty trackIds "
+                                             "array of track numbers.");
+            return result;
+        }
+    } else if (opts.scope == TempoConversionScope::SelectedChannels) {
+        const QJsonArray ids = args.value("channelIds").toArray();
+        for (const QJsonValue &v : ids) {
+            const int ch = v.toInt(-1);
+            if (ch < 0 || ch > 15) {
+                result["success"] = false;
+                result["error"] = QStringLiteral("channelIds must contain MIDI channels 0-15 "
+                                                 "(got %1).").arg(ch);
+                return result;
+            }
+            opts.channelIds.insert(ch);
+        }
+        if (opts.channelIds.isEmpty()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("scope=selected_channels needs a non-empty "
+                                             "channelIds array (0-15).");
+            return result;
+        }
+    } else if (opts.scope == TempoConversionScope::SelectedEvents) {
+        // forFile, not instance(): during an agent/MCP run the user may have
+        // switched tabs, and instance() would read the wrong document.
+        Selection *sel = Selection::forFile(file);
+        const QList<MidiEvent *> events = sel ? sel->selectedEvents() : QList<MidiEvent *>();
+        for (MidiEvent *ev : events) {
+            opts.selectedEventPtrs.insert(reinterpret_cast<quintptr>(ev));
+            // TEMPO-OFFEVENT-001: selections never contain OffEvents (the
+            // editor refuses to select them) and the service matches exact
+            // pointers - without the linked note-off every rescaled note
+            // KEEPS its old end tick and can end before it starts. Always
+            // carry the off event along.
+            if (auto *on = dynamic_cast<OnEvent *>(ev)) {
+                if (on->offEvent()) {
+                    opts.selectedEventPtrs.insert(
+                        reinterpret_cast<quintptr>(on->offEvent()));
+                }
+            }
+        }
+        if (opts.selectedEventPtrs.isEmpty()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("scope=selected_events, but nothing is selected in "
+                                             "this document.");
+            return result;
+        }
+    }
+
+    // Protocol-panel attribution. The label is built HERE (not in the service)
+    // so it uses the same "<actor>: Agent <verb> - <detail>" format as every
+    // other agent/MCP action; the service keeps its own label for the dialog.
+    // Prefix concatenated, not .arg()-substituted - see execTransposeEvents.
+    opts.actionLabel = protocolActorPrefix(source)
+                       + QStringLiteral(": Agent convert tempo - %1 to %2 BPM "
+                                        "(duration preserved)")
+                             .arg(opts.sourceBpm, 0, 'f', 2)
+                             .arg(opts.targetBpm, 0, 'f', 2);
+
+    const bool dryRun = args.value("dryRun").toBool(true); // safe default
+    const TempoConversionResult r = dryRun ? TempoConversionService::preview(file, opts)
+                                           : TempoConversionService::convert(file, opts);
+    if (!r.ok) {
+        result["success"] = false;
+        result["error"] = r.error;
+        return result;
+    }
+    if (!dryRun && (r.affectedEvents > 0 || r.tempoEventsRemoved > 0)) {
+        // ReplaceFixed DELETES tempo events; if any were selected, the
+        // selection now holds stale pointers - and re-ticked events break the
+        // tick-order assumptions of a retained selection anyway. Clear THIS
+        // file's selection (forFile, same rule as auto_fit_voice_load).
+        Selection *sel = Selection::forFile(file);
+        if (sel) {
+            sel->clearSelection();
+        }
+    }
+
+    result["success"] = true;
+    result["dryRun"] = dryRun;
+    result["scope"] = scopeStr;
+    result["sourceBpm"] = opts.sourceBpm;
+    result["targetBpm"] = opts.targetBpm;
+    result["scaleFactor"] = r.scaleFactor;
+    result["affectedEvents"] = r.affectedEvents;
+    result["tempoEventsRemoved"] = r.tempoEventsRemoved;
+    result["tempoEventsInserted"] = r.tempoEventsInserted;
+    result["oldDurationMs"] = static_cast<double>(r.oldDurationMs);
+    result["newDurationMs"] = static_cast<double>(r.newDurationMs);
+    if (!r.warning.isEmpty())
+        result["warning"] = r.warning;
+
+    QString summary;
+    if (r.affectedEvents == 0 && r.tempoEventsRemoved == 0) {
+        summary = !r.warning.isEmpty()
+                      ? r.warning
+                      : QStringLiteral("Nothing in scope - no events to convert.");
+    } else {
+        summary = QStringLiteral("%1 %2 event(s) from %3 to %4 BPM (ticks x%5); tempo events: "
+                                 "%6 removed, %7 inserted; duration %8s -> %9s.")
+                      .arg(dryRun ? QStringLiteral("Would rescale") : QStringLiteral("Rescaled"))
+                      .arg(r.affectedEvents)
+                      .arg(opts.sourceBpm)
+                      .arg(opts.targetBpm)
+                      .arg(r.scaleFactor, 0, 'g', 6)
+                      .arg(r.tempoEventsRemoved)
+                      .arg(r.tempoEventsInserted)
+                      .arg(r.oldDurationMs / 1000.0, 0, 'f', 1)
+                      .arg(r.newDurationMs / 1000.0, 0, 'f', 1);
+        if (dryRun)
+            summary += QStringLiteral(" Present this to the user and ask for confirmation "
+                                      "before calling again with dryRun=false.");
+        else
+            summary += QStringLiteral(" One undo step restores everything.");
+    }
+    result["summary"] = summary;
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execTransposeEvents(const QJsonObject &args, MidiFile *file,
+                                                 const QString &source) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    Q_UNUSED(source);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: transpose_events is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+
+    const int semitones = args.value("semitones").toInt();
+    const bool fold = args.value("foldToRange").toBool(false);
+    if (semitones == 0 && !fold) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("semitones is 0 and foldToRange is false - nothing to do.");
+        return result;
+    }
+
+    int trackIndex = -1;
+    if (args.contains("trackIndex") && !args.value("trackIndex").isNull()) {
+        trackIndex = args.value("trackIndex").toInt();
+        if (trackIndex < 0 || trackIndex >= file->numTracks()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("Invalid trackIndex %1 (file has %2 tracks).")
+                                  .arg(trackIndex).arg(file->numTracks());
+            return result;
+        }
+    }
+    const bool hasStart = args.contains("startTick") && !args.value("startTick").isNull();
+    const bool hasEnd = args.contains("endTick") && !args.value("endTick").isNull();
+    const int startTick = hasStart ? args.value("startTick").toInt() : INT_MIN;
+    const int endTick = hasEnd ? args.value("endTick").toInt() : INT_MAX;
+    MidiTrack *track = trackIndex >= 0 ? file->track(trackIndex) : nullptr;
+
+    // Plan first, mutate second: an empty scope must not leave an empty
+    // step in the undo history.
+    struct Target {
+        NoteOnEvent *on;
+        int newNote;
+    };
+    QList<Target> targets;
+    int skipped = 0;
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            auto *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (!on) continue;
+            if (track && on->track() != track) continue;
+            const int tick = on->midiTime();
+            if (tick < startTick || tick > endTick) continue;
+            int n = on->note() + semitones;
+            if (fold) {
+                while (n < 48) n += 12;
+                while (n > 84) n -= 12;
+            }
+            if (n < 0 || n > 127) {
+                ++skipped; // would leave the MIDI range - leave it alone
+                continue;
+            }
+            if (n != on->note()) targets.append({on, n});
+        }
+    }
+
+    if (targets.isEmpty()) {
+        result["success"] = true;
+        result["transposed"] = 0;
+        result["skipped"] = skipped;
+        result["summary"] = QStringLiteral("Nothing to transpose in scope.");
+        return result;
+    }
+
+    // Actor prefix CONCATENATED, never .arg()-substituted: an MCP client name
+    // is remote input and a "%2" inside it would eat the next argument.
+    file->protocol()->startNewAction(
+        protocolActorPrefix(source)
+        + QStringLiteral(": Agent transpose notes - %1 semitones").arg(semitones));
+    for (const Target &t : targets) {
+        t.on->setNote(t.newNote);
+    }
+    file->protocol()->endAction();
+
+    result["success"] = true;
+    result["transposed"] = static_cast<int>(targets.size());
+    result["skipped"] = skipped;
+    result["summary"] = QStringLiteral(
+        "Transposed %1 note(s) by %2 semitone(s)%3%4. One undo step.")
+            .arg(targets.size())
+            .arg(semitones)
+            .arg(fold ? QStringLiteral(", folded into C3-C6") : QString())
+            .arg(skipped > 0 ? QStringLiteral(" (%1 skipped at the MIDI range edge)")
+                                   .arg(skipped)
+                             : QString());
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execSplitChordsToTracks(const QJsonObject &args, MidiFile *file,
+                                                     const QString &source) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    Q_UNUSED(source);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: split_chords_to_tracks is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+    const int trackIndex = args.value("trackIndex").toInt(-1);
+    if (trackIndex < 0 || trackIndex >= file->numTracks()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid trackIndex %1 (file has %2 tracks).")
+                              .arg(trackIndex).arg(file->numTracks());
+        return result;
+    }
+    MidiTrack *src = file->track(trackIndex);
+    int minNotes = 2;
+    if (args.contains("minNotes") && !args.value("minNotes").isNull())
+        minNotes = qMax(2, args.value("minNotes").toInt());
+    const bool keepOriginal = args.value("keepOriginal").toBool(false);
+
+    // Group note starts by tick - same-start grouping, like the GUI's
+    // Explode Chords with the "voices across chords" strategy.
+    QMap<int, QList<NoteOnEvent *>> groups;
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            auto *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (on && on->offEvent() && on->track() == src)
+                groups[on->midiTime()].append(on);
+        }
+    }
+    QList<QList<NoteOnEvent *>> chords;
+    for (auto it = groups.begin(); it != groups.end(); ++it) {
+        if (it.value().size() >= minNotes) chords.append(it.value());
+    }
+    if (chords.isEmpty()) {
+        result["success"] = true;
+        result["chordCount"] = 0;
+        result["summary"] = QStringLiteral(
+            "No chords (>= %1 simultaneous notes) on track %2 - nothing to split.")
+                .arg(minNotes).arg(trackIndex);
+        return result;
+    }
+
+    int maxVoices = 0;
+    for (const QList<NoteOnEvent *> &chord : chords)
+        maxVoices = qMax(maxVoices, static_cast<int>(chord.size()));
+
+    file->protocol()->startNewAction(
+        protocolActorPrefix(source)
+        + QStringLiteral(": Agent split chords to tracks - Track %1").arg(trackIndex));
+
+    const int firstNewIndex = file->numTracks();
+    QVector<MidiTrack *> voiceTracks;
+    voiceTracks.reserve(maxVoices);
+    for (int v = 0; v < maxVoices; ++v) {
+        file->addTrack();
+        MidiTrack *dst = file->tracks()->last();
+        dst->setName(src->name() + QStringLiteral(" - Voice %1").arg(v + 1));
+        voiceTracks.append(dst);
+    }
+
+    // keepOriginal copies notes; do it with ONE channel snapshot per touched
+    // channel (the documented bulk pattern) - per-note insertNote snapshots
+    // cost ~1 MB each on dense channels.
+    int processed = 0;
+    if (keepOriginal) {
+        QMap<int, QList<QPair<NoteOnEvent *, MidiTrack *>>> byChannel;
+        for (QList<NoteOnEvent *> chord : chords) {
+            std::sort(chord.begin(), chord.end(),
+                      [](NoteOnEvent *a, NoteOnEvent *b) { return a->note() > b->note(); });
+            for (int v = 0; v < chord.size(); ++v)
+                byChannel[chord[v]->channel()].append(qMakePair(chord[v], voiceTracks[v]));
+        }
+        for (auto it = byChannel.begin(); it != byChannel.end(); ++it) {
+            MidiChannel *channel = file->channel(it.key());
+            ProtocolEntry *toCopy = channel->copy();
+            for (const auto &pair : it.value()) {
+                NoteOnEvent *on = pair.first;
+                channel->insertNote(on->note(), on->midiTime(),
+                                    on->offEvent()->midiTime(), on->velocity(),
+                                    pair.second, /*toProtocol=*/false);
+                ++processed;
+            }
+            channel->protocol(toCopy, channel);
+        }
+    } else {
+        for (QList<NoteOnEvent *> chord : chords) {
+            std::sort(chord.begin(), chord.end(),
+                      [](NoteOnEvent *a, NoteOnEvent *b) { return a->note() > b->note(); });
+            for (int v = 0; v < chord.size(); ++v) {
+                chord[v]->setTrack(voiceTracks[v]);
+                chord[v]->offEvent()->setTrack(voiceTracks[v]);
+                ++processed;
+            }
+        }
+    }
+    file->protocol()->endAction();
+
+    QJsonArray newTrackIndexes;
+    for (int v = 0; v < maxVoices; ++v) newTrackIndexes.append(firstNewIndex + v);
+    result["success"] = true;
+    result["chordCount"] = static_cast<int>(chords.size());
+    result["voiceTrackCount"] = maxVoices;
+    result["newTrackIndexes"] = newTrackIndexes;
+    result["notesProcessed"] = processed;
+    result["summary"] = QStringLiteral(
+        "%1 %2 chord note(s) from %3 chord(s) onto %4 new track(s) (Voice 1 = highest; "
+        "indexes %5-%6). Rename the new tracks to FFXIV instruments and run "
+        "setup_channel_pattern LAST. One undo step.")
+            .arg(keepOriginal ? QStringLiteral("Copied") : QStringLiteral("Moved"))
+            .arg(processed)
+            .arg(chords.size())
+            .arg(maxVoices)
+            .arg(firstNewIndex)
+            .arg(firstNewIndex + maxVoices - 1);
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execCopyEventsToTrack(const QJsonObject &args, MidiFile *file,
+                                                   const QString &source) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    Q_UNUSED(source);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: copy_events_to_track is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+    const int sourceIndex = args.value("sourceTrackIndex").toInt(-1);
+    const int targetIndex = args.value("targetTrackIndex").toInt(-1);
+    if (sourceIndex < 0 || sourceIndex >= file->numTracks()
+        || targetIndex < 0 || targetIndex >= file->numTracks()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid track index (file has %1 tracks).")
+                              .arg(file->numTracks());
+        return result;
+    }
+    if (sourceIndex == targetIndex) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Source and target track are the same.");
+        return result;
+    }
+    const bool hasStart = args.contains("startTick") && !args.value("startTick").isNull();
+    const bool hasEnd = args.contains("endTick") && !args.value("endTick").isNull();
+    const int startTick = hasStart ? args.value("startTick").toInt() : INT_MIN;
+    const int endTick = hasEnd ? args.value("endTick").toInt() : INT_MAX;
+    MidiTrack *src = file->track(sourceIndex);
+    MidiTrack *dst = file->track(targetIndex);
+
+    QMap<int, QList<NoteOnEvent *>> byChannel;
+    int found = 0;
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            auto *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (!on || !on->offEvent() || on->track() != src) continue;
+            const int tick = on->midiTime();
+            if (tick < startTick || tick > endTick) continue;
+            byChannel[ch].append(on);
+            ++found;
+        }
+    }
+    if (found == 0) {
+        result["success"] = true;
+        result["copied"] = 0;
+        result["summary"] = QStringLiteral("No notes in scope on track %1.").arg(sourceIndex);
+        return result;
+    }
+
+    file->protocol()->startNewAction(
+        protocolActorPrefix(source)
+        + QStringLiteral(": Agent copy notes to track - Track %1 to Track %2")
+              .arg(sourceIndex)
+              .arg(targetIndex));
+    // ONE channel snapshot per touched channel (documented bulk pattern) -
+    // per-note insertNote snapshots cost ~1 MB each on dense channels.
+    for (auto it = byChannel.begin(); it != byChannel.end(); ++it) {
+        MidiChannel *channel = file->channel(it.key());
+        ProtocolEntry *toCopy = channel->copy();
+        for (NoteOnEvent *on : it.value()) {
+            channel->insertNote(on->note(), on->midiTime(),
+                                on->offEvent()->midiTime(), on->velocity(),
+                                dst, /*toProtocol=*/false);
+        }
+        channel->protocol(toCopy, channel);
+    }
+    file->protocol()->endAction();
+
+    result["success"] = true;
+    result["copied"] = found;
+    result["summary"] = QStringLiteral(
+        "Copied %1 note(s) from track %2 to track %3 (channels kept). One undo step.")
+            .arg(found).arg(sourceIndex).arg(targetIndex);
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execSearchHelp(const QJsonObject &args) {
+    QJsonObject result;
+    const QString query = args.value("query").toString().trimmed();
+    if (query.isEmpty()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Empty query.");
+        return result;
+    }
+    HelpDatabase &db = HelpDatabase::instance();
+    if (!db.isLoaded()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Help database not available in this build.");
+        return result;
+    }
+    const QList<HelpDatabase::Hit> hits = db.search(query, 5);
+    QJsonArray results;
+    for (const HelpDatabase::Hit &hit : hits) {
+        const HelpDatabase::Section &s = *hit.section;
+        QJsonObject r;
+        r["page"] = s.page;
+        r["anchor"] = s.anchor;
+        r["title"] = s.title;
+        r["pageTitle"] = s.pageTitle;
+        r["link"] = s.anchor.isEmpty() ? s.page
+                                       : QStringLiteral("%1#%2").arg(s.page, s.anchor);
+        QString snippet = s.text.left(220);
+        if (s.text.size() > 220) snippet += QStringLiteral("...");
+        r["snippet"] = snippet;
+        results.append(r);
+    }
+    result["success"] = true;
+    result["results"] = results;
+    result["summary"] = results.isEmpty()
+        ? QStringLiteral("No manual section matches '%1'.").arg(query)
+        : QStringLiteral("%1 manual section(s) match; read the best one with "
+                         "get_help_section and cite it.").arg(results.size());
+    return result;
+}
+
+QJsonObject ToolDefinitions::execGetHelpSection(const QJsonObject &args) {
+    QJsonObject result;
+    const QString page = args.value("page").toString();
+    const QString anchor = args.value("anchor").toString();
+    HelpDatabase &db = HelpDatabase::instance();
+    if (!db.isLoaded()) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Help database not available in this build.");
+        return result;
+    }
+    const HelpDatabase::Section *s = db.section(page, anchor);
+    if (!s) {
+        result["success"] = false;
+        result["error"] = QStringLiteral(
+            "No section '%1#%2' - use the page/anchor values a search_help "
+            "result returned.").arg(page, anchor);
+        return result;
+    }
+    result["success"] = true;
+    result["page"] = s->page;
+    result["anchor"] = s->anchor;
+    result["title"] = s->title;
+    result["pageTitle"] = s->pageTitle;
+    result["link"] = s->anchor.isEmpty() ? s->page
+                                         : QStringLiteral("%1#%2").arg(s->page, s->anchor);
+    // Cap: one manual section can reach ~18k chars; keep the reply sane and
+    // say so instead of silently cutting.
+    const int cap = 8000;
+    if (s->text.size() > cap) {
+        result["text"] = s->text.left(cap);
+        result["truncated"] = true;
+        result["totalChars"] = static_cast<int>(s->text.size());
+    } else {
+        result["text"] = s->text;
+    }
+    return result;
 }

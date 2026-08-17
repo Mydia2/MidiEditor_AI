@@ -7,40 +7,41 @@
 //   * clearStreamingBlocklist (single + bulk)
 //
 // The blocklist is session-only (in-memory static QSet) since PHASE-27.7,
-// so persistence is scoped to the current process. Each test still uses a
-// per-PID suffix on provider/model names so parallel runs cannot observe
-// each other's session state, and the QSettings("MidiEditor","NONE") key
-// snapshot/restore guards against any legacy keys clearStreamingBlocklist()
-// may wipe while migrating users off the old persisted format.
+// so persistence is scoped to the current process. Everything this test
+// touches in QSettings goes to a throwaway scope installed via
+// AppPaths::setSettingsScopeForTests() in initTestCase (v2.2 review): AiClient
+// writes AI/provider and AI/model through AppPaths::settings(), so without the
+// seam a run - and worse, an ABORTED run - left the real configuration
+// pointing at a synthetic test provider. QStandardPaths::setTestModeEnabled
+// does NOT sandbox the Windows registry, so the seam is the only protection.
 //
 // Network-touching paths (sendStreamingMessages, finished-lambda fallback)
 // are covered separately by tests/test_provider_matrix.cpp, which is opt-in
 // via MIDIPILOT_TEST_<PROVIDER>_KEY env vars.
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTest>
 
+#include "../src/AppPaths.h"
 #include "../src/ai/AiClient.h"
 
 class TestStreamingFallback : public QObject {
     Q_OBJECT
 
 private:
-    // Per-process suffix so parallel debug+release runs against the same
-    // QSettings registry can't observe each other.
-    QString _suffix;
-    QStringList _touchedKeys;
-    QHash<QString, QVariant> _apiBackup;
+    static constexpr const char *kTestOrg = "MidiEditorTest";
+    static constexpr const char *kTestApp = "StreamingFallback";
 
     QString providerName() const
     {
-        return QStringLiteral("custom__test_") + _suffix;
+        return QStringLiteral("custom__test");
     }
     QString modelName(const QString &base) const
     {
-        return base + QStringLiteral("__test_") + _suffix;
+        return base + QStringLiteral("__test");
     }
     QString blocklistKey(const QString &provider, const QString &model) const
     {
@@ -48,52 +49,32 @@ private:
                + provider + QStringLiteral(":") + model;
     }
 
-    void rememberKey(const QString &k) { _touchedKeys.append(k); }
-
-    void wipeTouchedKeys()
-    {
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        for (const QString &k : _touchedKeys) s.remove(k);
-        s.sync();
-    }
-
 private slots:
     void initTestCase()
     {
-        _suffix = QString::number(QCoreApplication::applicationPid());
-
-        // Snapshot AI/api_key + AI/provider + AI/model so reloadSettings()
-        // inside AiClient can't blow up if the host has weird values
-        // configured. We restore them in cleanupTestCase.
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        for (const QString &k : {QStringLiteral("AI/api_key"),
-                                  QStringLiteral("AI/provider"),
-                                  QStringLiteral("AI/model")}) {
-            _apiBackup.insert(k, s.value(k));
-        }
+        // FIRST statement, before any AiClient exists: AiClient captures
+        // AppPaths::settings() in its constructor, and setProvider/setModel
+        // write AI/provider + AI/model. Everything below therefore has to land
+        // in a throwaway scope, never in the developer's real configuration.
+        AppPaths::setSettingsScopeForTests(QLatin1String(kTestOrg),
+                                          QLatin1String(kTestApp));
     }
 
     void cleanupTestCase()
     {
-        wipeTouchedKeys();
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        for (auto it = _apiBackup.constBegin(); it != _apiBackup.constEnd(); ++it) {
-            if (it.value().isValid()) s.setValue(it.key(), it.value());
-            else s.remove(it.key());
-        }
-        s.sync();
+        QSettings(QLatin1String(kTestOrg), QLatin1String(kTestApp)).clear();
+        AppPaths::setSettingsScopeForTests(QString(), QString());
     }
 
     void cleanup()
     {
         // Wipe between test methods so they remain order-independent.
         // The session-only blocklist lives in a process-wide static QSet,
-        // so we also have to clear it via the public API – just wiping
-        // QSettings is no longer enough since PHASE-27.7.
+        // so we have to clear it via the public API – wiping QSettings was
+        // never enough since PHASE-27.7.
         AiClient client;
         client.clearStreamingBlocklist();
-        wipeTouchedKeys();
-        _touchedKeys.clear();
+        AppPaths::settings()->clear();
     }
 
     // ------------------------------------------------------------------
@@ -106,7 +87,6 @@ private slots:
         client.setProvider(providerName());
         const QString model = modelName(QStringLiteral("alpha"));
         client.setModel(model);
-        rememberKey(blocklistKey(providerName(), model));
 
         QVERIFY2(!client.streamingDisabledForCurrentModel(),
                  "Fresh model must not be blocklisted.");
@@ -121,10 +101,10 @@ private slots:
         // The blocklist is session-only since PHASE-27.7, so it must NOT
         // leak into QSettings under either the v1 or v2 prefix. Otherwise
         // a previous failing run would silently disable streaming forever.
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        QVERIFY2(!s.contains(blocklistKey(providerName(), model)),
+        auto s = AppPaths::settings();
+        QVERIFY2(!s->contains(blocklistKey(providerName(), model)),
                  "Session-only blocklist must not persist to QSettings.");
-        QVERIFY2(!s.contains(QStringLiteral("AI/streaming_blocklist_v2/")
+        QVERIFY2(!s->contains(QStringLiteral("AI/streaming_blocklist_v2/")
                               + providerName() + QStringLiteral(":") + model),
                  "Session-only blocklist must not persist to v2 QSettings key.");
     }
@@ -141,8 +121,6 @@ private slots:
 
         const QString modelA = modelName(QStringLiteral("alpha"));
         const QString modelB = modelName(QStringLiteral("beta"));
-        rememberKey(blocklistKey(providerName(), modelA));
-        rememberKey(blocklistKey(providerName(), modelB));
 
         client.setModel(modelA);
         client.markStreamingUnsupportedForCurrentModel(QStringLiteral("test"));
@@ -170,14 +148,13 @@ private slots:
         client.setModel(QString());
 
         const QString badKey = blocklistKey(providerName(), QString());
-        rememberKey(badKey);
 
         client.markStreamingUnsupportedForCurrentModel(QStringLiteral("test"));
         QVERIFY2(!client.streamingDisabledForCurrentModel(),
                  "Empty model name must report not-blocklisted.");
 
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        QVERIFY2(!s.contains(badKey),
+        auto s = AppPaths::settings();
+        QVERIFY2(!s->contains(badKey),
                  "Empty model name must not write a malformed blocklist key.");
     }
 
@@ -190,7 +167,6 @@ private slots:
         client.setProvider(providerName());
         const QString model = modelName(QStringLiteral("alpha"));
         client.setModel(model);
-        rememberKey(blocklistKey(providerName(), model));
 
         client.markStreamingUnsupportedForCurrentModel(QStringLiteral("test"));
         QVERIFY(client.streamingDisabledForCurrentModel());
@@ -199,8 +175,8 @@ private slots:
         QVERIFY2(!client.streamingDisabledForCurrentModel(),
                  "Targeted clear must re-enable streaming.");
 
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        QVERIFY(!s.contains(blocklistKey(providerName(), model)));
+        auto s = AppPaths::settings();
+        QVERIFY(!s->contains(blocklistKey(providerName(), model)));
     }
 
     // ------------------------------------------------------------------
@@ -214,8 +190,6 @@ private slots:
 
         const QString modelA = modelName(QStringLiteral("alpha"));
         const QString modelB = modelName(QStringLiteral("beta"));
-        rememberKey(blocklistKey(providerName(), modelA));
-        rememberKey(blocklistKey(providerName(), modelB));
 
         client.setModel(modelA);
         client.markStreamingUnsupportedForCurrentModel(QStringLiteral("test"));
@@ -242,7 +216,6 @@ private slots:
     void blocklist_persistsAcrossClientInstances()
     {
         const QString model = modelName(QStringLiteral("alpha"));
-        rememberKey(blocklistKey(providerName(), model));
 
         {
             AiClient writer;
@@ -318,6 +291,71 @@ private slots:
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-4o-prod-v2")));
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("my-project-model")));
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5-provider")));
+    }
+
+    // ------------------------------------------------------------------
+    // TOOLS-INCAPABLE-EXPIRY: the "this model cannot call tools" flag used to
+    // be a permanent bool, so one misclassified error refused a model in Agent
+    // mode forever. It must now (a) latch right after mark(), (b) expire once
+    // the stored observation is older than toolsIncapableExpiryDays(),
+    // (c) count a legacy bool entry (no timestamp) as expired, and (d) be
+    // clearable on demand.
+    // ------------------------------------------------------------------
+    void toolsIncapableFlag_expiresAndClears()
+    {
+        const QString model = modelName(QStringLiteral("nontools"));
+        const QString key = QStringLiteral("AI/incapable_tools/")
+                            + providerName() + QStringLiteral(":") + model;
+
+        AiClient client;
+        client.setProvider(providerName());
+        client.setModel(model);
+
+        QVERIFY2(!client.toolsIncapableForCurrentModel(),
+                 "Fresh model must not be flagged.");
+
+        client.markToolsIncapableForCurrentModel(
+            QStringLiteral("HTTP 404 no endpoints found that support tool use (test)"));
+        QVERIFY2(client.toolsIncapableForCurrentModel(),
+                 "Model must be flagged right after mark().");
+
+        // The stored value is a timestamp, not a bool - that is what makes the
+        // flag expirable at all.
+        auto s = AppPaths::settings();
+        QVERIFY(s->contains(key));
+        QVERIFY2(QDateTime::fromString(s->value(key).toString(), Qt::ISODate).isValid(),
+                 "The flag must persist an ISO-8601 timestamp.");
+
+        // Just inside the window: still flagged.
+        s->setValue(key, QDateTime::currentDateTimeUtc()
+                             .addDays(-(AiClient::toolsIncapableExpiryDays() - 1))
+                             .toString(Qt::ISODate));
+        s->sync();
+        QVERIFY2(client.toolsIncapableForCurrentModel(),
+                 "An observation younger than the expiry must still refuse.");
+
+        // Past the window: expired, the model gets re-probed.
+        s->setValue(key, QDateTime::currentDateTimeUtc()
+                             .addDays(-(AiClient::toolsIncapableExpiryDays() + 1))
+                             .toString(Qt::ISODate));
+        s->sync();
+        QVERIFY2(!client.toolsIncapableForCurrentModel(),
+                 "An observation older than the expiry must be re-probed.");
+
+        // Backward compatibility: a bare bool from an older build carries no
+        // first-sight time and counts as expired.
+        s->setValue(key, true);
+        s->sync();
+        QVERIFY2(!client.toolsIncapableForCurrentModel(),
+                 "A legacy bool entry must be treated as expired.");
+
+        // Explicit reset (the gear-menu action / the successful-run path).
+        client.markToolsIncapableForCurrentModel(QStringLiteral("test"));
+        QVERIFY(client.toolsIncapableForCurrentModel());
+        client.clearToolsIncapableFlag(providerName(), model);
+        QVERIFY2(!client.toolsIncapableForCurrentModel(),
+                 "clearToolsIncapableFlag must remove the flag.");
+        QVERIFY(!AppPaths::settings()->contains(key));
     }
 };
 

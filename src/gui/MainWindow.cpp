@@ -64,12 +64,26 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+// PSAPI_VERSION 2 maps GetProcessMemoryInfo to K32GetProcessMemoryInfo in
+// kernel32 - no extra link dependency (same approach as test_event_perf).
+#ifndef PSAPI_VERSION
+#define PSAPI_VERSION 2
+#endif
+#include <psapi.h>
 #else
 #include <unistd.h>
 #endif
 
+#include <QLoggingCategory>
+
+// v2.2 #3: measurement-session channel. Silent at the default logging level
+// (Warnings) - enable via Settings key Logging/perCategory =
+// "midieditor.memory=true" to get the 1 Hz fixed-field samples.
+Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
+
 #include <cmath>
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <QComboBox>
 
@@ -107,6 +121,10 @@
 #include "SplitChannelsDialog.h"
 #include "FFXIVDrumSplitDialog.h"
 #include "AutoFitVoiceLoadDialog.h"
+#include "FfxivPlayabilityDialog.h"
+#include "../ai/FfxivPlayabilityValidator.h"
+#include "../converter/AutoFitVoiceLoadService.h"
+#include "../AppPaths.h"
 #include "DrumKitPreset.h"
 #include "MatrixWidget.h"
 #include "OpenGLMatrixWidget.h"
@@ -147,9 +165,11 @@
 #include "ImportOnlyFormats.h"
 #include "FfxivVoiceGaugeWidget.h"
 #include "AiSettingsWidget.h"
+#include "AppearanceSettingsWidget.h"
 
 #include "../ai/McpServer.h"
 #include "../ai/FfxivVoiceAnalyzer.h"
+#include "../ai/MidiEventSerializer.h"
 
 #include <QDockWidget>
 
@@ -227,7 +247,9 @@ MainWindow::MainWindow(QString initFile)
     : QMainWindow()
       , _initFile(initFile) {
     file = 0;
-    _settings = new QSettings(QString("MidiEditor"), QString("NONE"));
+    // Phase 45 step 4: AppPaths decides where settings live (native scope
+    // normally, INI next to the exe in portable mode).
+    _settings = AppPaths::settings().release();
 
     _moveSelectedEventsToChannelMenu = 0;
     _moveSelectedEventsToTrackMenu = 0;
@@ -455,7 +477,16 @@ MainWindow::MainWindow(QString initFile)
         qWarning() << "MainWindow: Automatically disabling hardware acceleration due to Qt6 high DPI compatibility issues.";
         qWarning() << "MainWindow: To use hardware acceleration, enable 'Ignore system UI scaling' in Performance settings.";
         useHardwareAcceleration = false; // Automatically disable to prevent rendering issues
+        // Remember WHY, so the Performance settings page can say so instead of
+        // showing a ticked checkbox for a renderer that never came up.
+        Appearance::setHardwareAccelerationOverrideScale(dpr);
+    } else {
+        Appearance::setHardwareAccelerationOverrideScale(0.0);
     }
+
+    // Publish the EFFECTIVE renderer (runtime only, never persisted): the stored
+    // setting is the request, this is what actually got built.
+    Appearance::setHardwareAccelerationActive(useHardwareAcceleration);
 
     QWidget *matrixContainer;
 
@@ -989,7 +1020,7 @@ MainWindow::MainWindow(QString initFile)
         // When the user clicks a hunk and the widget updates the global
         // Selection, repaint the piano roll so the highlight shows.
         connect(collabHistory, &CollabHistoryWidget::selectionApplied, this, [this]() {
-            if (_matrixWidgetContainer) _matrixWidgetContainer->update();
+            refreshMatrixView();
             if (eventWidget()) eventWidget()->reload();
         });
 
@@ -1208,9 +1239,11 @@ MainWindow::MainWindow(QString initFile)
         // Invalidate the cached pixmap so the matrix redraws from current MidiFile data.
         // Without this, update() just repaints the stale cache (normally invalidated
         // only by Protocol::actionFinished which doesn't fire mid-agent-run).
-        mw_matrixWidget->registerRelayout();
-        _matrixWidgetContainer->update();
-        _miscWidgetContainer->update();
+        // The pointers are null after performEarlyCleanup(), which pumps the event
+        // loop and can still dispatch a queued agent callback.
+        if (mw_matrixWidget) mw_matrixWidget->registerRelayout();
+        refreshMatrixView();
+        refreshMiscView();
         _trackWidget->update();
     });
 
@@ -1218,6 +1251,12 @@ MainWindow::MainWindow(QString initFile)
     _mcpServer = new McpServer(this);
     _mcpServer->setWidget(_midiPilotWidget);
     if (file) _mcpServer->setFile(file);
+    // Phase 46: the FFXIV tool bundle appears/disappears with the mode, so
+    // connected MCP clients must be told to refresh their tool list. This is
+    // the notification the manual promised since the MCP server shipped -
+    // broadcastToolsChanged() existed but nothing ever called it.
+    connect(_midiPilotWidget, &MidiPilotWidget::ffxivModeChanged,
+            _mcpServer, [this]() { _mcpServer->broadcastToolsChanged(); });
 
     QWidget *buttons = setupActions(central);
 
@@ -1264,6 +1303,32 @@ MainWindow::MainWindow(QString initFile)
     statusBar()->addPermanentWidget(_statusCursorLabel);
     statusBar()->addPermanentWidget(_statusSelectionLabel);
     statusBar()->addPermanentWidget(_statusChordLabel);
+
+    // v2.2 #3: undo-memory readout, fed by a 1 Hz sampler (NOT by
+    // actionFinished, which fires per protocol item - one erase-drag would
+    // repaint it hundreds of times). Plain text, no colour thresholds: the
+    // measurement phase decides bands, not a guess.
+    _statusUndoLabel = new QLabel(this);
+    // COUNTER-UNDOCHURN-001 + TABCLOSE-COUNTER-001 (documented, not fixed):
+    // pressing Undo does NOT shrink the MB figure (undone snapshots stay
+    // retained for Redo), and a closed tab's history stays allocated for the
+    // session but leaves the figure (only open tabs are summed) - the label
+    // under-reports after closes. Reclaim semantics belong to the future
+    // history-cap work; see the roadmap's cap-policy section.
+    _statusUndoLabel->setToolTip(tr("Undo history of the active document and the "
+                                    "undo-snapshot memory of all open tabs "
+                                    "(structural estimate; Task Manager shows more).\n"
+                                    "It is a running total: it does not drop on Undo "
+                                    "(undone steps stay in memory so Redo can restore "
+                                    "them) and it does not drop when redo steps are "
+                                    "discarded by a new edit - read it as an upper bound. "
+                                    "Closed tabs leave the figure, but their history "
+                                    "stays in memory until the app closes."));
+    statusBar()->addPermanentWidget(_statusUndoLabel);
+    _memorySampler = new QTimer(this);
+    _memorySampler->setInterval(1000);
+    connect(_memorySampler, &QTimer::timeout, this, &MainWindow::sampleUndoMemory);
+    _memorySampler->start();
 
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     _statusLiveSessionLabel = new QLabel(this);
@@ -1552,6 +1617,31 @@ void MainWindow::performEarlyCleanup() {
     // Set shutdown flag immediately to prevent any QPixmap creation during cleanup
     Appearance::setShuttingDown(true);
 
+    // Drop the engine-switch stop hook here too (the destructor clears it as
+    // well, but closeEvent runs this function long before the destructor): it
+    // captured `this` and calls stop(), which the processEvents() below could
+    // otherwise dispatch into the half-torn-down window.
+    C64Mode::setStopPlaybackHook(nullptr);
+
+    // Sever the transport wiring BEFORE stopping playback. MidiPlayer::stop()
+    // below makes the player thread emit playerStopped() from its OWN thread, so
+    // every main-thread receiver gets a QUEUED metacall that MidiPlayer's
+    // QThread::wait() cannot drain. The processEvents() at the end of this
+    // function would then dispatch MainWindow::stop() (connected in play() and in
+    // the record path) AFTER the container pointers below have been nulled -
+    // which used to crash on `_matrixWidgetContainer->update()`. Cutting the
+    // connections here means the metacall is never posted at all. The player
+    // thread also drives the lyric timeline / voice lane / visualizers, whose
+    // queued repaints would otherwise land on freed state for the same reason.
+    if (PlayerThread *player = MidiPlayer::playerThread()) {
+        disconnect(player, nullptr, this, nullptr);
+        if (_lyricTimeline) disconnect(player, nullptr, _lyricTimeline, nullptr);
+        if (_voiceLaneWidget) disconnect(player, nullptr, _voiceLaneWidget, nullptr);
+        if (_lyricVisualizer) disconnect(player, nullptr, _lyricVisualizer, nullptr);
+        if (_visualizer) disconnect(player, nullptr, _visualizer, nullptr);
+        if (_timeDisplay) disconnect(player, nullptr, _timeDisplay, nullptr);
+    }
+
     // Stop any ongoing MIDI operations first
     if (MidiPlayer::isPlaying()) {
         MidiPlayer::stop();
@@ -1562,7 +1652,35 @@ void MainWindow::performEarlyCleanup() {
         MidiInput::endInput(nullptr); // Pass nullptr since we're just stopping, not saving
     }
 
-    // Clean up OpenGL widgets explicitly while OpenGL context is still valid
+    // Detach everything that caches the primary MatrixWidget before it is
+    // destroyed with its OpenGL wrapper. The tool statics are read by
+    // EventMoveTool/SizeChangeTool/StandardTool (setCursor, activeEvents), and
+    // the lyric/voice lanes dereference their cached pointer from paintEvent -
+    // all of which the processEvents() below can still reach.
+    const bool destroyingPrimaryView =
+        qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer) != nullptr;
+    if (destroyingPrimaryView) {
+        EditorTool::setOpenGLContainer(nullptr);
+        // Only drop the tool target if it IS the pane about to die - the second
+        // editor group is a plain widget that outlives this function.
+        if (EditorTool::currentMatrixWidget() == mw_matrixWidget) {
+            EditorTool::setMatrixWidget(nullptr);
+        }
+        if (_lyricTimeline) _lyricTimeline->detachMatrixWidget();
+        if (_voiceLaneWidget) _voiceLaneWidget->detachMatrixWidget();
+    }
+
+    // Clean up OpenGL widgets explicitly while OpenGL context is still valid.
+    // The misc lane goes FIRST: its internal MiscWidget holds the matrix widget
+    // that the block below destroys.
+    if (_miscWidgetContainer && _miscWidgetContainer != _miscWidget) {
+        qDebug() << "MainWindow: Early cleanup of OpenGL misc widget";
+        _miscWidgetContainer->setParent(nullptr);
+        delete _miscWidgetContainer;
+        _miscWidgetContainer = nullptr;
+        _miscWidget = nullptr;
+    }
+
     if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
         qDebug() << "MainWindow: Early cleanup of OpenGL matrix widget";
         openglMatrix->setParent(nullptr);
@@ -1576,18 +1694,30 @@ void MainWindow::performEarlyCleanup() {
         _activeView = nullptr;
     }
 
-    if (_miscWidgetContainer && _miscWidgetContainer != _miscWidget) {
-        qDebug() << "MainWindow: Early cleanup of OpenGL misc widget";
-        _miscWidgetContainer->setParent(nullptr);
-        delete _miscWidgetContainer;
-        _miscWidgetContainer = nullptr;
-        _miscWidget = nullptr;
-    }
-
     // Force immediate processing of any pending events
     QApplication::processEvents(QEventLoop::AllEvents);
 
     qDebug() << "MainWindow: Early OpenGL cleanup completed";
+}
+
+void MainWindow::refreshMatrixView() {
+    // Never call mw_matrixWidget->update() for this: under hardware acceleration
+    // that is the hidden inner widget of the OpenGL wrapper and Qt drops the
+    // request, leaving the GPU surface on the previous frame. The container is
+    // the visible widget in both modes (it IS mw_matrixWidget in software mode).
+    if (_matrixWidgetContainer) {
+        _matrixWidgetContainer->update();
+    } else if (mw_matrixWidget) {
+        mw_matrixWidget->update();
+    }
+}
+
+void MainWindow::refreshMiscView() {
+    if (_miscWidgetContainer) {
+        _miscWidgetContainer->update();
+    } else if (_miscWidget) {
+        _miscWidget->update();
+    }
 }
 
 void MainWindow::initializeSharedClipboard() {
@@ -1634,7 +1764,8 @@ void MainWindow::loadInitFile() {
         syncVelocitySplitterFromView();
         if (mw_matrixWidget) mw_matrixWidget->calcSizes();
         if (_compareMatrixWidget) _compareMatrixWidget->calcSizes();
-        if (_miscWidgetContainer) _miscWidgetContainer->update();
+        refreshMatrixView();
+        refreshMiscView();
         if (_compareMisc) _compareMisc->update();
     });
 }
@@ -1847,7 +1978,11 @@ void MainWindow::broadcastLocalViewState() {
     tracks.reserve(file->numTracks());
     for (int i = 0; i < file->numTracks(); i++) {
         MidiTrack *t = file->track(i);
-        tracks.append(t ? !t->hidden() : true);
+        // hiddenByUser(): broadcast the DOCUMENT's visibility, so a local
+        // view-only overlay (playability focus mode) is not pushed onto every
+        // viewer - and the viewer's setHiddenSilent writes the same flag back
+        // (FOCUS-DEADEYE-001).
+        tracks.append(t ? !t->hiddenByUser() : true);
     }
     channels.reserve(16);
     for (int i = 0; i < 16; i++) {
@@ -2028,6 +2163,11 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     if (_autoFitDialog) {
         _autoFitDialog->close();
     }
+    // Same rule for the playability workbench (Phase 46): its report holds
+    // note pointers of ONE document.
+    if (_playabilityDialog) {
+        _playabilityDialog->close();
+    }
 
     Selection::setFile(newFile);
     // Phase 28.1c: channel visibility is per-document; make this document's
@@ -2064,6 +2204,13 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
 #endif
 
     this->file = newFile;
+    // v2.2 #3 (found during the undo-memory investigation): updateStatusBar()
+    // exists only as a connect target of the per-file actionFinished, so after
+    // a tab switch the cursor/selection/chord labels kept showing the PREVIOUS
+    // document's numbers until the next edit. Refresh explicitly - AFTER the
+    // member rebind above, which is what updateStatusBar() reads
+    // (STATUSBAR-ORDER-001: it used to run before and fixed nothing).
+    updateStatusBar();
     if (newFile) {
         setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
         // Phase 28 (editor groups): the "[*]" modified marker is window-global, so
@@ -2161,8 +2308,8 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     }
     updateChannelMenu();
     updateTrackMenu();
-    _matrixWidgetContainer->update();
-    _miscWidgetContainer->update();
+    refreshMatrixView();
+    refreshMiscView();
 
     // Update paste action state when file changes
     copiedEventsChanged();
@@ -2852,11 +2999,21 @@ void MainWindow::focusEditorView(MatrixWidget *view) {
         return;
     }
     EditorTool::setMatrixWidget(view);
+    // Under hardware acceleration the primary view is the HIDDEN inner widget of
+    // the OpenGL wrapper, and Qt refuses focus to a hidden widget - so the editor
+    // area could never take keyboard focus and piano emulation stayed dead once
+    // focus had landed in a text field. Focus the visible wrapper instead. In
+    // software rendering _matrixWidgetContainer IS the view, so this is a no-op
+    // change; the compare pane is always a plain visible widget.
+    QWidget *focusTarget = view;
+    if (view == mw_matrixWidget && _matrixWidgetContainer) {
+        focusTarget = _matrixWidgetContainer;
+    }
     // setFocus() triggers focusInEvent -> claimAsActiveView, which is a no-op when
     // the view already holds focus; the hasFocus() guard avoids needless churn and
     // re-entrancy through onViewFocused.
-    if (!view->hasFocus()) {
-        view->setFocus(Qt::MouseFocusReason);
+    if (!focusTarget->hasFocus()) {
+        focusTarget->setFocus(Qt::MouseFocusReason);
     }
 }
 
@@ -3713,7 +3870,7 @@ void MainWindow::matrixSizeChanged(int maxScrollTime, int maxScrollLine,
     }
 
     // Update the matrix widget
-    _matrixWidgetContainer->update();
+    refreshMatrixView();
 }
 
 void MainWindow::playStop() {
@@ -4052,11 +4209,14 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
 
     if (resetPause) {
         file->setPauseTick(-1);
-        _matrixWidgetContainer->update();
+        // refreshMatrixView() instead of a bare deref: the editor views are gone
+        // (pointers nulled) once performEarlyCleanup() has run, and this slot is
+        // reachable from a queued playerStopped().
+        refreshMatrixView();
     }
     if (!MidiInput::recording() && MidiPlayer::isPlaying()) {
         MidiPlayer::stop();
-        _miscWidgetContainer->setEnabled(true);
+        if (_miscWidgetContainer) _miscWidgetContainer->setEnabled(true);
         channelWidget->setEnabled(true);
         _trackWidget->setEnabled(true);
         protocolWidget->setEnabled(true);
@@ -4070,7 +4230,7 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
             matrixWidget->timeMsChanged(MidiPlayer::timeMs(), true);
         }
         // Reset lyric timeline playback position
-        _lyricTimeline->onPlaybackPositionChanged(-1);
+        if (_lyricTimeline) _lyricTimeline->onPlaybackPositionChanged(-1);
         _trackWidget->setEnabled(true);
         panic();
     }
@@ -4083,10 +4243,10 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
     if (MidiInput::recording()) {
         MidiPlayer::stop();
         panic();
-        _miscWidgetContainer->setEnabled(true);
+        if (_miscWidgetContainer) _miscWidgetContainer->setEnabled(true);
         channelWidget->setEnabled(true);
         protocolWidget->setEnabled(true);
-        _matrixWidgetContainer->setEnabled(true);
+        if (_matrixWidgetContainer) _matrixWidgetContainer->setEnabled(true);
         _trackWidget->setEnabled(true);
         eventWidget()->setEnabled(true);
         QMultiMap<int, MidiEvent *> events = MidiInput::endInput(track);
@@ -4338,7 +4498,10 @@ bool MainWindow::saveas() {
             }
         }
         foreach(MidiTrack* track, *(file->tracks())) {
-            if (track->muted() || track->hidden()) {
+            // hiddenByUser(): a temporary focus overlay is not a property of
+            // the saved file, so it must not raise the "not audible" warning
+            // (FOCUS-DEADEYE-001).
+            if (track->muted() || track->hiddenByUser()) {
                 printMuteWarning = true;
             }
         }
@@ -4643,6 +4806,16 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         event->ignore();
     }
 
+    // Persist the view preferences BEFORE the teardown below: under hardware
+    // acceleration performEarlyCleanup() destroys the piano roll and nulls
+    // mw_matrixWidget, so the guarded write further down silently skipped and the
+    // grid division / screen lock / colouring never survived a restart.
+    if (mw_matrixWidget) {
+        _settings->setValue("screen_locked", mw_matrixWidget->screenLocked());
+        _settings->setValue("div", mw_matrixWidget->div());
+        _settings->setValue("colors_from_channel", mw_matrixWidget->colorsByChannel());
+    }
+
     // Only perform early cleanup if we're actually closing
     if (shouldClose) {
         saveSession(); // persist open tabs/groups for next launch (before teardown)
@@ -4666,12 +4839,8 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     _settings->setValue("alt_stop", MidiOutput::isAlternativePlayer);
     _settings->setValue("ticks_per_quarter", MidiFile::defaultTimePerQuarter);
 
-    // Only save matrix widget settings if the widget is still valid
-    if (mw_matrixWidget) {
-        _settings->setValue("screen_locked", mw_matrixWidget->screenLocked());
-        _settings->setValue("div", mw_matrixWidget->div());
-        _settings->setValue("colors_from_channel", mw_matrixWidget->colorsByChannel());
-    }
+    // (screen_locked / div / colors_from_channel are written above, while the
+    // matrix widget is guaranteed to be alive.)
 
     _settings->setValue("magnet", EventTool::magnetEnabled());
     _settings->setValue("metronome", Metronome::enabled());
@@ -5137,7 +5306,8 @@ void MainWindow::openFfxivEqualizer() {
 void MainWindow::updateVoiceLaneVisibility() {
     if (!_voiceLaneArea) return;
 
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     bool alwaysShow = s.value("View/showVoiceLane", false).toBool();
     bool autoFollow = s.value("View/voiceLaneAutoFollowFfxiv", true).toBool();
 
@@ -5683,6 +5853,26 @@ void MainWindow::unmuteAllTracks() {
 void MainWindow::allTracksVisible() {
     if (!file)
         return;
+    // FOCUS-DEADEYE-001: if no track is hidden in the DOCUMENT, the only thing
+    // hiding anything is the playability workbench's view overlay - releasing
+    // that is not an edit, so no protocol action is opened (an empty action
+    // still wipes the redo stack and marks the file modified). As soon as one
+    // track really is hidden, the normal undoable path runs and setHidden()
+    // ends the overlay along the way.
+    bool anyHiddenByUser = false;
+    foreach(MidiTrack* track, *(file->tracks())) {
+        if (track->hiddenByUser()) {
+            anyHiddenByUser = true;
+            break;
+        }
+    }
+    if (!anyHiddenByUser) {
+        foreach(MidiTrack* track, *(file->tracks())) {
+            track->setFocusHidden(false);
+        }
+        updateAll(); // includes _trackWidget->update()
+        return;
+    }
     file->protocol()->startNewAction(tr("Show all tracks"));
     foreach(MidiTrack* track, *(file->tracks())) {
         track->setHidden(false);
@@ -5735,15 +5925,30 @@ void MainWindow::selectAllFromChannel(QAction *action) {
 
     // Collect events for batch selection
     QList<MidiEvent *> eventsToSelect;
+    // SELECTCH-CHURN-001 / FOCUS-DEADEYE-001: un-hide each affected track ONCE
+    // instead of once per event. The old loop asked setHidden(false) per event,
+    // which is a full protocol item plus a track-menu rebuild per event
+    // (thousands on a dense channel) - and under the playability workbench's
+    // focus mode hidden() never converged, because the view overlay stayed on
+    // no matter how often the document flag was cleared. Reading the raw
+    // document flag makes the test converge; setHidden() clears the overlay.
+    QSet<MidiTrack *> tracksToShow;
     foreach(MidiEvent* e, file->channel(channel)->eventMap()->values()) {
-        if (e->track()->hidden()) {
-            e->track()->setHidden(false);
+        if (e->track() && e->track()->hidden()) {
+            tracksToShow.insert(e->track());
         }
 
         // Skip OffEvents
         OffEvent *offevent = dynamic_cast<OffEvent *>(e);
         if (!offevent) {
             eventsToSelect.append(e);
+        }
+    }
+    for (MidiTrack *t : tracksToShow) {
+        if (t->hiddenByUser()) {
+            t->setHidden(false); // ONE protocol item; also ends the overlay
+        } else {
+            t->setFocusHidden(false); // view-only overlay: no undo step needed
         }
     }
 
@@ -6747,6 +6952,373 @@ void MainWindow::autoFitVoiceLoadSelection() {
     openAutoFitDialog(-1, -1, notes);
 }
 
+bool MainWindow::isMidiPilotUsable() const {
+    return _midiPilotWidget && _midiPilotWidget->isConfigured();
+}
+
+void MainWindow::askMidiPilotAboutSelection() {
+    if (_midiPilotDock) {
+        _midiPilotDock->setVisible(true);
+        _midiPilotDock->raise();
+    }
+    if (!_midiPilotWidget) {
+        return;
+    }
+    // Callers hide the action when no provider is configured, but keep the
+    // guard: the panel then shows the setup prompt with a DISABLED input, so
+    // seeding a question would leave the user with an unanswerable draft.
+    // Revealing the dock above already puts the setup prompt in front of them.
+    if (!_midiPilotWidget->isConfigured()) {
+        statusBar()->showMessage(
+            tr("MidiPilot has no AI provider yet - use \"Open Settings\" in the "
+               "panel to set one up."), 8000);
+        return;
+    }
+    // Describe WHAT the user is pointing at, so the question does not start
+    // with the user retyping context the editor already knows. Note-only:
+    // a selection of control events has no meaningful bar/pitch summary.
+    QList<NoteOnEvent *> notes;
+    for (MidiEvent *ev : Selection::instance()->selectedEvents()) {
+        if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) notes.append(on);
+    }
+    if (notes.isEmpty() || !file) {
+        _midiPilotWidget->focusInput();
+        return;
+    }
+
+    int firstTick = notes.first()->midiTime();
+    int lastTick = firstTick;
+    int loPitch = notes.first()->note();
+    int hiPitch = loPitch;
+    QSet<int> trackNumbers;
+    for (NoteOnEvent *on : notes) {
+        firstTick = qMin(firstTick, on->midiTime());
+        lastTick = qMax(lastTick, on->midiTime());
+        loPitch = qMin(loPitch, on->note());
+        hiPitch = qMax(hiPitch, on->note());
+        if (on->track()) trackNumbers.insert(on->track()->number());
+    }
+    // MidiFile::measure() dereferences BOTH out-params unconditionally
+    // (MidiFile.cpp:817-818) - passing nullptr crashes with an access
+    // violation. Always hand it real sinks.
+    int measureStart = 0;
+    int measureEnd = 0;
+    const int firstBar = file->measure(firstTick, &measureStart, &measureEnd);
+    const int lastBar = file->measure(lastTick, &measureStart, &measureEnd);
+
+    QString where = (firstBar == lastBar)
+        ? tr("bar %1").arg(firstBar)
+        : tr("bars %1-%2").arg(firstBar).arg(lastBar);
+    QString onWhat;
+    if (trackNumbers.size() == 1) {
+        const int n = *trackNumbers.constBegin();
+        MidiTrack *t = file->track(n);
+        const QString name = (t && !t->name().isEmpty()) ? t->name() : QString();
+        onWhat = name.isEmpty() ? tr(" on track %1").arg(n)
+                                : tr(" on track %1 (%2)").arg(n).arg(name);
+    } else {
+        onWhat = tr(" across %1 tracks").arg(trackNumbers.size());
+    }
+    // Sent IMMEDIATELY as a neutral analysis request - one right-click, one
+    // answer (per user feedback; the first iteration only prefilled the
+    // input and read as "nothing happened"). The question deliberately asks
+    // for observations, not edits: the selection travels along as serialized
+    // events through the normal send path, and specific requests work best
+    // as follow-ups once the context is in the conversation.
+    // submitPrompt REFUSES while a request or an agent run is in flight - say
+    // so instead of silently dropping the question (same reporting channel as
+    // the "no provider" case above).
+    const bool accepted = _midiPilotWidget->submitPrompt(
+        tr("About my selection of %1 note(s) in %2%3, range %4-%5: "
+           "what stands out, and is there anything worth improving?")
+            .arg(notes.size())
+            .arg(where)
+            .arg(onWhat)
+            .arg(MidiEventSerializer::noteName(loPitch))
+            .arg(MidiEventSerializer::noteName(hiPitch)));
+    if (!accepted) {
+        statusBar()->showMessage(
+            tr("MidiPilot is busy - try again when the current request "
+               "finishes."), 8000);
+    }
+}
+
+// Phase 46: compose the full workbench report - the dependency-free
+// validator plus the dialog-side voice-limit / note-rate synthesis (Auto-Fit
+// dry run with every removal pass off = the raw truth, and the analyzer's
+// rate hotspots).
+static FfxivPlayabilityReport buildPlayabilityReport(MidiFile *f,
+                                                     FfxivPlayabilityDialog *dialog) {
+    FfxivPlayabilityReport report =
+        FfxivPlayabilityValidator::validate(f, dialog->selectedChecks());
+    if (!report.ok || !dialog->voiceLoadEnabled()) {
+        return report;
+    }
+
+    AutoFitOptions rawOpts;
+    rawOpts.dryRun = true;
+    rawOpts.ratePercent = 0;
+    rawOpts.chordLimit = 0;
+    rawOpts.desaturateRates = false;
+    const AutoFitResult rawR = AutoFitVoiceLoadService::apply(f, rawOpts);
+    if (rawR.ok && rawR.overflowRangeCount > 0) {
+        FfxivPlayabilityIssue issue;
+        issue.type = FfxivPlayabilityIssue::Type::VoiceCeiling;
+        issue.track = -1;
+        issue.events = rawR.victims; // what Auto-Fit would thin - clickable
+        // VOICE-TICK-001: without a tick the double-click jump lands at 0;
+        // aim at the earliest note Auto-Fit would thin.
+        issue.tick = -1;
+        for (MidiEvent *v : rawR.victims) {
+            if (v && (issue.tick < 0 || v->midiTime() < issue.tick))
+                issue.tick = v->midiTime();
+        }
+        if (issue.tick < 0) issue.tick = 0;
+        issue.details = QObject::tr(
+            "Raw peak %1/16 voices in %2 overflow range(s) - more notes "
+            "sound at once than the game mixes; Auto-Fit can thin them")
+                .arg(rawR.peakBefore).arg(rawR.overflowRangeCount);
+        report.issues.append(issue);
+    }
+
+    const FfxivVoiceAnalyzer::Result ar =
+        FfxivVoiceAnalyzer::instance()->recomputeNow(f);
+    if (ar.valid) {
+        for (const auto &h : ar.rateHotspots) {
+            FfxivPlayabilityIssue issue;
+            issue.type = FfxivPlayabilityIssue::Type::NoteRate;
+            issue.track = -1;
+            issue.tick = h.startTick;
+            issue.details = QObject::tr(
+                "Channel %1: %2 notes/sec around tick %3 (cap %4) - the game "
+                "drops notes above the rate; Auto-Fit's density thinning helps")
+                    .arg(h.channel)
+                    .arg(h.notesPerSecond, 0, 'f', 1)
+                    .arg(h.startTick)
+                    .arg(FfxivVoiceAnalyzer::kNoteRateCeilingPerChannel);
+            report.issues.append(issue);
+        }
+    }
+    return report;
+}
+
+void MainWindow::checkFfxivPlayability() {
+    if (!file) {
+        return;
+    }
+    // Single instance, modeless (same pattern as Auto-Fit): the fix buttons
+    // hand off to tools that need a usable editor - Auto-Fit itself opens a
+    // modeless dialog a modal parent would freeze.
+    if (_playabilityDialog) {
+        _playabilityDialog->raise();
+        _playabilityDialog->activateWindow();
+        return;
+    }
+    MidiFile *checkedFile = file;
+    FfxivPlayabilityDialog *dialog = new FfxivPlayabilityDialog(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    _playabilityDialog = dialog;
+    dialog->setMidiPilotAvailable(isMidiPilotUsable());
+
+    auto rerun = [this, dialog, checkedFile]() {
+        if (file != checkedFile) return;
+        // ANALYZE-AVAIL-001: MidiPilot may have been configured (or its key
+        // removed) since the dialog opened - re-evaluate on every re-check
+        // so the analyze button doesn't stay stuck in its opening state.
+        dialog->setMidiPilotAvailable(isMidiPilotUsable());
+        dialog->refresh(buildPlayabilityReport(checkedFile, dialog));
+    };
+
+    connect(dialog, &FfxivPlayabilityDialog::runChecksRequested, this, rerun);
+
+    // --- Focus mode state -------------------------------------------------
+    // Double-click focus mode: show ONLY the affected track, so the finding is
+    // not buried under seven other tracks' notes. FOCUS-UNDO-001: this uses
+    // the _focusHidden overlay, not _hidden - the overlay is never part of an
+    // undo snapshot, so Ctrl+Z while focused can neither bake the focus state
+    // into history nor resurface it later.
+    // FOCUS-REMOVED-001: the overlay is released through the REMEMBERED list
+    // of dimmed track objects instead of walking track(0..numTracks-1) at
+    // close time. A track REMOVED while focus was active has left the file,
+    // but its MidiTrack object stays alive for undo (MidiFile::reloadState
+    // restores the very same pointer) - the close-time walk missed exactly
+    // that track, and it came back permanently invisible after Ctrl+Z. Held
+    // as QPointer, so a track object that really is destroyed leaves a null
+    // rather than a dangling pointer. Tracks ADDED mid-focus are never dimmed
+    // in the first place (FOCUS-NEWTRACK-001).
+    auto focusActive = std::make_shared<bool>(false);
+    auto focusHiddenTracks = std::make_shared<QList<QPointer<MidiTrack>>>();
+    auto clearFocus = [focusActive, focusHiddenTracks]() {
+        for (const QPointer<MidiTrack> &t : *focusHiddenTracks) {
+            if (t) t->setFocusHidden(false);
+        }
+        focusHiddenTracks->clear();
+        *focusActive = false;
+    };
+    auto applyFocus = [checkedFile, focusActive, focusHiddenTracks,
+                       clearFocus](int trackNumber) {
+        clearFocus(); // re-aiming focus releases the previous set first
+        for (int i = 0; i < checkedFile->numTracks(); ++i) {
+            MidiTrack *t = checkedFile->track(i);
+            if (!t || i == trackNumber) continue;
+            t->setFocusHidden(true);
+            focusHiddenTracks->append(t);
+        }
+        *focusActive = true;
+    };
+
+    // FOCUS-SELECT-001: a selection on a focus-hidden track is INVISIBLE
+    // (EventTool::paintSelectedEvents skips hidden tracks) and Delete would
+    // then remove notes the user cannot see. So a click on a finding outside
+    // the focused track re-aims focus at what was just selected: one track ->
+    // focus that track, several tracks (a group row, a file-level finding) ->
+    // leave focus mode altogether. Nothing to do when focus is off.
+    connect(dialog, &FfxivPlayabilityDialog::selectEventsRequested, this,
+            [this, checkedFile, focusActive, clearFocus, applyFocus](
+                const QList<MidiEvent *> &events) {
+                if (*focusActive && file == checkedFile) {
+                    QSet<int> selectedTracks;
+                    bool anyDimmed = false;
+                    for (MidiEvent *ev : events) {
+                        MidiTrack *t = ev ? ev->track() : nullptr;
+                        if (!t) continue;
+                        selectedTracks.insert(t->number());
+                        if (t->focusHidden()) anyDimmed = true;
+                    }
+                    if (anyDimmed) {
+                        if (selectedTracks.size() == 1)
+                            applyFocus(*selectedTracks.constBegin());
+                        else
+                            clearFocus();
+                    }
+                }
+                Selection::instance()->setSelection(events);
+                eventWidget()->reportSelectionChangedByTool();
+                updateAll();
+            });
+    connect(dialog, &FfxivPlayabilityDialog::jumpToTickRequested, this,
+            [this, checkedFile](int tick) {
+                if (file != checkedFile) return;
+                checkedFile->setCursorTick(tick);
+                updateAll();
+            });
+    // Double-click: scroll the piano roll to the spot. timeMsChanged is the
+    // playback-follow path - it moves the REAL scrollbars via scrollChanged,
+    // so the bars never desync from the view (the ZOOM-ANCHOR-001 lesson);
+    // ignoreLocked, because an explicit jump is the user's own navigation.
+    // REVEAL-VERTICAL-001: the horizontal jump alone left an out-of-range note
+    // off screen whenever its line sat outside the visible pitch band - which
+    // is precisely the Range finding's own case. revealLine centres the line
+    // (and no-ops when it is already visible); line < 0 = no vertical target.
+    connect(dialog, &FfxivPlayabilityDialog::revealTickRequested, this,
+            [this, checkedFile](int tick, int line) {
+                if (file != checkedFile) return;
+                if (MatrixWidget *mw = matrixWidget()) {
+                    mw->timeMsChanged(checkedFile->msOfTick(tick), true);
+                    if (line >= 0) mw->revealLine(line);
+                }
+            });
+    // Double-click focus mode (state + helpers above).
+    connect(dialog, &FfxivPlayabilityDialog::focusTrackRequested, this,
+            [this, checkedFile, applyFocus](int trackNumber) {
+                if (file != checkedFile) return;
+                if (trackNumber < 0 || trackNumber >= checkedFile->numTracks())
+                    return;
+                applyFocus(trackNumber);
+                updateAll();
+            });
+    // finished() fires SYNCHRONOUSLY inside close() - setActiveDocument
+    // closes this dialog before any document teardown, so the tracks are
+    // still alive here (destroyed() would arrive via deleteLater, too late).
+    // Releasing through the remembered list leaves NO MidiTrack anywhere
+    // carrying the overlay - a removed-but-undoable track included.
+    connect(dialog, &QDialog::finished, this,
+            [this, focusActive, clearFocus](int) {
+                if (!*focusActive) return;
+                clearFocus();
+                updateAll();
+            });
+    // One-click collision repair (second QA: the button must DELETE, not
+    // route through the Tools-menu mode dialog). Same bulk idiom as
+    // deleteSelectedEvents: ONE channel snapshot per touched channel - not
+    // one per event, which the undo-memory analysis showed costs ~1 MB per
+    // note on dense channels.
+    connect(dialog, &FfxivPlayabilityDialog::deleteEventsRequested, this,
+            [this, checkedFile](const QList<MidiEvent *> &victims) {
+                if (file != checkedFile || victims.isEmpty()) return;
+                checkedFile->protocol()->startNewAction(tr("Delete colliding notes"));
+                QMap<int, QList<MidiEvent *>> byChannel;
+                for (MidiEvent *ev : victims) byChannel[ev->channel()].append(ev);
+                for (auto it = byChannel.constBegin(); it != byChannel.constEnd(); ++it) {
+                    MidiChannel *channel = checkedFile->channel(it.key());
+                    if (!channel) continue;
+                    ProtocolEntry *toCopy = channel->copy();
+                    for (MidiEvent *ev : it.value()) {
+                        channel->eventMap()->remove(ev->midiTime(), ev);
+                        if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
+                            if (on->offEvent()) {
+                                channel->eventMap()->remove(
+                                    on->offEvent()->midiTime(), on->offEvent());
+                            }
+                        }
+                    }
+                    channel->protocol(toCopy, channel);
+                }
+                Selection::instance()->clearSelection();
+                eventWidget()->reportSelectionChangedByTool();
+                checkedFile->protocol()->endAction();
+                updateAll();
+                // endAction fires actionFinished -> the workbench re-checks
+                // and the fixed findings disappear from the list.
+            });
+    // Contextual repairs that hand off to their own tools.
+    connect(dialog, &FfxivPlayabilityDialog::fixRequested, this,
+            [this, checkedFile](const QString &actionId) {
+                if (file != checkedFile) return;
+                if (actionId == QLatin1String("auto_fit_voice_load")) {
+                    autoFitVoiceLoad();
+                } else if (actionId == QLatin1String("fix_ffxiv_channels")) {
+                    fixFFXIVChannels();
+                } else if (_actionMap.contains(actionId)) {
+                    _actionMap[actionId]->trigger();
+                }
+                // The repair's protocol action triggers the re-validate below.
+            });
+    // AI assessment: through the normal chat path; the reply is mirrored
+    // back while the dialog is waiting for one (unrelated chat stays out).
+    connect(dialog, &FfxivPlayabilityDialog::analyzeRequested, this,
+            [this, dialog](const QString &prompt) {
+                if (_midiPilotDock) {
+                    _midiPilotDock->setVisible(true);
+                    _midiPilotDock->raise();
+                }
+                // ANALYZE-LATCH-001: the dialog latches "waiting" BEFORE this
+                // signal fires. If the send is refused (busy, agent running,
+                // not configured) no reply will ever arrive - un-latch NOW,
+                // or the button stays dead and the next unrelated chat reply
+                // would be mis-shown as the analysis.
+                const bool accepted =
+                    _midiPilotWidget && _midiPilotWidget->submitPrompt(prompt);
+                if (!accepted) {
+                    dialog->showAnalysis(tr(
+                        "MidiPilot could not take the request right now "
+                        "(busy or not configured). Try again in a moment."));
+                }
+            });
+    connect(_midiPilotWidget, &MidiPilotWidget::assistantReplied, dialog,
+            [dialog](const QString &text) {
+                if (dialog->awaitingAnalysis()) dialog->showAnalysis(text);
+            });
+    // Modeless: MCP/agent edits keep flowing while the dialog is open, and
+    // the fix buttons mutate the file themselves. Re-validate after every
+    // finished protocol action so the tree never holds freed note pointers -
+    // and repairs show their effect immediately.
+    connect(checkedFile->protocol(), &Protocol::actionFinished, dialog, rerun);
+
+    rerun();
+    dialog->show();
+}
+
 void MainWindow::openAutoFitDialog(int startTick, int endTick,
                                    const QList<MidiEvent *> &selectionScope) {
     if (!file) {
@@ -6793,14 +7365,26 @@ void MainWindow::openAutoFitDialog(int startTick, int endTick,
         }
         // The live preview keeps the victim set selected; after an apply
         // those pointers are dangling, after a cancel the highlight is just
-        // noise - drop the selection either way. forFile, not instance():
+        // noise - drop the selection in both cases. forFile, not instance():
         // when the close comes from a tab switch the active selection may
         // already belong to the NEW document.
-        Selection *dialogSel = Selection::forFile(dialogFile);
-        if (dialogSel) {
-            dialogSel->clearSelection();
+        // EXCEPTION: "Select in editor" closes precisely IN ORDER to hand the
+        // analysed notes over untouched, so the user can transform them with
+        // any editor operation - keep that selection alive.
+        if (!dialog->keepSelectionOnClose()) {
+            Selection *dialogSel = Selection::forFile(dialogFile);
+            if (dialogSel) {
+                dialogSel->clearSelection();
+            }
         }
         eventWidget()->reportSelectionChangedByTool();
+        // AUTOFIT-ACTIONS-001: nothing here goes through the Protocol, so the
+        // actionFinished -> checkEnableActionsForSelection chain never fires.
+        // Without this call "Select in editor" hands over a live selection
+        // while Transpose / Quantize / Copy / Delete / the move-to submenus
+        // stay greyed out (and their shortcuts dead) - and after the clearing
+        // branch they would stay ENABLED on an empty selection.
+        checkEnableActionsForSelection();
         if (rc == QDialog::Accepted) {
             statusBar()->showMessage(dialog->resultSummary(), 5000);
         }
@@ -7580,8 +8164,8 @@ void MainWindow::colorsByChannel() {
     _colorsByChannel->setChecked(true);
     _colorsByTracks->setChecked(false);
     mw_matrixWidget->registerRelayout();
-    _matrixWidgetContainer->update();
-    _miscWidgetContainer->update();
+    refreshMatrixView();
+    refreshMiscView();
     // Phase 28: colouring is a global view preference - keep the secondary
     // editor group in sync (otherwise it only changed the primary pane).
     if (_compareMatrixWidget) {
@@ -7596,8 +8180,8 @@ void MainWindow::colorsByTrack() {
     _colorsByChannel->setChecked(false);
     _colorsByTracks->setChecked(true);
     mw_matrixWidget->registerRelayout();
-    _matrixWidgetContainer->update();
-    _miscWidgetContainer->update();
+    refreshMatrixView();
+    refreshMiscView();
     // Phase 28: keep the secondary editor group in sync (see colorsByChannel).
     if (_compareMatrixWidget) {
         _compareMatrixWidget->setColorsByTracks();
@@ -7725,7 +8309,20 @@ void MainWindow::spreadSelection() {
 }
 
 void MainWindow::manual() {
-    QDesktopServices::openUrl(QUrl("https://happytunesai.github.io/MidiEditor_AI/", QUrl::TolerantMode));
+    // Help > Manual opens the published site. While a release is being
+    // prepared the local manual/ folder is ahead of it, so reviewing the
+    // pages through the app was impossible without editing this URL. The
+    // MIDIEDITOR_MANUAL_URL environment variable overrides the target for
+    // exactly that case (e.g. http://127.0.0.1:8765/docs-index.html served
+    // from manual/); unset it and the app points at the live site again.
+    // Dev-only knob: not a setting, not persisted, not documented in the
+    // manual itself.
+    QString url = QStringLiteral("https://happytunesai.github.io/MidiEditor_AI/");
+    const QByteArray override = qgetenv("MIDIEDITOR_MANUAL_URL");
+    if (!override.trimmed().isEmpty()) {
+        url = QString::fromUtf8(override.trimmed());
+    }
+    QDesktopServices::openUrl(QUrl(url, QUrl::TolerantMode));
 }
 
 void MainWindow::changeMiscMode(int mode) {
@@ -7975,7 +8572,8 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     // workflow keeps editing the original directly). Returns false if
     // the user wanted a copy but the save / open failed — caller bails.
     auto prepareHostFile = [this](const QString &flowName) -> bool {
-        QSettings probe(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto probePtr = AppPaths::settings();
+        QSettings &probe = *probePtr;
         // Default ON: no one has shipped a session against this build
         // yet (Plan §11.10n revision 2026-05-07), so the safer default
         // doesn't break anyone's existing workflow. Users who want the
@@ -9289,6 +9887,16 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     toolsMB->addAction(ffxivDrumSplitAction);
     _actionMap["ffxiv_drum_split"] = ffxivDrumSplitAction;
 
+    // Phase 46: the monophony/overlap check used to exist only inside the
+    // AI's validate_ffxiv tool - hand arrangers found those spots by hearing
+    // notes go missing in game. Placed next to the fixer: check, fix, check.
+    QAction *ffxivPlayabilityAction = new QAction(tr("Check FFXIV Playability..."), this);
+    Appearance::setActionIcon(ffxivPlayabilityAction, ":/run_environment/graphics/tool/ffxiv_check.png");
+    connect(ffxivPlayabilityAction, &QAction::triggered,
+            this, &MainWindow::checkFfxivPlayability);
+    toolsMB->addAction(ffxivPlayabilityAction);
+    _actionMap["check_ffxiv_playability"] = ffxivPlayabilityAction;
+
     QAction *autoFitVoiceAction = new QAction(tr("Auto-Fit Voice Load..."), this);
     connect(autoFitVoiceAction, SIGNAL(triggered()), this, SLOT(autoFitVoiceLoad()));
     toolsMB->addAction(autoFitVoiceAction);
@@ -9738,7 +10346,8 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     // state on existing installs cannot re-tint the piano roll.
     if (mw_matrixWidget) mw_matrixWidget->setShowVoiceLoadOverlay(false);
     {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.remove("View/showVoiceLoad");
     }
 
@@ -9753,14 +10362,16 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     _toggleVoiceLaneAction = new QAction(tr("Show FFXIV Voice Lane"), this);
     _toggleVoiceLaneAction->setCheckable(true);
     {
-        QSettings _vlSettings("MidiEditor", "NONE");
+        auto _vlSettingsPtr = AppPaths::settings();
+        QSettings &_vlSettings = *_vlSettingsPtr;
         _toggleVoiceLaneAction->setChecked(_vlSettings.value("View/showVoiceLane", false).toBool());
     }
     _toggleVoiceLaneAction->setToolTip(tr(
         "Always show the voice-load graph beneath the piano roll.\n"
         "Plots the simultaneous voice count vs the FFXIV 16-voice ceiling."));
     connect(_toggleVoiceLaneAction, &QAction::toggled, this, [this](bool checked) {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.setValue("View/showVoiceLane", checked);
         updateVoiceLaneVisibility();
     });
@@ -9771,7 +10382,8 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     _voiceLaneAutoFollowAction = new QAction(tr("Auto-show FFXIV Voice Lane with FFXIV SoundFont Mode"), this);
     _voiceLaneAutoFollowAction->setCheckable(true);
     {
-        QSettings _vlSettings("MidiEditor", "NONE");
+        auto _vlSettingsPtr = AppPaths::settings();
+        QSettings &_vlSettings = *_vlSettingsPtr;
         _voiceLaneAutoFollowAction->setChecked(_vlSettings.value("View/voiceLaneAutoFollowFfxiv", true).toBool());
     }
     _voiceLaneAutoFollowAction->setToolTip(tr(
@@ -9779,7 +10391,8 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
         "FFXIV SoundFont Mode is on and hides again when you turn it off.\n"
         "Independent of the explicit \"Show FFXIV Voice Lane\" toggle above."));
     connect(_voiceLaneAutoFollowAction, &QAction::toggled, this, [this](bool checked) {
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.setValue("View/voiceLaneAutoFollowFfxiv", checked);
         updateVoiceLaneVisibility();
     });
@@ -10278,6 +10891,10 @@ void MainWindow::pasteToTrack(QAction *action) {
 
 void MainWindow::divChanged(QAction *action) {
     mw_matrixWidget->setDiv(action->data().toInt());
+    // setDiv() only invalidates the cache and calls update() on the inner widget
+    // (hidden under hardware acceleration) and emits no sizeChanged, so without
+    // this the drawn raster kept the old division.
+    refreshMatrixView();
 }
 
 void MainWindow::enableMagnet(bool enable) {
@@ -10400,7 +11017,13 @@ void MainWindow::showPostUpdateDialog(const QString &updatedFromVersion) {
     dlg->show();
 }
 
-void MainWindow::openConfig() {
+SettingsDialog *MainWindow::buildSettingsDialog() {
+    // ONE construction path for every "open Settings" entry point. Before
+    // this, openConfigOnAppearanceTab() was a hand-copied variant of
+    // openConfig() that had silently fallen behind - it never handed the MCP
+    // server to the AI page, so that page showed no live status when the
+    // dialog was opened via the theme-restart route. Every wiring lives here
+    // exactly once; callers only choose the page.
     SettingsDialog *d = new SettingsDialog(tr("Settings"), _settings, this);
     connect(d, SIGNAL(settingsChanged()), this, SLOT(updateAll()));
     if (_midiPilotWidget) {
@@ -10424,7 +11047,19 @@ void MainWindow::openConfig() {
     if (!aiWidgets.isEmpty() && _mcpServer) {
         aiWidgets.first()->setMcpServer(_mcpServer);
     }
+    return d;
+}
 
+void MainWindow::openConfig() {
+    buildSettingsDialog()->show();
+}
+
+void MainWindow::openConfigOnMidiPilotTab() {
+    // The MidiPilot panel's gear menu says "MidiPilot Settings..." - landing
+    // the user on the Midi I/O page (the dialog's first page) made that a lie
+    // and cost a click and a hunt through eleven categories every time.
+    SettingsDialog *d = buildSettingsDialog();
+    d->setCurrentTabByType<AiSettingsWidget>();
     d->show();
 }
 
@@ -10446,6 +11081,11 @@ void MainWindow::restartForThemeChange() {
     // persisted session on startup instead of just the active file.
     QStringList args;
     args << "--open-settings";
+    // Portable mode can rest on the --portable switch alone (no portable.txt
+    // next to the exe), and this restart just wrote theme + session into the
+    // portable INI. Dropping the switch would bring the new process up on the
+    // system settings store, i.e. without the theme it restarted for.
+    args << AppPaths::relaunchArgs();
 
     QString exePath = QCoreApplication::applicationFilePath();
     QString appDir = QCoreApplication::applicationDirPath();
@@ -10463,20 +11103,11 @@ void MainWindow::restartForThemeChange() {
 }
 
 void MainWindow::openConfigOnAppearanceTab() {
-    SettingsDialog *d = new SettingsDialog(tr("Settings"), _settings, this);
-    connect(d, SIGNAL(settingsChanged()), this, SLOT(updateAll()));
-    if (_midiPilotWidget) {
-        connect(d, SIGNAL(settingsChanged()), _midiPilotWidget, SLOT(onSettingsChanged()));
-    }
-
-    QList<PerformanceSettingsWidget*> perfWidgets = d->findChildren<PerformanceSettingsWidget*>();
-    if (!perfWidgets.isEmpty()) {
-        connect(perfWidgets.first(), &PerformanceSettingsWidget::renderingModeChanged,
-                this, &MainWindow::updateRenderingMode);
-    }
-
-    // Navigate to the Appearance tab (index 4)
-    d->setCurrentTab(4);
+    SettingsDialog *d = buildSettingsDialog();
+    // By type, not by index: the page order lives in SettingsDialog's
+    // constructor and the Collaboration page is compiled out in some builds,
+    // so a hard-coded 4 is one insertion away from pointing at the wrong page.
+    d->setCurrentTabByType<AppearanceSettingsWidget>();
     d->show();
 }
 
@@ -10653,6 +11284,19 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 actionOrder << "ffxiv_drum_split";
             if (!enabledActions.contains("ffxiv_drum_split"))
                 enabledActions << "ffxiv_drum_split";
+        }
+        // Phase 46: the playability check joins the FFXIV block, right after
+        // the drum split.
+        if (!actionOrder.contains("check_ffxiv_playability")) {
+            int drumIdx = actionOrder.indexOf("ffxiv_drum_split");
+            if (drumIdx < 0)
+                drumIdx = actionOrder.indexOf("fix_ffxiv_channels");
+            if (drumIdx >= 0)
+                actionOrder.insert(drumIdx + 1, "check_ffxiv_playability");
+            else
+                actionOrder << "check_ffxiv_playability";
+            if (!enabledActions.contains("check_ffxiv_playability"))
+                enabledActions << "check_ffxiv_playability";
         }
         if (!actionOrder.contains("explode_chords_to_tracks")) {
             int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
@@ -11289,6 +11933,19 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
             if (!enabledActions.contains("ffxiv_drum_split"))
                 enabledActions << "ffxiv_drum_split";
         }
+        // Phase 46: the playability check joins the FFXIV block, right after
+        // the drum split.
+        if (!actionOrder.contains("check_ffxiv_playability")) {
+            int drumIdx = actionOrder.indexOf("ffxiv_drum_split");
+            if (drumIdx < 0)
+                drumIdx = actionOrder.indexOf("fix_ffxiv_channels");
+            if (drumIdx >= 0)
+                actionOrder.insert(drumIdx + 1, "check_ffxiv_playability");
+            else
+                actionOrder << "check_ffxiv_playability";
+            if (!enabledActions.contains("check_ffxiv_playability"))
+                enabledActions << "check_ffxiv_playability";
+        }
         if (!actionOrder.contains("explode_chords_to_tracks")) {
             int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
             if (splitIdx >= 0)
@@ -11875,6 +12532,15 @@ void MainWindow::convertTempoForSelection() {
         for (MidiEvent *ev : sel) {
             if (ev) {
                 hint.selectedEventPtrs.insert(reinterpret_cast<quintptr>(ev));
+                // TEMPO-OFFEVENT-001: selections never contain OffEvents -
+                // carry each note's linked off along, or the conversion
+                // rescales note-ons while their ends keep the old ticks.
+                if (auto *on = dynamic_cast<OnEvent *>(ev)) {
+                    if (on->offEvent()) {
+                        hint.selectedEventPtrs.insert(
+                            reinterpret_cast<quintptr>(on->offEvent()));
+                    }
+                }
             }
         }
     }
@@ -12058,8 +12724,8 @@ void MainWindow::checkEnableActionsForSelection() {
 
 void MainWindow::toolChanged() {
     checkEnableActionsForSelection();
-    _miscWidgetContainer->update();
-    _matrixWidgetContainer->update();
+    refreshMiscView();
+    refreshMatrixView();
 }
 
 void MainWindow::updateStatusBar() {
@@ -12069,9 +12735,24 @@ void MainWindow::updateStatusBar() {
     int tick = file->cursorTick();
     int startOfMeasure = 0, endOfMeasure = 0;
     int measureNum = file->measure(tick, &startOfMeasure, &endOfMeasure);
-    int ticksInMeasure = (endOfMeasure > startOfMeasure) ? (endOfMeasure - startOfMeasure) : 1;
     int tickInMeasure = tick - startOfMeasure;
-    int beat = (tickInMeasure * 4 / ticksInMeasure) + 1;
+    // Derive the beat from the actual meter. Dividing the bar into four (the
+    // former "tickInMeasure * 4 / ticksInMeasure") is only right in 4/4: it
+    // counted 3/4 bars up to 4, 6/8 bars in dotted quarters, and disagreed with
+    // the toolbar's bar/beat display. meterAt() reports the denominator as the
+    // SMF power-of-two EXPONENT, so the printed denominator is 1 << denPow.
+    int num = 4, denPow = 2;
+    file->meterAt(tick, &num, &denPow);
+    const int den = 1 << qBound(0, denPow, 16);
+    const int tpq = file->ticksPerQuarter();
+    int ticksPerBeat = (den > 0 && tpq > 0) ? (tpq * 4 / den) : tpq;
+    if (ticksPerBeat <= 0) {
+        ticksPerBeat = (tpq > 0) ? tpq : 1;
+    }
+    int beat = tickInMeasure / ticksPerBeat + 1;
+    if (num > 0) {
+        beat = qBound(1, beat, num);
+    }
     _statusCursorLabel->setText(QString("M:%1 B:%2 | T:%3").arg(measureNum).arg(beat).arg(tick));
 
     // Selection info + chord detection
@@ -12088,6 +12769,94 @@ void MainWindow::updateStatusBar() {
         _statusChordLabel->setText(chord.isEmpty() ? "" : chord);
     } else {
         _statusChordLabel->setText("");
+    }
+}
+
+void MainWindow::sampleUndoMemory() {
+    // Both editor groups, deduped by MidiFile* - the same document can sit in
+    // both groups at once (same guard as promptSaveAllDirtyTabs).
+    QList<MidiFile *> all;
+    if (_documentManager) {
+        for (Document *d : _documentManager->documents()) {
+            if (d->file()) all.append(d->file());
+        }
+    }
+    if (_group1Docs) {
+        for (Document *d : _group1Docs->documents()) {
+            if (d->file() && !all.contains(d->file())) all.append(d->file());
+        }
+    }
+    if (all.isEmpty() && file) all.append(file);
+
+    // Structural bytes per undo-snapshot map node: measured sizeof of one
+    // MSVC x64 std::multimap<int, MidiEvent*> node. Committed heap runs
+    // ~a third higher (48 B lands in the 64 B LFH bucket) - hence the "~"
+    // in the label and the PrivateUsage column in the measurement log.
+    const qint64 kNodeBytes = 48;
+
+    qint64 totalNodes = 0;
+    qint64 totalSnaps = 0;
+    const bool logging = memLog().isInfoEnabled();
+    QStringList perDoc;
+    for (MidiFile *f : all) {
+        qint64 nodes = 0, snaps = 0;
+        for (int ch = 0; ch < 19; ++ch) {
+            MidiChannel *c = f->channel(ch);
+            if (!c) continue;
+            nodes += c->snapshotNodeSum();
+            snaps += c->snapshotCount();
+        }
+        totalNodes += nodes;
+        totalSnaps += snaps;
+        if (logging) {
+            Protocol *p = f->protocol();
+            perDoc << QStringLiteral("%1%2: back=%3 fwd=%4 snaps=%5 nodes=%6")
+                          .arg(f == file ? QStringLiteral("*") : QString(),
+                               QFileInfo(f->path()).fileName())
+                          .arg(p ? p->stepsBack() : -1)
+                          .arg(p ? p->stepsForward() : -1)
+                          .arg(snaps)
+                          .arg(nodes);
+        }
+    }
+
+    const double structMb = totalNodes * kNodeBytes / (1024.0 * 1024.0);
+    if (_statusUndoLabel) {
+        Protocol *p = file ? file->protocol() : nullptr;
+        if (!p) {
+            _statusUndoLabel->clear();
+        } else {
+            // Depth is the ACTIVE document's; the MB figure is the whole
+            // session (all tabs, both groups) - closed tabs keep their
+            // memory (~MidiFile deliberately leaks the protocol), so the
+            // session figure is what actually tracks the process.
+            _statusUndoLabel->setText(tr("Undo %1 | ~%2 MB")
+                                          .arg(p->stepsBack())
+                                          .arg(structMb, 0, 'f', 1));
+        }
+    }
+
+    if (logging) {
+        qint64 privBytes = 0;
+        qint64 wsBytes = 0;
+#ifdef Q_OS_WIN
+        PROCESS_MEMORY_COUNTERS_EX pmc;
+        pmc.cb = sizeof(pmc);
+        if (GetProcessMemoryInfo(GetCurrentProcess(),
+                                 reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&pmc),
+                                 sizeof(pmc))) {
+            privBytes = static_cast<qint64>(pmc.PrivateUsage);
+            wsBytes = static_cast<qint64>(pmc.WorkingSetSize);
+        }
+#endif
+        qCInfo(memLog).noquote()
+            << QStringLiteral("sample priv=%1 ws=%2 docs=%3 snaps=%4 structMB=%5 | %6")
+                   .arg(privBytes)
+                   .arg(wsBytes)
+                   .arg(all.size())
+                   .arg(totalSnaps)
+                   .arg(structMb, 0, 'f', 1)
+                   .arg(perDoc.join(QStringLiteral(" | ")));
     }
 }
 
@@ -12121,12 +12890,20 @@ void MainWindow::updateAll() {
     // Update cached rendering settings when settings change
     // This ensures MatrixWidget uses the latest performance settings without
     // expensive QSettings I/O operations during paint events
-    mw_matrixWidget->updateRenderingSettings();
+    if (mw_matrixWidget) mw_matrixWidget->updateRenderingSettings();
+    // Second editor group: same cache refresh, otherwise it keeps the old
+    // colours/render hints until something else repaints it.
+    if (_compareMatrixWidget) _compareMatrixWidget->updateRenderingSettings();
 
-    // Update all widgets
+    // Update all widgets. The piano roll needs an explicit repaint of the
+    // CONTAINER: updateRenderingSettings() ends in update() on the inner widget,
+    // which is hidden (and therefore ignored) under hardware acceleration, so
+    // without this the roll kept the previous frame while every other widget
+    // adopted the new settings.
     channelWidget->update();
     _trackWidget->update();
-    _miscWidgetContainer->update();
+    refreshMatrixView();
+    refreshMiscView();
 
     // Refresh channel names in context menus (Move to channel, Delete channel, etc.)
     updateChannelMenu();

@@ -4,6 +4,8 @@
 
 #include "TimeDisplayWidget.h"
 
+#include "../AppPaths.h"
+
 #include "../midi/MidiFile.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/TempoChangeEvent.h"
@@ -90,7 +92,8 @@ TimeDisplayWidget::TimeDisplayWidget(QWidget *parent)
                   "Left-click: cycle readout (position, length, remaining, BPM, bar).\n"
                   "Right-click: cycle colour theme."));
 
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     _mode = TimeDisplay::modeFromInt(s.value("View/timeDisplayMode", 0).toInt());
     _colorTheme = s.value("View/timeDisplayTheme", 1).toInt(); // 1 = Blue (default)
     if (_colorTheme < 0 || _colorTheme >= kClockThemeCount)
@@ -197,7 +200,14 @@ void TimeDisplayWidget::barBeatAtTick(int tick, int *bar, int *beat,
     if (_file) {
         int startOfMeasure = 0, endOfMeasure = 0;
         m = _file->measure(tick, &startOfMeasure, &endOfMeasure);
-        _file->meterAt(tick, &n, &d);
+        // meterAt() reports the denominator as the SMF power-of-two EXPONENT
+        // (2 means /4), not the printed number. Both the beat length and the
+        // "4/4" shown here need the actual denominator: with the raw exponent
+        // this displayed "4/2" for a 4/4 song and measured beats as half
+        // notes, so a 4/4 bar only ever counted up to beat 2.
+        int denPow = 2;
+        _file->meterAt(tick, &n, &denPow);
+        d = 1 << denPow;
         const int tpq = _file->ticksPerQuarter();
         int ticksPerBeat = (d > 0 && tpq > 0) ? (tpq * 4 / d) : tpq;
         if (ticksPerBeat <= 0)
@@ -414,7 +424,8 @@ void TimeDisplayWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
         // Left-click cycles the readout (position / length / remaining / BPM / bar).
         _mode = TimeDisplay::nextMode(_mode);
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.setValue("View/timeDisplayMode", static_cast<int>(_mode));
         update();
         event->accept();
@@ -423,7 +434,8 @@ void TimeDisplayWidget::mousePressEvent(QMouseEvent *event) {
     if (event->button() == Qt::RightButton) {
         // Right-click cycles the LED colour theme.
         _colorTheme = (_colorTheme + 1) % kClockThemeCount;
-        QSettings s("MidiEditor", "NONE");
+        auto sPtr = AppPaths::settings();
+        QSettings &s = *sPtr;
         s.setValue("View/timeDisplayTheme", _colorTheme);
         update();
         event->accept();

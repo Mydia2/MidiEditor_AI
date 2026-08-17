@@ -58,13 +58,9 @@ void SizeChangeTool::reloadState(ProtocolEntry *entry) {
 void SizeChangeTool::draw(QPainter *painter) {
     int currentX = rasteredX(mouseX);
 
-    // Helper lambda to set cursor on the correct widget
-    auto setCursorOnWidget = [this](Qt::CursorShape shape) {
-        if (_openglContainer) {
-            _openglContainer->setCursor(shape);
-        } else {
-            matrixWidget->setCursor(shape);
-        }
+    // Helper lambda: the cursor goes to the visible pane the tool is acting on
+    auto setCursorOnWidget = [](Qt::CursorShape shape) {
+        EditorTool::setToolCursor(shape);
     };
 
     setCursorOnWidget(Qt::ArrowCursor);
@@ -230,12 +226,8 @@ bool SizeChangeTool::release() {
         }
         currentProtocol()->endAction();
     }
-    // Set cursor on OpenGL container if available, otherwise on matrix widget
-    if (_openglContainer) {
-        _openglContainer->setCursor(Qt::ArrowCursor);
-    } else {
-        matrixWidget->setCursor(Qt::ArrowCursor);
-    }
+    // Cursor goes to the visible pane the tool is acting on
+    setToolCursor(Qt::ArrowCursor);
     if (_standardTool) {
         Tool::setCurrentTool(_standardTool);
         _standardTool->move(mouseX, mouseY);
@@ -247,13 +239,9 @@ bool SizeChangeTool::release() {
 bool SizeChangeTool::move(int mouseX, int mouseY) {
     EventTool::move(mouseX, mouseY);
 
-    // Helper lambda to set cursor on the correct widget
-    auto setCursorOnWidget = [this](Qt::CursorShape shape) {
-        if (_openglContainer) {
-            _openglContainer->setCursor(shape);
-        } else {
-            matrixWidget->setCursor(shape);
-        }
+    // Helper lambda: the cursor goes to the visible pane the tool is acting on
+    auto setCursorOnWidget = [](Qt::CursorShape shape) {
+        EditorTool::setToolCursor(shape);
     };
 
     foreach (MidiEvent *event, Selection::instance()->selectedEvents()) {

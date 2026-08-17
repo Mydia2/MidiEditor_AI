@@ -6,13 +6,18 @@
 // MIDIEDITOR_WEBRTC_ENABLED define (since the IceConfig header gates its
 // declarations on that flag).
 //
-// Sandboxes QSettings via QStandardPaths::setTestModeEnabled(true) so the
-// developer's real Collab/lan/iceServers key is never touched.
+// Sandboxed via the AppPaths settings seam (TEST-WIPES-REAL-REGISTRY #5,
+// v2.2 review): the earlier QStandardPaths::setTestModeEnabled claim was
+// FALSE on Windows - registry-backed QSettings ignores it, so every run
+// wiped the developer's real Collab/lan/iceServers key. IceConfig now
+// routes through AppPaths::settings(), and so does this test.
 //
 // Run from a build configured with -DBUILD_TESTING=ON:
 //     ctest --test-dir build -V -R IceConfig
 
 #include "IceConfig.h"
+
+#include "../src/AppPaths.h"
 
 #include <QSettings>
 #include <QStandardPaths>
@@ -42,16 +47,16 @@ private slots:
 
 private:
     static void wipeIceKey() {
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        s.remove(QStringLiteral("Collab/lan/iceServers"));
-        s.sync();
+        auto s = AppPaths::settings();
+        s->remove(QStringLiteral("Collab/lan/iceServers"));
+        s->sync();
     }
 };
 
 void TestIceConfig::initTestCase() {
     QStandardPaths::setTestModeEnabled(true);
-    QCoreApplication::setOrganizationName(QStringLiteral("MidiEditor"));
-    QCoreApplication::setApplicationName(QStringLiteral("NONE"));
+    AppPaths::setSettingsScopeForTests(QStringLiteral("MidiEditorTest"),
+                                       QStringLiteral("IceConfigTest"));
 }
 
 void TestIceConfig::init() {
@@ -59,7 +64,9 @@ void TestIceConfig::init() {
 }
 
 void TestIceConfig::cleanupTestCase() {
-    wipeIceKey();
+    QSettings(QStringLiteral("MidiEditorTest"),
+              QStringLiteral("IceConfigTest")).clear();
+    AppPaths::setSettingsScopeForTests(QString(), QString());
 }
 
 // ---------------------------------------------------------------------
@@ -100,14 +107,16 @@ void TestIceConfig::load_unsetReturnsDefaults() {
 }
 
 void TestIceConfig::load_emptyValueReturnsDefaults() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     s.setValue(QStringLiteral("Collab/lan/iceServers"), QString());
     s.sync();
     QCOMPARE(IceConfig::load(), IceConfig::googleDefaults());
 }
 
 void TestIceConfig::load_whitespaceOnlyValueReturnsDefaults() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     s.setValue(QStringLiteral("Collab/lan/iceServers"),
                QStringLiteral("   \n\t  \n  "));
     s.sync();
@@ -121,7 +130,8 @@ void TestIceConfig::load_whitespaceOnlyValueReturnsDefaults() {
 void TestIceConfig::save_persistsViaQSettings() {
     IceConfig::save({QStringLiteral("stun:my.stun.example:3478"),
                      QStringLiteral("turn:user:pw@turn.example:5349")});
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     QString blob = s.value(QStringLiteral("Collab/lan/iceServers")).toString();
     QVERIFY(blob.contains(QStringLiteral("stun:my.stun.example:3478")));
     QVERIFY(blob.contains(QStringLiteral("turn:user:pw@turn.example:5349")));
@@ -152,7 +162,8 @@ void TestIceConfig::roundTrip_multiEntry() {
 // Blank lines and lines starting with '#' are dropped; payload lines are
 // preserved verbatim in order.
 void TestIceConfig::load_skipsBlankLinesAndComments() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     QString blob =
         QStringLiteral("# top-of-file comment\n"
                        "stun:a.example:3478\n"
@@ -171,7 +182,8 @@ void TestIceConfig::load_skipsBlankLinesAndComments() {
 }
 
 void TestIceConfig::load_returnsDefaultsWhenAllLinesAreCommentsOrBlank() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     s.setValue(QStringLiteral("Collab/lan/iceServers"),
                QStringLiteral("# everything is a comment\n"
                               "\n"

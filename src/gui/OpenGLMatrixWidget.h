@@ -276,6 +276,11 @@ protected:
      */
     void paintContent(QPainter *painter) override;
 
+    /**
+     * \brief The hidden MatrixWidget this wrapper renders and forwards input to.
+     */
+    QWidget *hostedWidget() const override { return _matrixWidget; }
+
     // === Event Handlers ===
     // All event handlers delegate to the internal MatrixWidget
 

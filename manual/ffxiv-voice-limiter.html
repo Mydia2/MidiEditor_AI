@@ -68,6 +68,7 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-playability.html">Check FFXIV Playability</a>
                 <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
                 <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
                 <a href="tempo-conversion.html">Convert Tempo</a>
@@ -105,7 +106,7 @@ to the game.
 <div class="highlight-box">
 <p>&#x1F4A1; <b>Find it in:</b> the toolbar gauge <img src="screenshots/VoiceLimiter-Gadget.png" alt="Voice Gauge" style="height:1.4em;vertical-align:middle;border:1px solid var(--border);border-radius:4px;">,
 the optional voice-load lane under the velocity strip, and the
-<a href="midipilot.html">MidiPilot</a> <code>analyze_voice_load</code> agent tool.
+<a href="midipilot-tools.html#tools">MidiPilot</a> <code>analyze_voice_load</code> agent tool.
 The widgets are hidden when FFXIV SoundFont Mode is off so non-FFXIV users pay zero perf cost.</p>
 </div>
 
@@ -147,15 +148,18 @@ out of the game does not. Three constraints matter for arranging:
 <tr>
   <td><b>No native chords</b></td>
   <td>One key press = one note; arpeggiate or use Power Chord instruments</td>
-  <td>Stacked notes on the same key collapse.</td>
+  <td>Different pitches starting on the same tick are rolled as a fast arpeggio; the same pitch
+      stacked twice sounds once and the copy is wasted.</td>
 </tr>
 </tbody>
 </table>
 
 <p>
-The <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a> enforces <b>range</b> and
-the <i>Bard accuracy</i> path enforces percussion behaviour. The Voice Limiter adds
-<b>predictive feedback</b> on the polyphony ceiling and the note-rate
+The <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a> sets up channels, programs and
+velocities, and the <i>Bard accuracy</i> path reproduces the in-game playback behaviour.
+<a href="ffxiv-playability.html">Check FFXIV Playability</a> is where <b>range</b>
+and the chord and stacked-note rules get reported, with the offending notes clickable. The Voice
+Limiter adds <b>predictive feedback</b> on the polyphony ceiling and the note-rate
 ceiling <i>while you are editing</i>.
 </p>
 
@@ -422,7 +426,7 @@ running the real pass, which is one undo step - the same always-ask rule the dia
   <li><a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer - one-click range and channel
     setup</a></li>
   <li><a href="soundfont.html">SoundFonts &amp; FluidSynth - FFXIV SoundFont Mode</a></li>
-  <li><a href="midipilot.html">MidiPilot - <code>analyze_voice_load</code> tool</a></li>
+  <li><a href="midipilot-tools.html#tools">MidiPilot - <code>analyze_voice_load</code> tool</a></li>
   <li><a href="tempo-conversion.html">Convert Tempo, Preserve Duration</a></li>
   <li><a href="https://ffxiv.consolegameswiki.com/wiki/Performance_Actions" target="_blank" rel="noopener noreferrer">FFXIV Performance Actions wiki &#x2197;</a></li>
 </ul>

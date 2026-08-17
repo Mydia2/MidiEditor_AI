@@ -28,6 +28,14 @@ FfxivVoiceLaneWidget::FfxivVoiceLaneWidget(MatrixWidget *matrixWidget, QWidget *
             this, &FfxivVoiceLaneWidget::onAnalysisUpdated);
 }
 
+void FfxivVoiceLaneWidget::detachMatrixWidget() {
+    if (!_matrixWidget) {
+        return;
+    }
+    disconnect(_matrixWidget, nullptr, this, nullptr);
+    _matrixWidget = nullptr;
+}
+
 void FfxivVoiceLaneWidget::setFile(MidiFile *file) {
     if (_file) {
         disconnect(_file, SIGNAL(cursorPositionChanged()), this, SLOT(update()));

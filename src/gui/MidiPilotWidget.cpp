@@ -1,5 +1,7 @@
 #include "MidiPilotWidget.h"
 
+#include "../AppPaths.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -42,6 +44,7 @@
 #include "../ai/AiClient.h"
 #include "../ai/AgentRunner.h"
 #include "../ai/EditorContext.h"
+#include "../ai/ToolDefinitions.h"
 #include "../ai/MidiEventSerializer.h"
 #include "../ai/ConversationStore.h"
 #include "../ai/ModelFavorites.h"
@@ -567,7 +570,8 @@ void MidiPilotWidget::setupUi() {
     _modeCombo->setToolTip("Simple: single-shot edits\n"
                            "Agent: multi-step autonomous editing");
     _modeCombo->setFixedHeight(28);
-    QSettings modeSettings("MidiEditor", "NONE");
+    auto modeSettingsPtr = AppPaths::settings();
+    QSettings &modeSettings = *modeSettingsPtr;
     int modeIdx = _modeCombo->findData(modeSettings.value("AI/mode", "simple").toString());
     if (modeIdx >= 0) _modeCombo->setCurrentIndex(modeIdx);
     connect(_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -741,9 +745,14 @@ void MidiPilotWidget::setupUi() {
     _ffxivCheck->setToolTip("Enable FFXIV Bard Performance mode — constrains output to game rules\n"
                             "(C3-C6 range, monophonic, max 8 tracks, FFXIV instrument names)");
     _ffxivCheck->setStyleSheet("font-size: 11px;");
-    _ffxivCheck->setChecked(QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool());
-    connect(_ffxivCheck, &QCheckBox::toggled, this, [](bool checked) {
-        QSettings("MidiEditor", "NONE").setValue("AI/ffxiv_mode", checked);
+    _ffxivCheck->setChecked(AppPaths::settings()->value("AI/ffxiv_mode", false).toBool());
+    connect(_ffxivCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        AppPaths::settings()->setValue("AI/ffxiv_mode", checked);
+        // Phase 46: the FFXIV tool bundle appears/disappears with the mode -
+        // whoever exposes tools (the MCP server) must be able to tell its
+        // clients (notifications/tools/list_changed). MainWindow wires this
+        // to McpServer::broadcastToolsChanged.
+        emit ffxivModeChanged(checked);
     });
     footerLayout->addWidget(_ffxivCheck);
 
@@ -817,6 +826,19 @@ void MidiPilotWidget::setupUi() {
         dlg.exec();
     });
     settingsMenu->addSeparator();
+    // TOOLS-INCAPABLE-EXPIRY: manual escape hatch from the Agent-mode
+    // pre-flight refusal in sendCurrentPrompt(). The flag also expires on its
+    // own after AiClient::toolsIncapableExpiryDays(), but a user who knows the
+    // model can call tools should not have to wait for that.
+    settingsMenu->addAction(tr("Retry tool support for this model"), this, [this]() {
+        const QString model = _client->model();
+        _client->clearToolsIncapableFlag(_client->provider(), model);
+        setStatus(model.isEmpty()
+                      ? tr("Tool support flag cleared")
+                      : tr("Tool support will be retried for %1").arg(model),
+                  "green");
+    });
+    settingsMenu->addSeparator();
     settingsMenu->addAction("Save AI preset for this file...", this, &MidiPilotWidget::savePresetForFile);
     connect(settingsBtn, &QPushButton::clicked, settingsBtn, [settingsBtn, settingsMenu]() {
         settingsMenu->exec(settingsBtn->mapToGlobal(QPoint(0, -settingsMenu->sizeHint().height())));
@@ -827,6 +849,10 @@ void MidiPilotWidget::setupUi() {
 
     // Initial state
     setupSetupPrompt();
+}
+
+bool MidiPilotWidget::isConfigured() const {
+    return _client && _client->isConfigured();
 }
 
 void MidiPilotWidget::setupSetupPrompt() {
@@ -861,7 +887,7 @@ void MidiPilotWidget::setupSetupPrompt() {
         int effortIdx = _effortCombo->findData(_client->reasoningEffort());
         if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
         // Sync FFXIV checkbox with settings
-        _ffxivCheck->setChecked(QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool());
+        _ffxivCheck->setChecked(AppPaths::settings()->value("AI/ffxiv_mode", false).toBool());
     } else {
         setStatus("Not configured", "orange");
     }
@@ -1025,6 +1051,31 @@ void MidiPilotWidget::focusInput() {
     _inputField->setFocus();
 }
 
+bool MidiPilotWidget::submitPrompt(const QString &text) {
+    if (!_inputField || text.trimmed().isEmpty()) return false;
+    // Same lock the send button honours: a Show-mode viewer must not be able
+    // to drive the presenter's MidiPilot through a context menu.
+    if (_showModeLocked) return false;
+    // Route through the input field + sendCurrentPrompt so every guard and the
+    // whole context capture stay in ONE place. Park the user's half-written
+    // draft first and put it back afterwards - on success the send path clears
+    // the field, on refusal our prompt would sit there instead.
+    // ANALYZE-LATCH-001: the verdict comes from the send path itself (true only
+    // when the request really reached _client / _agentRunner). It must NOT be
+    // inferred from the field being empty: the agent-mode "model has no tool
+    // support" refusal used to run after the clear(), so a request that was
+    // never sent reported "accepted" and left the playability workbench
+    // waiting for a reply that could not arrive.
+    const QString draft = _inputField->toPlainText();
+    _inputField->setPlainText(text);
+    const bool accepted = sendCurrentPrompt();
+    _inputField->setPlainText(draft);
+    QTextCursor c = _inputField->textCursor();
+    c.movePosition(QTextCursor::End);
+    _inputField->setTextCursor(c);
+    return accepted;
+}
+
 void MidiPilotWidget::onFileChanged(MidiFile *f) {
     _file = f;
 #ifdef MIDIEDITOR_COLLAB_ENABLED
@@ -1081,6 +1132,17 @@ void MidiPilotWidget::abortActiveRequest() {
         _sendButton->setEnabled(inputEnabled);
         _sendButton->setVisible(true);
         _stopButton->setVisible(false);
+        // ANALYZE-LATCH-001: a Stop is a terminal outcome too. Simple mode gets
+        // no signal from the client here - AiClient::cancelRequest() disconnects
+        // the reply on purpose (AgentRunner relies on that silence) - so neither
+        // responseReceived nor errorOccurred will fire. Tell the listeners that
+        // latched on their own submitPrompt (the playability workbench, Stop /
+        // New Chat / tab-close during an analysis), or they wait forever and
+        // mis-attribute the NEXT unrelated reply as their answer. The agent
+        // branch above returns early and covers itself via onAgentError.
+        // No chat bubble: assistantReplied only feeds external listeners, and
+        // the chat already carries the "Stopped" status line.
+        emit assistantReplied(tr("MidiPilot request was stopped."));
     }
 }
 
@@ -1169,18 +1231,61 @@ void MidiPilotWidget::onNewChat() {
 }
 
 void MidiPilotWidget::onSendMessage() {
+    // Thin wrapper for the interactive entry points (Send button click,
+    // Enter-to-send): they don't care about the verdict. Programmatic callers go
+    // through submitPrompt, which needs it (ANALYZE-LATCH-001).
+    sendCurrentPrompt();
+}
+
+bool MidiPilotWidget::sendCurrentPrompt() {
     QString text = _inputField->toPlainText().trimmed();
     if (text.isEmpty())
-        return;
+        return false;
 
     if (!_client->isConfigured()) {
         setupSetupPrompt();
-        return;
+        return false;
     }
 
     if (_client->isBusy()) {
         setStatus("Processing...", "orange");
-        return;
+        return false;
+    }
+
+    // SUBMIT-REENTRY-001: during a multi-step agent run the CLIENT is
+    // momentarily not busy between steps (AgentRunner spins processEvents
+    // while executing tools), so isBusy() alone lets a submit through
+    // mid-run - which appends a stray user message, orphans the live steps
+    // widget and, via the refused second run's error path, unlocks the
+    // input while the real run continues. Ask the RUNNER, not the flag:
+    // _isAgentRunning can be stale, isRunning() cannot.
+    if (_agentRunner && _agentRunner->isRunning()) {
+        setStatus("Agent running...", "orange");
+        return false;
+    }
+
+    // Agent-mode pre-flight capability check — if we previously observed that
+    // the chosen model has no tool-calling support, don't even try (would just
+    // return HTTP 404 again). Surface a friendly bubble and bail out cleanly.
+    // ANALYZE-LATCH-001: this refusal deliberately runs BEFORE the clear()
+    // below, so the user's draft stays in the box, no user bubble is appended
+    // for a message that is never sent, and PR mode captures no snapshot for a
+    // run that never starts. Neither currentMode() nor
+    // toolsIncapableForCurrentModel() depends on anything computed further down.
+    if ((currentMode() == "agent" || currentMode() == "agent_pr") &&
+        _client->toolsIncapableForCurrentModel()) {
+        setStatus("Model does not support tools", "red");
+        addChatBubble(QStringLiteral("system"),
+            tr("⚠ The selected model does not support tool calling and "
+               "cannot be used in Agent mode.\n\n"
+               "Pick a different model in Settings → AI (look for "
+               "tool/function-calling support), or switch this chat "
+               "to Simple mode.\n\n"
+               "If you believe this model can call tools, choose "
+               "\"Retry tool support for this model\" in the ⚙ menu below - "
+               "the check is also repeated automatically after %1 days.")
+                .arg(AiClient::toolsIncapableExpiryDays()));
+        return false;
     }
 
     _inputField->clear();
@@ -1200,7 +1305,8 @@ void MidiPilotWidget::onSendMessage() {
         }
 
         // Capture surrounding events (±N measures)
-        QSettings settings("MidiEditor", "NONE");
+        auto settingsPtr = AppPaths::settings();
+        QSettings &settings = *settingsPtr;
         int contextMeasures = settings.value("AI/context_measures", 5).toInt();
         if (contextMeasures > 0) {
             surroundingEvents = EditorContext::captureSurroundingEvents(
@@ -1260,23 +1366,8 @@ void MidiPilotWidget::onSendMessage() {
             _prModeUserMessage = fullMessage;
         }
 #endif
-        // Pre-flight capability check — if we previously observed that
-        // the chosen model has no tool-calling support, don't even try
-        // (would just return HTTP 404 again). Surface a friendly bubble
-        // and bail out cleanly.
-        if (_client->toolsIncapableForCurrentModel()) {
-            setStatus("Model does not support tools", "red");
-            // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
-            _inputField->setEnabled(!_showModeLocked);
-            _sendButton->setEnabled(!_showModeLocked);
-            addChatBubble(QStringLiteral("system"),
-                tr("⚠ The selected model does not support tool calling and "
-                   "cannot be used in Agent mode.\n\n"
-                   "Pick a different model in Settings → AI (look for "
-                   "tool/function-calling support), or switch this chat "
-                   "to Simple mode."));
-            return;
-        }
+        // The tool-capability pre-flight for this mode already ran above, before
+        // the input field was cleared (ANALYZE-LATCH-001).
 
         // Agent Mode: use AgentRunner with tool-calling loop
         // Add user message to history (AgentRunner reads it from there)
@@ -1325,6 +1416,14 @@ void MidiPilotWidget::onSendMessage() {
                                   ? agentPrompt + QStringLiteral("\n\n") + pp.system
                                   : pp.system;
             }
+            // Phase 47: the profile can also strip the `pitch_bend` branch
+            // from the tool schema for this model. Set unconditionally so a
+            // profile change (or a model switch) takes effect on the very
+            // next run instead of leaving the previous run's value behind.
+            // resolveForModel returns a default-constructed profile when
+            // nothing matches; its flag is false, but be explicit.
+            _agentRunner->setProfileDisallowsPitchBend(
+                !pp.id.isEmpty() && pp.disallowPitchBend);
         }
         if (ffxivMode()) {
             // Detect which optional sections the file needs
@@ -1419,7 +1518,8 @@ void MidiPilotWidget::onSendMessage() {
         _lastSimpleHistory = historyForApi;
         _lastSimpleMessage = fullMessage;
         _simpleRetryCount = 0;
-        QSettings _retrySettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto _retrySettingsPtr = AppPaths::settings();
+        QSettings &_retrySettings = *_retrySettingsPtr;
         _simpleMaxRetries = _retrySettings.value(QStringLiteral("AI/simple_max_retries"), 3).toInt();
         if (_simpleMaxRetries < 0) _simpleMaxRetries = 0;
         if (_simpleMaxRetries > 10) _simpleMaxRetries = 10;
@@ -1429,6 +1529,12 @@ void MidiPilotWidget::onSendMessage() {
         userMsg["content"] = fullMessage;
         _conversationHistory.append(userMsg);
     }
+
+    // Both branches above handed the request to _agentRunner / _client, so a
+    // terminal signal (agentFinished/agentError, responseReceived/errorOccurred,
+    // or the abort path's stopped notice) is guaranteed to follow. Only here may
+    // a caller latch on assistantReplied (ANALYZE-LATCH-001).
+    return true;
 }
 
 void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObject &fullResponse) {
@@ -1445,6 +1551,10 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
     // Successful response — reset the simple-mode self-healing retry counter.
     _simpleRetryCount = 0;
     _lastSimpleMessage.clear();
+
+    // Phase 46: external listeners (the playability dialog mirrors the
+    // answer to a check it submitted) get the final text of every reply.
+    emit assistantReplied(content);
 
     // Extract token usage
     QJsonObject usage = fullResponse["usage"].toObject();
@@ -1812,6 +1922,10 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     if (_simpleRetryCount > 0)
         surfaced = QStringLiteral("%1 (after %2 retry attempts)").arg(errorMessage).arg(_simpleRetryCount);
     addChatBubble("system", "Error: " + surfaced);
+    // ANALYZE-LATCH-001: listeners waiting for the turn's outcome (the
+    // playability workbench) must hear the terminal error too, or they wait
+    // forever and mis-attribute the NEXT unrelated reply as theirs.
+    emit assistantReplied(tr("MidiPilot request failed: %1").arg(surfaced));
     _simpleRetryCount = 0;
     _lastSimpleMessage.clear();
     // Phase 28: release the request-origin pin symmetrically with the other
@@ -1821,7 +1935,9 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
 }
 
 void MidiPilotWidget::onSettingsClicked() {
-    _mainWindow->openConfig();
+    // Both entry points (setup-prompt button, gear menu "MidiPilot Settings...")
+    // ask for MidiPilot's settings by name - land on that page, not on Midi I/O.
+    _mainWindow->openConfigOnMidiPilotTab();
 }
 
 void MidiPilotWidget::onSettingsChanged() {
@@ -1835,6 +1951,13 @@ QString MidiPilotWidget::currentMode() const {
 
 bool MidiPilotWidget::ffxivMode() const {
     return _ffxivCheck->isChecked();
+}
+
+void MidiPilotWidget::setFfxivMode(bool enabled) {
+    if (!_ffxivCheck) return;
+    // setChecked only fires toggled() on an actual change; when the mode is
+    // already right, settings and clients are in sync and nothing happens.
+    _ffxivCheck->setChecked(enabled);
 }
 
 void MidiPilotWidget::updateTokenLabel() {
@@ -1917,7 +2040,8 @@ QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
 
 void MidiPilotWidget::onModeChanged(int index) {
     Q_UNUSED(index);
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     settings.setValue("AI/mode", currentMode());
 
     // If there's an active conversation, start a new chat
@@ -1965,7 +2089,8 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
     // Save current API key for the old provider
     QString oldProvider = _client->provider();
     if (!oldProvider.isEmpty() && oldProvider != provider) {
-        QSettings settings("MidiEditor", "NONE");
+        auto settingsPtr = AppPaths::settings();
+        QSettings &settings = *settingsPtr;
         QString currentKey = settings.value("AI/api_key").toString();
         if (!currentKey.isEmpty())
             settings.setValue(QString("AI/api_key/%1").arg(oldProvider), currentKey);
@@ -1993,7 +2118,8 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
     }
 
     // Load API key for the new provider
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     QString newKey = settings.value(QString("AI/api_key/%1").arg(provider)).toString();
     settings.setValue("AI/api_key", newKey);
 
@@ -2147,6 +2273,10 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     // Phase 28: the run (and all its tool applies) is done - release the origin pin.
     _runOriginFile = nullptr;
 
+    // Phase 46: mirror the final text to external listeners (see
+    // onResponseReceived - same signal for both modes).
+    emit assistantReplied(finalMessage);
+
     // Stop the thought-cursor pulse and freeze the thought label at its
     // final accumulated text (drop the trailing blinking cursor glyph).
     if (_thoughtCursorTimer) _thoughtCursorTimer->stop();
@@ -2289,6 +2419,8 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     _sendButton->setEnabled(!_showModeLocked);
 
     addChatBubble("system", "Agent error: " + error);
+    // ANALYZE-LATCH-001: same terminal-outcome contract as onErrorOccurred.
+    emit assistantReplied(tr("MidiPilot request failed: %1").arg(error));
 
     finalizeTurn(error, QStringLiteral("error"));
     scheduleSave();
@@ -2458,16 +2590,11 @@ void MidiPilotWidget::setStatus(const QString &text, const QString &color) {
     }
 }
 
+// One implementation for the "MidiPilot" / "MidiPilotMCP (client)" prefix that
+// every protocol label carries: the tool layer owns it (and a unit test pins
+// the strings), the widget-routed actions here just reuse it.
 static QString protoPrefix(const QJsonObject &response) {
-    QString src = response["_source"].toString();
-    if (!src.startsWith(QLatin1String("mcp")))
-        return QStringLiteral("MidiPilot");
-
-    // "mcp" -> "MidiPilotMCP", "mcp:ClientName" -> "MidiPilotMCP (ClientName)"
-    int colon = src.indexOf(':');
-    if (colon > 0 && colon + 1 < src.length())
-        return QStringLiteral("MidiPilotMCP (%1)").arg(src.mid(colon + 1));
-    return QStringLiteral("MidiPilotMCP");
+    return ToolDefinitions::protocolActorPrefix(response["_source"].toString());
 }
 
 QJsonObject MidiPilotWidget::dispatchAction(const QJsonObject &response, bool showBubbles) {

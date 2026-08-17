@@ -4,6 +4,8 @@
 
 #include "CollabSettingsWidget.h"
 
+#include "../../AppPaths.h"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -147,7 +149,8 @@ CollabSettingsWidget::CollabSettingsWidget(QSettings *settings, QWidget *parent)
 
     // ----- Hosting safety net (Plan §11.10n) ---------------------------
     {
-        QSettings probe(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto probePtr = AppPaths::settings();
+        QSettings &probe = *probePtr;
         outer->addWidget(separator());
         QWidget *hostSec = new QWidget(this);
         QVBoxLayout *hostLayout = new QVBoxLayout(hostSec);
@@ -220,7 +223,8 @@ CollabSettingsWidget::CollabSettingsWidget(QSettings *settings, QWidget *parent)
         // default. accept() treats empty == use default. Use the
         // app-wide ("MidiEditor","NONE") store so we read the same file
         // RtcRendezvousClient writes to.
-        QSettings probe(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto probePtr = AppPaths::settings();
+        QSettings &probe = *probePtr;
         QString stored = probe.value(QStringLiteral("Collab/wan/rendezvousUrl")).toString();
         if (!stored.isEmpty()) _rendezvousUrlEdit->setText(stored);
     }
@@ -229,7 +233,8 @@ CollabSettingsWidget::CollabSettingsWidget(QSettings *settings, QWidget *parent)
 
     // ----- Connection-quality knobs (Plan §11.10h) ---------------------
     {
-        QSettings probe(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto probePtr = AppPaths::settings();
+        QSettings &probe = *probePtr;
 
         rdvLayout->addWidget(new QLabel(tr("ICE timeout (ms):"), _rendezvousSection),
                               rRow, 0);
@@ -389,8 +394,7 @@ CollabSettingsWidget::CollabSettingsWidget(QSettings *settings, QWidget *parent)
     _logOpenFileButton->setToolTip(
         tr("Open midieditor_ai.log in your default text editor or file viewer."));
     connect(_logOpenFileButton, &QPushButton::clicked, this, []() {
-        QString primary = QCoreApplication::applicationDirPath()
-                          + QStringLiteral("/midieditor_ai.log");
+        QString primary = AppPaths::dataFilePath(QStringLiteral("midieditor_ai.log"));
         QString fallback;
         QString dataDir = QStandardPaths::writableLocation(
             QStandardPaths::AppLocalDataLocation);
@@ -428,7 +432,8 @@ bool CollabSettingsWidget::accept() {
 
     // Plan §11.10n hosting safety toggle.
     if (_hostWorkOnCopyCheck) {
-        QSettings store(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto storePtr = AppPaths::settings();
+        QSettings &store = *storePtr;
         store.setValue(QStringLiteral("Collab/host/workOnCopy"),
                         _hostWorkOnCopyCheck->isChecked());
     }
@@ -441,7 +446,8 @@ bool CollabSettingsWidget::accept() {
     }
     // Plan §11.10h connection-quality knobs.
     {
-        QSettings store(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto storePtr = AppPaths::settings();
+        QSettings &store = *storePtr;
         if (_iceTimeoutSpin) {
             store.setValue(QStringLiteral("Collab/wan/iceGatheringTimeoutMs"),
                             _iceTimeoutSpin->value());

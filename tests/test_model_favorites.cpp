@@ -4,47 +4,40 @@
 #include <QSettings>
 #include <QTest>
 
+#include "../src/AppPaths.h"
 #include "../src/ai/ModelFavorites.h"
 
 class TestModelFavorites : public QObject {
     Q_OBJECT
 
 private:
-    // Unique per-process suffix so two test runs (e.g. one Release + one
-    // Debug from build-vs against the same registry) cannot leak QSettings
-    // state into each other. ModelFavorites uses a hardcoded
-    // QSettings("MidiEditor","NONE") and ignores setOrganizationName, so the
-    // sandboxing has to live here.
-    QString _suffix;
-    QStringList _touchedKeys;
+    // ModelFavorites persists through AppPaths::settings(), i.e. into the
+    // developer's real QSettings("MidiEditor","NONE") scope unless a test
+    // installs the central seam. The per-PID key juggling this used to do only
+    // narrowed the blast radius; an aborted run still left AI/favorites/*
+    // entries behind. The throwaway scope removes the class of problem
+    // (QStandardPaths::setTestModeEnabled does not sandbox the Windows
+    // registry, so this is the only protection there is).
+    static constexpr const char *kTestOrg = "MidiEditorTest";
+    static constexpr const char *kTestApp = "ModelFavorites";
 
     QString providerName(const QString &base) const
     {
-        return base + QStringLiteral("__test_") + _suffix;
-    }
-
-    void clearTouchedKeys()
-    {
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        for (const QString &k : _touchedKeys)
-            s.remove(k);
-        s.sync();
+        return base + QStringLiteral("__test");
     }
 
 private slots:
     void initTestCase()
     {
-        _suffix = QString::number(QCoreApplication::applicationPid());
-        _touchedKeys = {
-            QStringLiteral("AI/favorites/") + providerName("openai"),
-            QStringLiteral("AI/favorites/") + providerName("openai_visible"),
-        };
-        clearTouchedKeys();
+        AppPaths::setSettingsScopeForTests(QLatin1String(kTestOrg),
+                                          QLatin1String(kTestApp));
+        AppPaths::settings()->clear();
     }
 
     void cleanupTestCase()
     {
-        clearTouchedKeys();
+        QSettings(QLatin1String(kTestOrg), QLatin1String(kTestApp)).clear();
+        AppPaths::setSettingsScopeForTests(QString(), QString());
     }
 
     void chatModel_keepsLLMs()

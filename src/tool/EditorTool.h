@@ -20,6 +20,7 @@
 #define EDITORTOOL_H_
 
 // Qt includes
+#include <QCursor>
 #include <QPainter>
 
 // Project includes
@@ -183,10 +184,32 @@ public:
      * \brief Sets the OpenGL container widget for cursor operations.
      * \param container The OpenGL container widget that should receive cursor changes
      *
-     * When using OpenGL acceleration, cursor changes should be applied to the
-     * visible container widget rather than the hidden internal widget.
+     * \deprecated Kept for source compatibility with the MainWindow setup and
+     * teardown calls. Cursor routing is resolved per view by cursorTarget()
+     * instead: one process-wide container pointer could only ever be right for
+     * one editor group, so with a second group open the cursor was applied to
+     * the wrong pane.
      */
     static void setOpenGLContainer(QWidget *container);
+
+    /**
+     * \brief The widget that must receive cursor changes for the pane the tools
+     *  are currently acting on.
+     * \return The visible pane, or nullptr when there is no current view.
+     *
+     * Under hardware acceleration the visible pane is an OpenGLMatrixWidget and
+     * the tools' `matrixWidget` is its HIDDEN child, whose cursor Qt never
+     * applies - hence the indirection. Every other pane (the software primary
+     * view, and the second editor group's compare view, which is always a plain
+     * MatrixWidget) is the visible widget itself. Resolving this per call is
+     * what keeps both cases right when they exist side by side.
+     */
+    static QWidget *cursorTarget();
+
+    /**
+     * \brief Applies \a cursor to cursorTarget(), if there is one.
+     */
+    static void setToolCursor(const QCursor &cursor);
 
     /**
      * \brief Sets the main window for all editor tools.
@@ -219,7 +242,9 @@ protected:
     /** \brief Static reference to the matrix widget */
     static MatrixWidget *matrixWidget;
 
-    /** \brief Static reference to the OpenGL container widget for cursor operations */
+    /** \brief Static reference to the OpenGL container widget for cursor
+     *  operations. Retained only so setOpenGLContainer() keeps working; the
+     *  cursor routing itself no longer reads it - see cursorTarget(). */
     static QWidget *_openglContainer;
 
     /** \brief Static reference to the main window */

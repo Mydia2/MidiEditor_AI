@@ -762,6 +762,20 @@ int MidiFile::measure(int startTick, int endTick,
             }
         }
     }
+    if (!event) {
+        // Channel 18 holds no TimeSignatureEvent at all. Normally impossible
+        // (the ctor and the reader both plant one at tick 0), but an edit that
+        // removes the tick-0 event - or a file whose time signature failed to
+        // parse - used to make this dereference null. Fall back to 4/4; the
+        // returned event list stays empty, callers iterate it rather than
+        // index into it.
+        const int ticksPerMeasure = ticksPerMeasureOfMeter(4, 2);
+        const int barIndex = (startTick > 0) ? (startTick / ticksPerMeasure) : 0;
+        if (ticksInmeasure) {
+            *ticksInmeasure = startTick - barIndex * ticksPerMeasure;
+        }
+        return barIndex + 1;
+    }
     int ticks = startTick - event->midiTime();
     measure += event->measures(ticks, ticksInmeasure);
     (*eventList)->append(event);
@@ -811,12 +825,35 @@ int MidiFile::measure(int startTick, int *startTickOfMeasure, int *endTickOfMeas
             }
         }
     }
+    if (!event) {
+        // No TimeSignatureEvent on channel 18 - see the sibling overload. This
+        // one is the hot path: the measure tool asks it on every paint, so a
+        // null dereference here is an access violation on the next mouse move.
+        const int ticksPerMeasure = ticksPerMeasureOfMeter(4, 2);
+        const int barIndex = (startTick > 0) ? (startTick / ticksPerMeasure) : 0;
+        *(startTickOfMeasure) = barIndex * ticksPerMeasure;
+        *(endTickOfMeasure) = *startTickOfMeasure + ticksPerMeasure;
+        return barIndex + 1;
+    }
     int ticks = startTick - event->midiTime();
     int ticksInmeasure;
     measure += event->measures(ticks, &ticksInmeasure);
     *(startTickOfMeasure) = startTick - ticksInmeasure;
     *(endTickOfMeasure) = *startTickOfMeasure + event->ticksPerMeasure();
     return measure;
+}
+
+int MidiFile::measureCount() {
+    // The bar of the last SOUNDING tick. endTick() is the exclusive end of the
+    // song, so measure(endTick()) reports one bar too many for every file that
+    // ends exactly on a bar line - which is every fresh file (7680 ticks = 10
+    // bars of 4/4).
+    const int lastTick = endTick() - 1;
+    if (lastTick < 0) {
+        return 1;
+    }
+    int startOfMeasure = 0, endOfMeasure = 0;
+    return qMax(1, measure(lastTick, &startOfMeasure, &endOfMeasure));
 }
 
 int MidiFile::ticksPerQuarter() {
@@ -1993,16 +2030,41 @@ void MidiFile::meterAt(int tick, int *num, int *denum, TimeSignatureEvent **last
         it++;
     }
 
+    // The out-param is written in BOTH branches, null included. A caller
+    // CANNOT tell "channel 18 has no event at or before tick" from "a real 4/4
+    // event" by looking at num/denum - the fallback below is a valid 4/4, bit
+    // for bit - so a null event pointer is the only reliable signal that there
+    // is nothing anchoring the meter. deleteMeasures() depends on it, and
+    // leaving the out-param untouched in the fallback branch used to hand
+    // callers whatever they had initialised it to (uninitialised memory, in
+    // deleteMeasures()/insertMeasures()).
+    if (lastTimeSigEvent) {
+        *lastTimeSigEvent = event;
+    }
+
     if (!event) {
+        // 4/4 default. denum is the power-of-two EXPONENT, so /4 is 2 - the
+        // former 4 here meant /16 to every caller that converted correctly.
+        // Reached whenever channel 18 has no event at or before tick - e.g.
+        // while deleteMeasures() has the tick-0 time signature removed - so it
+        // must not contradict the documented convention.
         *num = 4;
-        *denum = 4;
+        *denum = 2;
     } else {
         *num = event->num();
         *denum = event->denom();
-        if (lastTimeSigEvent) {
-            *lastTimeSigEvent = event;
-        }
     }
+}
+
+int MidiFile::ticksPerMeasureOfMeter(int num, int denumPow) {
+    // denumPow is the SMF power-of-two EXPONENT (2 means /4). Clamp it before
+    // shifting: a corrupt file can carry any byte here and 1 << 200 is UB.
+    const int denum = 1 << qBound(0, denumPow, 16);
+    const int tpq = (timePerQuarter > 0) ? timePerQuarter : defaultTimePerQuarter;
+    if (num <= 0 || denum <= 0) {
+        return qMax(1, 4 * tpq);
+    }
+    return qMax(1, 4 * num * tpq / denum);
 }
 
 void MidiFile::printLog(QStringList *log) {
@@ -2114,16 +2176,33 @@ int MidiFile::startTickOfMeasure(int measure) {
     QMultiMap<int, MidiEvent *> *timeSigs = timeSignatureEvents();
     QMultiMap<int, MidiEvent *>::iterator it = timeSigs->begin();
 
-    // Find the time signature event the measure is in and its start measure
+    // Find the time signature event the measure is in and its start measure.
+    // NOTE: value(0) is a lookup by KEY, so it yields null both for an empty
+    // channel 18 and for a file whose first time signature does not sit at tick
+    // 0 - and this used to be dereferenced straight away.
     int currentMeasure = 1;
     TimeSignatureEvent *currentEvent = dynamic_cast<TimeSignatureEvent *>(timeSigs->value(0));
-    it++;
+    if (!currentEvent) {
+        // Nothing to anchor on: assume 4/4 from tick 0, matching the fallback
+        // in measure() so the two stay round-trippable.
+        return qMax(0, measure - 1) * ticksPerMeasureOfMeter(4, 2);
+    }
+    if (it != timeSigs->end()) {
+        it++;
+    }
     while (it != timeSigs->end()) {
+        TimeSignatureEvent *nextEvent = dynamic_cast<TimeSignatureEvent *>(it.value());
+        if (!nextEvent) {
+            // A foreign event type on channel 18 - skip it instead of letting
+            // the failed cast null out currentEvent for the next round.
+            it++;
+            continue;
+        }
         int endMeasureOfCurrentEvent = currentMeasure + ceil((it.key() - currentEvent->midiTime()) / currentEvent->ticksPerMeasure());
         if (endMeasureOfCurrentEvent > measure) {
             break;
         }
-        currentEvent = dynamic_cast<TimeSignatureEvent *>(it.value());
+        currentEvent = nextEvent;
         currentMeasure = endMeasureOfCurrentEvent;
         it++;
     }
@@ -2136,10 +2215,9 @@ void MidiFile::deleteMeasures(int from, int to) {
     int tickTo = startTickOfMeasure(to + 1);
 
     // Find and remember meter (time signature event) at the first undeleted measure
-    TimeSignatureEvent *lastTimeSig;
     int num;
     int denom;
-    meterAt(tickTo, &num, &denom, &lastTimeSig);
+    meterAt(tickTo, &num, &denom);
     ProtocolEntry *toCopy = copy();
 
     // BULK-OP UNDO: same pattern as removeTrack -- snapshot per channel
@@ -2147,21 +2225,40 @@ void MidiFile::deleteMeasures(int from, int to) {
     // touched channel at the end. Avoids O(events) channel-map deep clones.
     QVector<ProtocolEntry *> deleteMeasuresSnapshots(19, nullptr);
 
-    // Delete all events. For notes, only delete if starting within the given tick range.
+    // Delete every event STARTING inside the HALF-OPEN range [tickFrom, tickTo).
+    // tickTo is the start tick of the first bar that SURVIVES, so everything
+    // sitting exactly ON it - notes, controllers, program changes, meter and
+    // tempo changes - belongs to the surviving material and gets shifted left
+    // below instead of deleted. The bound used to be inclusive, which silently
+    // ate the complete downbeat of the first kept bar on every delete.
+    // Notes are keyed by their ON event: a note starting inside the range takes
+    // its OFF event with it, wherever that sits.
+    QList<QPair<int, MidiEvent *>> refusedRemoval;
+    QList<OffEvent *> spanningOffs;
     for (int ch = 0; ch < 19; ch++) {
         QMultiMap<int, MidiEvent *>::Iterator it = channel(ch)->eventMap()->begin();
         QList<MidiEvent *> toRemove;
         while (it != channel(ch)->eventMap()->end()) {
-            if (it.key() >= tickFrom && it.key() <= tickTo) {
+            if (it.key() >= tickFrom && it.key() < tickTo) {
                 OffEvent *offEvent = dynamic_cast<OffEvent *>(it.value());
-                if (!offEvent) {
-                    // Only remove if no off-event, off-event are handled separately
+                if (offEvent) {
+                    // An OFF event alone inside the range belongs to a note
+                    // that STARTED before tickFrom (an ON inside the range
+                    // removes its own OFF in the else branch). Such a spanning
+                    // note is SHORTENED to the splice point, never deleted -
+                    // clamped, not shifted, because shifting an off event out
+                    // of the deleted interval would give the note a negative
+                    // duration.
+                    if (offEvent->onEvent()
+                        && offEvent->onEvent()->midiTime() < tickFrom) {
+                        spanningOffs.append(offEvent);
+                    }
+                } else {
                     toRemove.append(it.value());
 
                     OnEvent *onEvent = dynamic_cast<OnEvent *>(it.value());
-                    if (onEvent) {
-                        OffEvent *offEventOfRemovedNote = onEvent->offEvent();
-                        toRemove.append(offEventOfRemovedNote);
+                    if (onEvent && onEvent->offEvent()) {
+                        toRemove.append(onEvent->offEvent());
                     }
                 }
             }
@@ -2171,7 +2268,12 @@ void MidiFile::deleteMeasures(int from, int to) {
         if (!toRemove.isEmpty() && channel(ch))
             deleteMeasuresSnapshots[ch] = channel(ch)->copy();
         foreach(MidiEvent* event, toRemove) {
-            channel(ch)->removeEvent(event, false);
+            // removeEvent() refuses to drop the LAST event on tick 0 of the
+            // tempo (17) / time-signature (18) channel; remember those, they
+            // get a second chance once the shift below has put the meter/tempo
+            // of the first surviving bar on the same tick.
+            if (!channel(ch)->removeEvent(event, false))
+                refusedRemoval.append(qMakePair(ch, event));
         }
     }
     for (int ch = 0; ch < 19; ch++) {
@@ -2179,14 +2281,21 @@ void MidiFile::deleteMeasures(int from, int to) {
             channel(ch)->protocol(deleteMeasuresSnapshots[ch], channel(ch));
     }
 
-    // All remaining events after the end tick have to be shifted. Note: off events that still
-    // exist inbetween the deleted interval are not shifted, since this would cause negative
-    // duration.
+    // Notes spanning into the deleted range end exactly at the splice point.
+    foreach (OffEvent *off, spanningOffs) {
+        if (off->midiTime() != tickFrom)
+            off->setMidiTime(tickFrom);
+    }
+
+    // All remaining events from the end tick ON have to be shifted - tickTo
+    // INCLUDED, so the downbeat of the first kept bar lands on tickFrom. Off
+    // events left inside the deleted interval are not shifted (that would
+    // cause a negative duration); they were clamped to tickFrom above.
     for (int ch = 0; ch < 19; ch++) {
         QList<MidiEvent *> toUpdate;
         QMultiMap<int, MidiEvent *>::Iterator it = channel(ch)->eventMap()->begin();
         while (it != channel(ch)->eventMap()->end()) {
-            if (it.key() > tickTo) {
+            if (it.key() >= tickTo) {
                 toUpdate.append(it.value());
             }
             it++;
@@ -2197,17 +2306,62 @@ void MidiFile::deleteMeasures(int from, int to) {
         }
     }
 
-    // Check meter again. If changed, add event to readjust.
+    // Second chance for the events the tick-0 guard kept alive: a tempo or
+    // meter change from INSIDE the deleted range that survived at tickFrom
+    // would now shadow the one the shift just moved there (the map iterates the
+    // newest first, so meterAt() can settle on the stale one) and the file
+    // would save both. With more than one event on the tick the guard no longer
+    // applies.
+    for (const QPair<int, MidiEvent *> &stale : refusedRemoval) {
+        MidiChannel *c = channel(stale.first);
+        if (!c || !c->eventMap()->contains(stale.second->midiTime(), stale.second))
+            continue;
+        if (c->eventMap()->count(stale.second->midiTime()) > 1)
+            c->removeEvent(stale.second, true);
+    }
+
+    // Re-anchor the meter. The event that carried it may be GONE: the delete
+    // loop above strips every non-off event in [tickFrom, tickTo) from all 19
+    // channels, channel 18 included. So the decision has to be driven by "is
+    // there still an event anchoring tickFrom?" and NEVER by comparing
+    // num/denom against what meterAt() reports: its no-event fallback is itself
+    // a valid 4/4 (num 4, denum 2), so a plain value comparison would accept a
+    // file with ZERO time signature events - and measure() /
+    // startTickOfMeasure() are then one null dereference away from an access
+    // violation on the next paint of the measure tool.
     int numAfter;
     int denomAfter;
-    meterAt(tickFrom, &numAfter, &denomAfter);
+    TimeSignatureEvent *timeSigAfter = nullptr;
+    meterAt(tickFrom, &numAfter, &denomAfter, &timeSigAfter);
     int ticksPerMeasure;
-    if (denom != denomAfter || num != numAfter) {
-        TimeSignatureEvent *newEvent = new TimeSignatureEvent(18, num, denom, 24, 8, track(0));
-        channel(18)->insertEvent(newEvent, tickFrom);
-        ticksPerMeasure = newEvent->ticksPerMeasure();
+    if (!timeSigAfter || denom != denomAfter || num != numAfter) {
+        // Retune an event that already sits exactly ON tickFrom instead of
+        // adding a second one there. Two TimeSignatureEvents on the same tick
+        // shadow each other - the map iterates the newest first, so meterAt()
+        // and measure() both settle on the STALE one - and the file would save
+        // both. Reachable whenever the deleted range starts at bar 1 and ends
+        // on a meter change: MidiChannel::removeEvent() refuses to drop the
+        // last tick-0 event on channel 18, so the old meter is still there.
+        QList<TimeSignatureEvent *> onTickFrom;
+        foreach (MidiEvent *ev, channel(18)->eventMap()->values(tickFrom)) {
+            TimeSignatureEvent *ts = dynamic_cast<TimeSignatureEvent *>(ev);
+            if (ts) {
+                onTickFrom.append(ts);
+            }
+        }
+        if (!onTickFrom.isEmpty()) {
+            foreach (TimeSignatureEvent *ts, onTickFrom) {
+                ts->setNumerator(num);
+                ts->setDenominator(denom);
+            }
+            ticksPerMeasure = onTickFrom.first()->ticksPerMeasure();
+        } else {
+            TimeSignatureEvent *newEvent = new TimeSignatureEvent(18, num, denom, 24, 8, track(0));
+            channel(18)->insertEvent(newEvent, tickFrom);
+            ticksPerMeasure = newEvent->ticksPerMeasure();
+        }
     } else {
-        ticksPerMeasure = lastTimeSig->ticksPerMeasure();
+        ticksPerMeasure = timeSigAfter->ticksPerMeasure();
     }
 
     midiTicks = midiTicks - (tickTo - tickFrom);
@@ -2230,9 +2384,14 @@ void MidiFile::insertMeasures(int after, int numMeasures) {
     // Find meter at measure and compute number of inserted ticks.
     int num;
     int denom;
-    TimeSignatureEvent *lastTimeSig;
+    TimeSignatureEvent *lastTimeSig = nullptr;
     meterAt(tick - 1, &num, &denom, &lastTimeSig);
-    int numTicks = lastTimeSig->ticksPerMeasure() * numMeasures;
+    // meterAt() reports a 4/4 default with a NULL event when channel 18 holds
+    // no time signature at or before the tick, so derive the measure length
+    // from the reported meter rather than dereferencing the event (which used
+    // to be an uninitialised pointer in that case).
+    int numTicks = (lastTimeSig ? lastTimeSig->ticksPerMeasure()
+                                : ticksPerMeasureOfMeter(num, denom)) * numMeasures;
     midiTicks = midiTicks + numTicks;
 
     // Shift all ticks.

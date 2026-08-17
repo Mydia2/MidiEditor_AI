@@ -82,6 +82,8 @@ TempoConversionDialog::TempoConversionDialog(MidiFile *file,
     connect(_targetBpm, qOverload<double>(&QDoubleSpinBox::valueChanged),
             this, &TempoConversionDialog::schedulePreview);
     connect(_scopeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &TempoConversionDialog::updateModeAvailability);
+    connect(_scopeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &TempoConversionDialog::schedulePreview);
     connect(_modeReplaceFixed, &QRadioButton::toggled,
             this, &TempoConversionDialog::schedulePreview);
@@ -90,7 +92,41 @@ TempoConversionDialog::TempoConversionDialog(MidiFile *file,
     connect(_modeEventsOnly, &QRadioButton::toggled,
             this, &TempoConversionDialog::schedulePreview);
 
+    updateModeAvailability();
     runPreviewNow();
+}
+
+void TempoConversionDialog::updateModeAvailability() {
+    // The tempo map is shared by the whole file: replacing it or rescaling it
+    // from a partial scope would retime every event outside the scope too, so
+    // a partial scope only offers "Scale events only".
+    const bool partialScope = _scopeCombo->currentIndex() != 0;
+
+    if (partialScope) {
+        if (!_modeEventsOnly->isChecked()) {
+            _parkedWholeProjectMode = _modeScaleMap->isChecked() ? 1 : 0;
+            _modeEventsOnly->setChecked(true);
+        }
+        _modeReplaceFixed->setEnabled(false);
+        _modeScaleMap->setEnabled(false);
+        _modeScopeHint->show();
+    } else {
+        _modeReplaceFixed->setEnabled(true);
+        _modeScaleMap->setEnabled(true);
+        if (_parkedWholeProjectMode >= 0) {
+            if (_parkedWholeProjectMode == 1) {
+                _modeScaleMap->setChecked(true);
+            } else {
+                _modeReplaceFixed->setChecked(true);
+            }
+            _parkedWholeProjectMode = -1;
+        }
+        _modeScopeHint->hide();
+    }
+
+    const QString reason = partialScope ? _modeScopeHint->text() : QString();
+    _modeReplaceFixed->setToolTip(reason);
+    _modeScaleMap->setToolTip(reason);
 }
 
 void TempoConversionDialog::buildUi() {
@@ -151,6 +187,17 @@ void TempoConversionDialog::buildUi() {
     modeLayout->addWidget(_modeReplaceFixed);
     modeLayout->addWidget(_modeScaleMap);
     modeLayout->addWidget(_modeEventsOnly);
+
+    // Shown while a partial scope is selected, when the first two modes are
+    // greyed out. Same sentence the AI tool answers with.
+    _modeScopeHint = new QLabel(
+        tr("The tempo map is shared, so changing it from a partial scope would retime "
+           "everything outside the scope."),
+        modeBox);
+    _modeScopeHint->setWordWrap(true);
+    _modeScopeHint->setStyleSheet(QStringLiteral("QLabel { color: gray; font-size: 10px; }"));
+    _modeScopeHint->hide();
+    modeLayout->addWidget(_modeScopeHint);
     root->addWidget(modeBox);
 
     // Preview

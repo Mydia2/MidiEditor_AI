@@ -30,6 +30,7 @@
 #include "midi/MidiOutput.h"
 #include "ai/EditorContext.h"
 #include "LoggingConfig.h"
+#include "AppPaths.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -147,8 +148,10 @@ LONG WINAPI midiEditorCrashHandler(EXCEPTION_POINTERS *info) {
 #endif
 
 void installFileLogHandler() {
-    // Primary: next to the executable. Easy to find, no env-var hunting.
-    QString primary = QCoreApplication::applicationDirPath() + QStringLiteral("/midieditor_ai.log");
+    // Primary: AppPaths::dataDir() - on Windows that IS the exe directory
+    // (easy to find, no env-var hunting); on macOS/Linux the per-user data
+    // location a signed bundle can actually write to (Phase 45 / issue #13).
+    QString primary = AppPaths::dataFilePath(QStringLiteral("midieditor_ai.log"));
     // Fallback: %LocalAppData%/MidiEditor AI/midieditor_ai.log if exe-dir
     // isn't writable (rare — Program Files install with read-only perms).
     QString fallback;
@@ -237,6 +240,14 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
 int main(int argc, char *argv[]) {
 #endif
 
+    // Phase 45 / PORTABLE-SPLIT-001: settings routing MUST be decided before
+    // the FIRST QSettings use - and loadEarlySettings below is exactly that,
+    // running even before QApplication. initSettings works pre-app: the exe dir
+    // comes from the OS (GetModuleFileNameW / _NSGetExecutablePath /
+    // /proc/self/exe, argv[0] only as a last resort), --portable is scanned from
+    // argv, and the QSettings redirection is process-global static state.
+    AppPaths::initSettings(argc, argv);
+
     // Load high DPI scaling settings before creating QApplication
     // These must be set before QApplication is created
     Appearance::loadEarlySettings();
@@ -295,10 +306,16 @@ int main(int argc, char *argv[]) {
         qputenv("QT_USE_PHYSICAL_DPI", "0"); // Don't use physical DPI for font sizing
     }
 
-    // Add application directory plugins path before QApplication construction
+    // Add application directory plugins path before QApplication construction.
+    // Via AppPaths (not argv[0]): argv[0] is ANSI-mangled for non-Latin install
+    // paths and carries no directory when the exe is started by bare name from
+    // PATH - both used to point this at the wrong folder, so the bundled
+    // plugins were not found. See AppPaths::exeDir().
     {
-        QString appDir = QFileInfo(QString::fromLocal8Bit(argv[0])).absolutePath();
-        QCoreApplication::addLibraryPath(appDir + "/plugins");
+        const QString appDir = AppPaths::exeDir();
+        if (!appDir.isEmpty()) {
+            QCoreApplication::addLibraryPath(appDir + "/plugins");
+        }
     }
 
     QApplication a(argc, argv);
@@ -407,7 +424,7 @@ int main(int argc, char *argv[]) {
     AutoUpdater::cleanupOldBackups();
 
     // Load custom system prompts if present
-    QString promptsPath = QCoreApplication::applicationDirPath() + "/system_prompts.json";
+    QString promptsPath = AppPaths::dataFilePath(QStringLiteral("system_prompts.json"));
     if (QFile::exists(promptsPath)) {
         if (!EditorContext::loadCustomPrompts(promptsPath)) {
             qWarning() << "Invalid system_prompts.json — using defaults";
@@ -419,6 +436,8 @@ int main(int argc, char *argv[]) {
     //           MidiEditorAI.exe --open <file.mid>  (used by auto-updater)
     //           MidiEditorAI.exe --open-settings     (reopen settings on Appearance tab after theme restart)
     //           MidiEditorAI.exe --updated-from=<ver> (show post-update dialog after self-update)
+    //           MidiEditorAI.exe --portable            (handled in AppPaths::initSettings above;
+    //                                                  ignored here, and re-passed on every self-relaunch)
     QString openFilePath;
     bool openSettings = false;
     QString updatedFromVersion;

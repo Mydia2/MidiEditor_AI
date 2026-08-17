@@ -19,6 +19,7 @@
 #include "EditorTool.h"
 #include "../gui/MainWindow.h"
 #include "../gui/MatrixWidget.h"
+#include "../gui/OpenGLMatrixWidget.h"
 #include "ToolButton.h"
 
 MatrixWidget *EditorTool::matrixWidget = 0;
@@ -129,6 +130,32 @@ MatrixWidget *EditorTool::currentMatrixWidget() {
 
 void EditorTool::setOpenGLContainer(QWidget *container) {
     _openglContainer = container;
+}
+
+QWidget *EditorTool::cursorTarget() {
+    if (!matrixWidget) {
+        return nullptr;
+    }
+
+    // With hardware acceleration on, group 0's visible pane is an
+    // OpenGLMatrixWidget and matrixWidget is the hidden child it renders, so the
+    // cursor has to go to the parent. The second editor group is always a plain,
+    // visible MatrixWidget and must get the cursor itself - which the old single
+    // static container pointer could not express, so its resize/drag affordances
+    // were applied to group 0 instead.
+    if (qobject_cast<OpenGLMatrixWidget *>(matrixWidget->parentWidget())) {
+        return matrixWidget->parentWidget();
+    }
+
+    return matrixWidget;
+}
+
+void EditorTool::setToolCursor(const QCursor &cursor) {
+    // Null-safe on purpose: the views are torn down before the tools during
+    // shutdown, and setMatrixWidget(nullptr) has to stay harmless.
+    if (QWidget *target = cursorTarget()) {
+        target->setCursor(cursor);
+    }
 }
 
 void EditorTool::setMainWindow(MainWindow *mw) {

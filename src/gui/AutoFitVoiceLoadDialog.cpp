@@ -215,11 +215,23 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
         tr("Highlights the notes that would be removed. Only needed while "
            "\"Live preview\" is off - with it on the highlight already "
            "follows every change."));
+    // The analysis is useful beyond deleting: closing with the notes SELECTED
+    // turns this dialog into a rule-based selection tool, so any editor
+    // operation can act on what it found (transpose every 2nd note of a dense
+    // run an octave up and a tremolo becomes an arpeggio).
+    _selectButton = buttons->addButton(tr("Select in editor"),
+                                       QDialogButtonBox::ActionRole);
+    _selectButton->setToolTip(
+        tr("Closes the dialog and leaves these notes selected instead of "
+           "removing them - then use any editor operation on them "
+           "(transpose, move to another track, change velocity)."));
     _applyButton = buttons->addButton(tr("Apply"), QDialogButtonBox::AcceptRole);
     QPushButton *cancel = buttons->addButton(QDialogButtonBox::Cancel);
     Q_UNUSED(cancel);
     connect(_previewButton, &QPushButton::clicked,
             this, &AutoFitVoiceLoadDialog::onPreviewClicked);
+    connect(_selectButton, &QPushButton::clicked,
+            this, &AutoFitVoiceLoadDialog::onSelectClicked);
     connect(_applyButton, &QPushButton::clicked,
             this, &AutoFitVoiceLoadDialog::onApplyClicked);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -265,7 +277,10 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
             // remaining tracks is visible behind the dialog.
             QToolButton *eye = new QToolButton(trackListWidget);
             eye->setCheckable(true);
-            eye->setChecked(!t->hidden());
+            // hiddenByUser(), not hidden(): this eye WRITES the document flag
+            // (setHidden below), so it must show that flag - a workbench focus
+            // overlay must not make it read "hidden" (FOCUS-DEADEYE-001).
+            eye->setChecked(!t->hiddenByUser());
             eye->setIcon(Appearance::adjustIconForDarkMode(
                 ":/run_environment/graphics/trackwidget/visible.png"));
             eye->setToolTip(tr("Show/hide this track in the editor (undoable)"));
@@ -326,9 +341,10 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     });
     connect(visibleButton, &QPushButton::clicked, this, [this]() {
         // Reads the LIVE visibility - the eyes can change it mid-dialog.
+        // Same document flag the eyes show (FOCUS-DEADEYE-001).
         for (int i = 0; i < _trackChecks.size(); ++i) {
             const QSignalBlocker b(_trackChecks[i]);
-            _trackChecks[i]->setChecked(_tracks[i] && !_tracks[i]->hidden());
+            _trackChecks[i]->setChecked(_tracks[i] && !_tracks[i]->hiddenByUser());
         }
         refreshPreview();
     });
@@ -426,6 +442,7 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
     if (!_lastDry.ok) {
         _summaryLabel->setText(tr("Analysis failed: %1").arg(_lastDry.error));
         _previewButton->setEnabled(false);
+        _selectButton->setEnabled(false);
         _applyButton->setEnabled(false);
         return;
     }
@@ -501,6 +518,9 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
     // then re-emits an identical selection, i.e. nothing visibly happens.
     _previewButton->setEnabled(_lastDry.removedCount > 0
                                && !_livePreviewCheck->isChecked());
+    // Select stays available whenever the analysis found something, live
+    // preview or not: it does not re-highlight, it HANDS OVER the set.
+    _selectButton->setEnabled(_lastDry.removedCount > 0);
     _applyButton->setEnabled(_lastDry.removedCount > 0);
 
     // Live preview: mirror the current victim set into the editor selection
@@ -514,6 +534,20 @@ void AutoFitVoiceLoadDialog::onPreviewClicked() {
     if (_lastDry.ok) {
         emit previewSelectionRequested(_lastDry.victims);
     }
+}
+
+void AutoFitVoiceLoadDialog::onSelectClicked() {
+    if (!_lastDry.ok || _lastDry.victims.isEmpty()) {
+        return;
+    }
+    // Emit once more so the selection is exactly the current dry run even if
+    // live preview is off, then flag the caller to KEEP it (its cleanup exists
+    // for the Apply case, where the victim pointers are freed).
+    emit previewSelectionRequested(_lastDry.victims);
+    _keepSelection = true;
+    _resultSummary = tr("Auto-fit voice load: %1 note(s) selected - unchanged")
+                         .arg(_lastDry.victims.size());
+    accept();
 }
 
 void AutoFitVoiceLoadDialog::onApplyClicked() {

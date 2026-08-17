@@ -1,5 +1,7 @@
 #include "PromptProfileStore.h"
 
+#include "../AppPaths.h"
+
 #include <QSettings>
 #include <QStringList>
 #include <QUuid>
@@ -12,10 +14,12 @@ constexpr const char *kBuiltinVersion = "AI/prompt_profiles/builtins_version";
 constexpr const char *kCurrentBuiltinVersion = "2026-04-25.gpt55-toolargs-v3";
 constexpr const char *kBuiltinIdGpt55 = "builtin.gpt55_decisive";
 
-QSettings *settings()
+// Phase 45 / PORTABLE-SPLIT-001: through AppPaths (the old function-static
+// hard-wired the registry, so portable installs forked profiles per machine).
+// Callers hold the unique_ptr for their statement's lifetime.
+std::unique_ptr<QSettings> settings()
 {
-    static QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    return &s;
+    return AppPaths::settings();
 }
 
 QString gpt55DecisiveBody()
@@ -52,6 +56,11 @@ PromptProfile makeGpt55Decisive()
     p.appendToDefault = true;
     p.builtin = true;
     p.enabled = true;
+    // Explicitly OFF: gpt-5.5* already loses the pitch_bend branch through
+    // AgentToolPolicy::buildPolicyFor() for composition/edit tasks. Setting
+    // it here too would strip the branch for analysis/repair tasks as well,
+    // i.e. change what this built-in means.
+    p.disallowPitchBend = false;
     p.models = QStringList{
         QStringLiteral("openai:gpt-5.5*"),
         QStringLiteral("openrouter:openai/gpt-5.5*"),
@@ -114,6 +123,8 @@ PromptProfile PromptProfileStore::loadProfile(const QString &id) const
         settings()->value(idKey(id, QStringLiteral("builtin")), false).toBool();
     p.enabled =
         settings()->value(idKey(id, QStringLiteral("enabled")), true).toBool();
+    p.disallowPitchBend =
+        settings()->value(idKey(id, QStringLiteral("disallowPitchBend")), false).toBool();
     p.models =
         settings()->value(idKey(id, QStringLiteral("models"))).toStringList();
     return p;
@@ -127,12 +138,14 @@ void PromptProfileStore::saveProfile(const PromptProfile &p) const
                           p.appendToDefault);
     settings()->setValue(idKey(p.id, QStringLiteral("builtin")), p.builtin);
     settings()->setValue(idKey(p.id, QStringLiteral("enabled")), p.enabled);
+    settings()->setValue(idKey(p.id, QStringLiteral("disallowPitchBend")),
+                          p.disallowPitchBend);
     settings()->setValue(idKey(p.id, QStringLiteral("models")), p.models);
 }
 
 void PromptProfileStore::ensureBuiltinsSeeded(bool force)
 {
-    QSettings *s = settings();
+    auto s = settings();
     const bool seeded = s->value(QString::fromLatin1(kBuiltinSeeded), false).toBool();
     const QString version = s->value(QString::fromLatin1(kBuiltinVersion)).toString();
     if (!force && seeded && version == QString::fromLatin1(kCurrentBuiltinVersion))
@@ -161,7 +174,7 @@ QList<PromptProfile> PromptProfileStore::profiles() const
 
     // Discover any ids that have at least a name key but aren't in order
     // (e.g. legacy / hand-written entries). Walk the prefix keys.
-    QSettings *s = settings();
+    auto s = settings();
     s->beginGroup(QStringLiteral("AI/prompt_profiles"));
     const QStringList groups = s->childGroups();
     s->endGroup();
@@ -235,6 +248,7 @@ void PromptProfileStore::upsert(const PromptProfile &p)
         toWrite.name = existing.name;
         toWrite.system = existing.system;
         toWrite.appendToDefault = existing.appendToDefault;
+        toWrite.disallowPitchBend = existing.disallowPitchBend;
         toWrite.models = existing.models;
     }
     saveProfile(toWrite);
@@ -254,7 +268,7 @@ bool PromptProfileStore::remove(const QString &id)
     if (existing.builtin)
         return false;
 
-    QSettings *s = settings();
+    auto s = settings();
     s->beginGroup(QString::fromLatin1(kRoot) + id);
     s->remove(QString());
     s->endGroup();
@@ -268,7 +282,7 @@ bool PromptProfileStore::remove(const QString &id)
 void PromptProfileStore::setOrder(const QStringList &orderedIds)
 {
     QStringList valid;
-    QSettings *s = settings();
+    auto s = settings();
     s->beginGroup(QStringLiteral("AI/prompt_profiles"));
     const QStringList groups = s->childGroups();
     s->endGroup();

@@ -17,6 +17,7 @@
  */
 
 #include "AutoUpdater.h"
+#include "../AppPaths.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -27,11 +28,13 @@
 #include <QMessageBox>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QDesktopServices>
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QProgressDialog>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QUrl>
 #include <QWidget>
 
 #ifdef Q_OS_WIN
@@ -58,6 +61,19 @@ AutoUpdater::~AutoUpdater()
 
 void AutoUpdater::downloadUpdate(const QString &zipUrl, qint64 expectedSize)
 {
+#ifndef Q_OS_WIN
+    // Phase 45 / issue #13: the in-place updater swaps the executable on
+    // disk - inside a signed macOS .app bundle that is impossible (and on
+    // Linux packaging owns updates). Notify-only: hand the user to the
+    // releases page.
+    Q_UNUSED(zipUrl);
+    Q_UNUSED(expectedSize);
+    QDesktopServices::openUrl(QUrl(QStringLiteral(
+        "https://github.com/happytunesai/MidiEditor_AI/releases/latest")));
+    emit downloadFailed(tr("In-place updates are available on Windows only - "
+                           "the releases page has been opened in your browser."));
+    return;
+#else
     if (zipUrl.isEmpty()) {
         emit downloadFailed(tr("No download URL available for this release."));
         return;
@@ -113,6 +129,7 @@ void AutoUpdater::downloadUpdate(const QString &zipUrl, qint64 expectedSize)
     }
 
     connect(_progressDialog, &QProgressDialog::canceled, this, &AutoUpdater::cancelDownload);
+#endif // Q_OS_WIN
 }
 
 void AutoUpdater::onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
@@ -381,6 +398,10 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     // Use --updated-from=X.Y.Z (single arg) so older versions that don't understand it
     // will silently ignore the flag instead of treating the version as a filename.
     args << ("--updated-from=" + QCoreApplication::applicationVersion());
+    // A portable install may be running on the --portable switch alone (no
+    // portable.txt next to the exe). The updated copy has to be told again, or
+    // it starts on the system settings store and looks freshly installed.
+    args << AppPaths::relaunchArgs();
 
     qDebug() << "  Step 6: Launching:" << newExePath << args;
     bool launched = QProcess::startDetached(newExePath, args, appDir);

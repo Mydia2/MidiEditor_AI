@@ -54,9 +54,9 @@
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
 <main id="main-content">
-<h2>Setting up MidiEditor</h2>
+<h1>Setting up MidiEditor</h1>
 
-<h3 id="io">Midi I/O</h3>
+<h2 id="io">Midi I/O</h2>
 <p>
   MidiEditor has to be correctly configured in order to be able to send data to a
   Midi device which is connected to the computer and (if required) to receive any data in order to
@@ -83,7 +83,16 @@
 	On startup, MidiEditor will always try to connect to the devices which have been used during the last session.
 </p>
 
-<h3 id="connect">Making the Input Device audible</h3>
+<p>
+  The same card also holds the <b>FluidSynth Settings</b>: the list of active SoundFonts with its
+  <b>Add...</b>, <b>Remove</b>, <b>Up</b> / <b>Down</b> and <b>Download Default...</b> buttons, plus
+  the audio driver, sample rate, reverb engine and gain. <b>Download Default...</b> offers a
+  selection of ready-made SoundFonts - a general-purpose GM set among them - and installs them into
+  the program's <a href="#files">SoundFont folder</a>. See
+  <a href="soundfont.html">SoundFonts &amp; FluidSynth</a> for what the individual settings do.
+</p>
+
+<h2 id="connect">Making the Input Device audible</h2>
 
 <img src="tools/connection.png" align="left" width="40" height="40" hspace="10" vspace="10"/>
 
@@ -93,7 +102,7 @@
   Select the option &quot;Connect Midi In/Out&quot; in the <a href="editor-and-components.html#midi">MIDI menu in the menubar</a> or in the toolbar.
 </p>
 
-<h3 id="external">Starting Synthesizers along with MidiEditor</h3>
+<h2 id="external">Starting Synthesizers along with MidiEditor</h2>
 
 <p>
   There are a lot of synthesizers MidiEditor can use to produce its sound with. However, some of those synthesizers
@@ -109,7 +118,7 @@
 	will be visible (after the next startup) in the text area below this field.
 </p>
 
-<h3 id="updates">Automatic Updates</h3>
+<h2 id="updates">Automatic Updates</h2>
 
 <p>
   MidiEditor AI checks for new versions on GitHub at each startup. When a newer version is available, you will see the <b>Update Available</b> dialog:
@@ -144,11 +153,110 @@
 </p>
 
 <p>
-  To disable the automatic update check at startup, open the Settings dialog and deselect the update checkbox.
+  To disable the automatic update check at startup, open the Settings dialog, go to
+  <b>System &amp; Performance</b> and untick <b>Check for updates at startup</b> in the
+  <b>Updates</b> group. With the box unticked, MidiEditor AI does not contact GitHub at all.
   Make sure your firewall allows MidiEditor AI to connect to <code>api.github.com</code>.
 </p>
 
-<h3 id="old">Support for older Midi Devices</h3>
+<p class="note">
+  <b>Platforms:</b> ready-made downloads are Windows builds, and the in-place update described
+  above is a Windows feature. On macOS the program is built from source; the update check there
+  simply opens the releases page in your browser instead of replacing the application.
+</p>
+
+<h2 id="gpu">GPU acceleration</h2>
+
+<p>
+  <b>Edit &rarr; Settings &rarr; System &amp; Performance</b> has an <b>Enable GPU acceleration for MIDI events</b>
+  switch. With it on, the piano roll and the velocity/controller lane are drawn through OpenGL instead of the
+  CPU renderer. It is off by default; changes apply after a restart.
+</p>
+
+<ul>
+  <li><b>The page tells you what is actually running.</b> The line under the switch reads
+      <i>Active now: OpenGL (GPU acceleration)</i> or <i>Active now: software rendering</i>, and if the two
+      disagree with the checkbox it says why - for example that GPU acceleration is ignored on a display with
+      UI scaling (125&nbsp;%, 150&nbsp;%) unless <b>Ignore system UI scaling</b> is enabled on the same page,
+      or that the change waits for a restart.</li>
+  <li><b>Software anti-aliasing and smooth pixmap transforms</b> shape the note grid in both renderers, so they
+      stay available with GPU acceleration on. <b>MSAA</b>, <b>VSync</b> and <b>hardware smooth transforms</b>
+      only matter for the OpenGL renderer.</li>
+  <li><b>Editing is identical in both modes</b> - every tool, shortcut, context menu and tooltip works the same
+      way; only the drawing path differs.</li>
+</ul>
+
+<h2 id="portable">Portable Mode</h2>
+
+<p>
+  In <b>Portable Mode</b> MidiEditor AI keeps its configuration inside its own folder instead of
+  the system's settings store. The complete installation - program, SoundFonts, logs, custom
+  prompts <i>and</i> your configuration - then travels as one folder: copy it to a USB stick, run
+  it on another machine, and it looks and behaves exactly like the one you left.
+</p>
+
+<p>There are two ways to switch it on, and they do the same thing:</p>
+
+<ul>
+  <li>Put an <b>empty file named <code>portable.txt</code></b> next to
+      <code>MidiEditorAI.exe</code>.</li>
+  <li>Or start the program with the <code>--portable</code> command-line switch.</li>
+</ul>
+
+<p>
+  With either marker in place, all settings are written to a <code>config</code> folder beside the
+  executable (<code>config/MidiEditor/NONE.ini</code>) instead of the Windows registry.
+</p>
+
+<ul>
+  <li><b>Your existing settings come along.</b> On the first portable start the configuration is
+      copied over once from the normal location, so the portable copy opens with the providers,
+      themes, keybindings and layout you already had.</li>
+  <li><b>Nothing is removed.</b> The original settings stay where they were. Delete
+      <code>portable.txt</code> (or drop the switch) and the program is back on the normal
+      configuration, exactly as you left it.</li>
+  <li><b>The folder carries everything.</b> SoundFonts, logs and custom prompt files already live
+      next to the program - see <a href="#files">Where MidiEditor AI keeps its files</a> - and the
+      <code>config</code> folder adds the last missing piece.</li>
+  <li><b>Without the marker nothing changes.</b> A regular installation keeps using the system's
+      settings store and never reads or writes <code>config</code>.</li>
+  <li><b>Restarts stay portable.</b> When the program restarts itself - after a theme change or an
+      update - it stays in Portable Mode even if you only used the command-line switch.</li>
+</ul>
+
+<h2 id="files">Where MidiEditor AI keeps its files</h2>
+
+<p>
+  Settings and data files are two different things and they are stored in two different places.
+  <b>Data files</b> - the log files, the SoundFont folder and your custom system prompts - live in
+  the program's data folder:
+</p>
+
+<table>
+<tr><th>Situation</th><th>Data folder</th></tr>
+<tr><td>Windows</td><td>The folder the program is in, next to <code>MidiEditorAI.exe</code>.</td></tr>
+<tr><td>macOS / Linux</td><td>The per-user application data folder, created on first start.</td></tr>
+<tr><td><a href="#portable">Portable Mode</a> (any platform)</td><td>The folder the program is in - that is what portable means.</td></tr>
+</table>
+
+<p>What you will find there:</p>
+
+<table>
+<tr><th>File or folder</th><th>Contents</th></tr>
+<tr><td><code>soundfonts/</code></td><td>The bundled SoundFonts and everything you add or download - see <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>.</td></tr>
+<tr><td><code>midieditor_ai.log</code></td><td>The program log, rotated in the background - see <a href="logging.html">Logging</a>. If the folder cannot be written to (for example a read-only installation directory), the log falls back to your local application data folder.</td></tr>
+<tr><td><code>midipilot_api.log</code></td><td>The AI request log written by <a href="midipilot.html">MidiPilot</a>.</td></tr>
+<tr><td><code>system_prompts.json</code></td><td>Your customized system prompts.</td></tr>
+</table>
+
+<p>
+  <b>Settings</b> - providers, themes, keybindings, window layout and every checkbox in the
+  Settings dialog - are stored in the system's own settings store (on Windows: the registry), or,
+  in <a href="#portable">Portable Mode</a>, in <code>config/MidiEditor/NONE.ini</code> next to the
+  executable.
+</p>
+
+<h2 id="old">Support for older Midi Devices</h2>
 
 <p>
   Some old Midi devices may not support the full Midi instruction set. Hence, these devices may not stop the currently played

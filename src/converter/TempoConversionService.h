@@ -45,6 +45,13 @@ enum class TempoConversionTempoMode {
 
 /**
  * \brief Options for a single conversion run.
+ *
+ * \note The tempo map is shared by the whole file. A partial scope
+ *       (SelectedTracks / SelectedChannels / SelectedEvents) may therefore
+ *       only be combined with TempoConversionTempoMode::EventsOnly — every
+ *       other mode rewrites the shared map and would retime the material
+ *       outside the scope as well. preview() and convert() reject that
+ *       combination (see TempoConversionService::scopeModeConflict()).
  */
 struct TempoConversionOptions {
     double sourceBpm = 120.0;
@@ -68,6 +75,14 @@ struct TempoConversionOptions {
     bool includeTimeSig = true;
     /// Whether to scale meta events on channel 16 (lyrics, text, key sig).
     bool includeMeta = true;
+
+    /// Optional Protocol-panel label for the single undo action convert()
+    /// opens. Empty (the dialog's case) keeps the service's own
+    /// "Convert tempo (preserve duration): X → Y BPM". The AI/MCP tool sets it
+    /// so the action carries the same actor attribution
+    /// ("MidiPilot" / "MidiPilotMCP (<client>)") every other agent action has -
+    /// see ToolDefinitions::protocolActorPrefix.
+    QString actionLabel;
 };
 
 /**
@@ -90,6 +105,19 @@ struct TempoConversionResult {
  */
 class TempoConversionService {
 public:
+    /**
+     * \brief Validate the scope / tempo-mode pair.
+     *
+     * The tempo map is shared by the whole file, so replacing or rescaling it
+     * from a partial scope would retime every event OUTSIDE that scope too.
+     * \return An empty string when the combination is legal, otherwise the
+     *         user-facing reason it is refused. Callers that build their own
+     *         UI (the Convert Tempo dialog, the AI tool) use this to keep the
+     *         impossible combination out of reach in the first place;
+     *         preview() / convert() enforce it regardless.
+     */
+    static QString scopeModeConflict(const TempoConversionOptions &options);
+
     /**
      * \brief Compute what `convert()` would do without mutating the file.
      */

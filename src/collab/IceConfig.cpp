@@ -6,6 +6,8 @@
 
 #include "IceConfig.h"
 
+#include "../AppPaths.h"
+
 #include <QSettings>
 
 QStringList IceConfig::googleDefaults() {
@@ -24,7 +26,8 @@ QStringList IceConfig::googleDefaults() {
 }
 
 QStringList IceConfig::load() {
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     QString blob = s.value("Collab/lan/iceServers").toString();
     if (blob.trimmed().isEmpty()) return googleDefaults();
 
@@ -39,7 +42,8 @@ QStringList IceConfig::load() {
 }
 
 void IceConfig::save(const QStringList &uris) {
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     s.setValue("Collab/lan/iceServers", uris.join(QChar('\n')));
 }
 

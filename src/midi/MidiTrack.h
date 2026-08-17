@@ -142,8 +142,15 @@ public:
     // === Visibility and State ===
 
     /**
-     * \brief Sets the hidden state of the track.
+     * \brief Sets the hidden state of the track (DOCUMENT state, undoable).
      * \param hidden True to hide the track, false to show it
+     *
+     * FOCUS-DEADEYE-001 (v2.2 review): a deliberate user visibility action
+     * also ENDS the focus overlay for this track (see setFocusHidden), so the
+     * Tracks-panel eye, the Track menu's visibility entries and "Show all
+     * tracks" can always bring a focus-hidden track back. Without that the
+     * overlay would survive a setHidden(false) and those controls would look
+     * dead while still pushing undo steps.
      */
     void setHidden(bool hidden);
 
@@ -158,10 +165,43 @@ public:
     void setHiddenSilent(bool hidden) { _hidden = hidden; }
 
     /**
-     * \brief Gets the hidden state of the track.
-     * \return True if the track is hidden, false if visible
+     * \brief Gets the EFFECTIVE hidden state of the track - what the editor
+     *        actually shows.
+     * \return True if the track is invisible, false if visible - INCLUDING
+     *         the temporary focus overlay (see setFocusHidden).
+     *
+     * Use this for RENDERING and HIT-TESTING - and for a control that shows
+     * the user what is on screen, such as the Tracks panel's eye. Anything
+     * that reads the DOCUMENT's visibility - a save-time warning, the collab
+     * broadcast, the AI's track list, a dialog whose checkbox writes the
+     * document flag - must use hiddenByUser() instead, or it mistakes the view
+     * overlay for the file's own state (FOCUS-DEADEYE-001).
      */
     bool hidden();
+
+    /**
+     * \brief The track's OWN (document) hidden flag, ignoring the focus
+     *        overlay - this is the value the protocol/undo system stores.
+     */
+    bool hiddenByUser() const { return _hidden; }
+
+    /**
+     * \brief FOCUS-UNDO-001 (v2.2 review): temporary VIEW-state hiding for
+     *  the playability workbench's focus mode. Unlike _hidden this flag is
+     *  NOT copied by the copy ctor and NOT restored by reloadState - it can
+     *  therefore never be baked into an undo snapshot while focus is active
+     *  and later resurface on Ctrl+Z. hidden() ORs it in, so every renderer
+     *  honours it without knowing about focus mode. Same pattern as
+     *  MidiChannel's snapshot counters.
+     *
+     * Cleared again by setHidden() (a deliberate user visibility action wins
+     * over the overlay) and by whoever turned it on - the workbench remembers
+     * exactly which tracks it dimmed and clears those track objects when it
+     * closes, which also covers a track removed while focus was active
+     * (its object stays alive for undo).
+     */
+    void setFocusHidden(bool focusHidden) { _focusHidden = focusHidden; }
+    bool focusHidden() const { return _focusHidden; }
 
     /**
      * \brief Sets the muted state of the track.
@@ -222,6 +262,10 @@ private:
 
     /** \brief Track visibility and mute state */
     bool _hidden, _muted;
+
+    /** \brief FOCUS-UNDO-001: focus-mode overlay - deliberately NOT copied
+     *  by the copy ctor, NOT touched by reloadState. See setFocusHidden. */
+    bool _focusHidden = false;
 
     /** \brief Default MIDI channel assignment */
     int _assignedChannel;

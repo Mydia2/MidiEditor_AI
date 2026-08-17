@@ -1,17 +1,24 @@
 // Pure unit test for PromptProfileStore: profile CRUD, glob matching,
 // resolution layering, persistence round-trip, and built-in seeding.
 //
-// QSettings sandboxing: PromptProfileStore uses the hard-coded
-// QSettings("MidiEditor","NONE"). Two strategies are used here to keep the
-// test from polluting the user's real registry / Application Support:
+// QSettings sandboxing: via the AppPaths settings seam, and ONLY via it.
+// initTestCase() calls AppPaths::setSettingsScopeForTests() before the first
+// store or QSettings is constructed, so both PromptProfileStore (which routes
+// every read/write through AppPaths::settings()) and this test's own helpers
+// land in the throwaway scope MidiEditorTest/PromptProfilesTest.
 //
-//  1. QStandardPaths::setTestModeEnabled(true) before the first store is
-//     instantiated. This redirects QSettings(NativeFormat) on platforms
-//     that honour it and is harmless elsewhere.
-//  2. All test-created profile ids are prefixed with a per-process suffix
-//     so two parallel runs (Release + Debug) cannot collide. The shipped
-//     built-in id "builtin.gpt55_decisive" is wiped in cleanupTestCase to
-//     leave the registry clean.
+// This file previously claimed QStandardPaths::setTestModeEnabled(true) was
+// the sandbox. That claim was FALSE: on Windows, NativeFormat (registry)
+// QSettings ignores test mode entirely - no sandbox key is ever created. The
+// helper below then wiped the *real* HKCU\Software\MidiEditor\NONE\
+// AI\prompt_profiles group, so every ctest run destroyed the user's actual
+// prompt profiles (order list, builtins_seeded/_version, and every field of
+// the shipped "GPT-5.5 Decisive" built-in). setTestModeEnabled is still
+// called - it is harmless and covers file-backed paths - but it protects
+// nothing here; the seam does. settingsSeamIsActive() pins that.
+//
+// Test-created profile ids keep a per-process suffix so a parallel Release +
+// Debug run, which shares the one sandbox scope name, cannot collide.
 #include <QCoreApplication>
 #include <QSettings>
 #include <QStandardPaths>
@@ -19,6 +26,7 @@
 #include <QTest>
 #include <QUuid>
 
+#include "../src/AppPaths.h"
 #include "../src/ai/PromptProfile.h"
 #include "../src/ai/PromptProfileStore.h"
 
@@ -27,13 +35,21 @@ constexpr const char *kBuiltinId = "builtin.gpt55_decisive";
 constexpr const char *kRootGroup = "AI/prompt_profiles";
 constexpr const char *kBuiltinVersionKey = "AI/prompt_profiles/builtins_version";
 
+// Sandbox scope installed in initTestCase(); also read back directly in
+// settingsSeamIsActive() to prove the seam is what the store writes through.
+constexpr const char *kTestOrg = "MidiEditorTest";
+constexpr const char *kTestApp = "PromptProfilesTest";
+
 void wipeAllProfilesFromSettings()
 {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    s.beginGroup(QString::fromLatin1(kRootGroup));
-    s.remove(QString()); // clear the whole group
-    s.endGroup();
-    s.sync();
+    // AppPaths::settings() - NEVER QSettings("MidiEditor","NONE"). This
+    // helper clears a whole group; against the real scope it deletes the
+    // user's profiles (see the file header).
+    auto s = AppPaths::settings();
+    s->beginGroup(QString::fromLatin1(kRootGroup));
+    s->remove(QString()); // clear the whole group
+    s->endGroup();
+    s->sync();
 }
 } // namespace
 
@@ -68,22 +84,54 @@ private:
 private slots:
     void initTestCase()
     {
+        // FIRST - before any PromptProfileStore or QSettings exists, so no
+        // read and no write can reach the real scope.
+        AppPaths::setSettingsScopeForTests(QString::fromLatin1(kTestOrg),
+                                           QString::fromLatin1(kTestApp));
+        // Harmless, and covers file-backed paths; it does NOT sandbox the
+        // Windows registry, so it is not what protects the user's profiles.
         QStandardPaths::setTestModeEnabled(true);
-        QCoreApplication::setOrganizationName(QStringLiteral("MidiEditor"));
-        QCoreApplication::setApplicationName(QStringLiteral("NONE"));
         _suffix = QString::number(QCoreApplication::applicationPid());
         wipeAllProfilesFromSettings();
     }
 
     void cleanupTestCase()
     {
-        wipeAllProfilesFromSettings();
+        QSettings(QString::fromLatin1(kTestOrg),
+                  QString::fromLatin1(kTestApp)).clear();
+        AppPaths::setSettingsScopeForTests(QString(), QString());
     }
 
     void cleanup()
     {
         // Each test creates a fresh sandbox.
         wipeAllProfilesFromSettings();
+    }
+
+    // --------------------------------------------------------------- seam --
+    // Guards the whole file: proves that what the store writes through
+    // (AppPaths::settings()) lands in the sandbox scope. If the seam were
+    // ever unset, this probe would go to the real HKCU\Software\MidiEditor\
+    // NONE instead and the sandbox read-back would come up empty - which is
+    // exactly the failure that let ctest eat the user's prompt profiles.
+    void settingsSeamIsActive()
+    {
+        const QString key = QStringLiteral("AI/prompt_profiles_seam_probe/")
+                            + _suffix;
+        const QString value = QStringLiteral("sandboxed-") + _suffix;
+        {
+            auto s = AppPaths::settings();
+            s->setValue(key, value);
+            s->sync();
+        }
+
+        QSettings sandbox(QString::fromLatin1(kTestOrg),
+                          QString::fromLatin1(kTestApp));
+        sandbox.sync();
+        QCOMPARE(sandbox.value(key).toString(), value);
+
+        sandbox.remove(key);
+        sandbox.sync();
     }
 
     // ----------------------------------------------------------- patterns --
@@ -267,6 +315,85 @@ private slots:
         QVERIFY(!found->builtin);
     }
 
+    // Phase 47: the per-model "no pitch_bend in the tool schema" opt-in must
+    // survive a store round-trip, and must default to false for every profile
+    // written before the flag existed (a missing key must not read as true).
+    void disallowPitchBend_roundTripsThroughStore()
+    {
+        wipeAllProfilesFromSettings();
+
+        QString onId;
+        QString offId;
+        {
+            PromptProfileStore store;
+
+            PromptProfile on = makeProfile(
+                tag(QStringLiteral("NoBend")),
+                {QStringLiteral("ollama:qwen3*")},
+                QStringLiteral("LOCAL RULES"),
+                /*append=*/true);
+            on.disallowPitchBend = true;
+            onId = on.id;
+            store.upsert(on);
+
+            // Same profile shape, flag left at its default.
+            PromptProfile off = makeProfile(
+                tag(QStringLiteral("BendOk")),
+                {QStringLiteral("openai:gpt-4o*")},
+                QStringLiteral("CLOUD RULES"),
+                /*append=*/true);
+            QVERIFY2(!off.disallowPitchBend, "default must be false");
+            offId = off.id;
+            store.upsert(off);
+        }
+
+        PromptProfileStore store2;
+        const QList<PromptProfile> all = store2.profiles();
+        const PromptProfile *loadedOn = nullptr;
+        const PromptProfile *loadedOff = nullptr;
+        for (const PromptProfile &x : all) {
+            if (x.id == onId) loadedOn = &x;
+            if (x.id == offId) loadedOff = &x;
+        }
+        QVERIFY(loadedOn != nullptr);
+        QVERIFY(loadedOff != nullptr);
+        QVERIFY2(loadedOn->disallowPitchBend, "flag=true did not round-trip");
+        QVERIFY2(!loadedOff->disallowPitchBend, "flag=false did not round-trip");
+
+        // resolveForModel must carry the flag too — that is the path
+        // MidiPilotWidget reads before every agent run.
+        QVERIFY(store2.resolveForModel(QStringLiteral("ollama"),
+                                        QStringLiteral("qwen3-14b")).disallowPitchBend);
+        QVERIFY(!store2.resolveForModel(QStringLiteral("openai"),
+                                         QStringLiteral("gpt-4o-mini")).disallowPitchBend);
+    }
+
+    // A profile persisted before Phase 47 has no `disallowPitchBend` key at
+    // all; loading it must yield false, never a stray true.
+    void disallowPitchBend_defaultsToFalseForLegacyProfiles()
+    {
+        wipeAllProfilesFromSettings();
+
+        const QString id = QStringLiteral("legacy-") + _suffix;
+        {
+            auto s = AppPaths::settings();
+            const QString root = QStringLiteral("AI/prompt_profiles/") + id;
+            s->setValue(root + QStringLiteral("/name"), tag(QStringLiteral("Legacy")));
+            s->setValue(root + QStringLiteral("/system"), QStringLiteral("OLD"));
+            s->setValue(root + QStringLiteral("/append_to_default"), true);
+            s->setValue(root + QStringLiteral("/enabled"), true);
+            s->setValue(root + QStringLiteral("/models"),
+                        QStringList{QStringLiteral("openai:gpt-4o*")});
+            s->sync();
+        }
+
+        PromptProfileStore store;
+        const PromptProfile p = store.resolveForModel(
+            QStringLiteral("openai"), QStringLiteral("gpt-4o-mini"));
+        QCOMPARE(p.id, id);
+        QVERIFY(!p.disallowPitchBend);
+    }
+
     // ----------------------------------------------------------- built-in --
     void builtin_isSeededOnFirstConstruction()
     {
@@ -335,18 +462,18 @@ private slots:
     {
         wipeAllProfilesFromSettings();
 
-        QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        auto s = AppPaths::settings();
         const QString root = QStringLiteral("AI/prompt_profiles/") + QString::fromLatin1(kBuiltinId);
-        s.setValue(root + QStringLiteral("/name"), QStringLiteral("Old GPT-5.5"));
-        s.setValue(root + QStringLiteral("/system"), QStringLiteral("OLD BODY"));
-        s.setValue(root + QStringLiteral("/append_to_default"), false);
-        s.setValue(root + QStringLiteral("/builtin"), true);
-        s.setValue(root + QStringLiteral("/enabled"), false);
-        s.setValue(root + QStringLiteral("/models"), QStringList{QStringLiteral("openai:old")});
-        s.setValue(QStringLiteral("AI/prompt_profiles/order"), QStringList{QString::fromLatin1(kBuiltinId)});
-        s.setValue(QStringLiteral("AI/prompt_profiles/builtins_seeded"), true);
-        s.remove(QString::fromLatin1(kBuiltinVersionKey));
-        s.sync();
+        s->setValue(root + QStringLiteral("/name"), QStringLiteral("Old GPT-5.5"));
+        s->setValue(root + QStringLiteral("/system"), QStringLiteral("OLD BODY"));
+        s->setValue(root + QStringLiteral("/append_to_default"), false);
+        s->setValue(root + QStringLiteral("/builtin"), true);
+        s->setValue(root + QStringLiteral("/enabled"), false);
+        s->setValue(root + QStringLiteral("/models"), QStringList{QStringLiteral("openai:old")});
+        s->setValue(QStringLiteral("AI/prompt_profiles/order"), QStringList{QString::fromLatin1(kBuiltinId)});
+        s->setValue(QStringLiteral("AI/prompt_profiles/builtins_seeded"), true);
+        s->remove(QString::fromLatin1(kBuiltinVersionKey));
+        s->sync();
 
         PromptProfileStore refreshed;
         const QList<PromptProfile> all = refreshed.profiles();

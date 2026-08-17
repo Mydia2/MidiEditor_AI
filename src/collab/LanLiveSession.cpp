@@ -4,6 +4,8 @@
 
 #include "LanLiveSession.h"
 
+#include "../AppPaths.h"
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QFile>
@@ -46,16 +48,19 @@ constexpr int kSyncIntervalMs = 1000;
 // webhook / rendezvous-URL. Defaults match the values hard-coded into
 // the previous build so existing setups behave identically.
 int loadIceGatheringTimeoutMs() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     int v = s.value(QStringLiteral("Collab/wan/iceGatheringTimeoutMs"), 8000).toInt();
     return qBound(2000, v, 30000);
 }
 bool loadAutoReconnect() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     return s.value(QStringLiteral("Collab/wan/autoReconnect"), false).toBool();
 }
 int loadAutoReconnectMaxAttempts() {
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     return qBound(1, s.value(QStringLiteral("Collab/wan/autoReconnectMaxAttempts"), 2).toInt(), 5);
 }
 constexpr int kRetryBackoffMs = 2000;
@@ -101,7 +106,8 @@ LanLiveSession::LanLiveSession(QObject *parent) : QObject(parent) {
             });
 
     // Review-mode preference is persisted across sessions (per §11.10c).
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     _reviewModeEnabled = s.value("Collab/lan/reviewMode", false).toBool();
 
     // Re-broadcast the sidecar to all peers whenever the host's
@@ -2995,7 +3001,8 @@ void LanLiveSession::acceptReturningPeerMerge(const QString &peerToken,
 void LanLiveSession::setReviewMode(bool enabled) {
     if (_reviewModeEnabled == enabled) return;
     _reviewModeEnabled = enabled;
-    QSettings s("MidiEditor", "NONE");
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
     s.setValue("Collab/lan/reviewMode", enabled);
     qCInfo(lanLog) << "session: review mode" << (enabled ? "ON" : "OFF");
     emit reviewModeChanged(enabled);

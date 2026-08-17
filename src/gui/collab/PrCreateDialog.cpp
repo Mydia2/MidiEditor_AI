@@ -4,6 +4,8 @@
 
 #include "PrCreateDialog.h"
 
+#include "../../AppPaths.h"
+
 #include <QApplication>
 #include <QClipboard>
 #include <QDateTime>
@@ -197,8 +199,8 @@ void PrCreateDialog::rebuildSummary() {
     _commitsCount = agg.commitCount;
     bool hasContent = b.isValid() && agg.commitCount > 0;
 
-    bool webhookConfigured = !QSettings("MidiEditor", "NONE")
-        .value("Collab/webhookUrl").toString().trimmed().isEmpty();
+    bool webhookConfigured = !AppPaths::settings()
+        ->value("Collab/webhookUrl").toString().trimmed().isEmpty();
 
     _copyButton->setEnabled(hasContent);
     _saveButton->setEnabled(hasContent);
@@ -297,8 +299,8 @@ void PrCreateDialog::onPostWebhook() {
     PrBundle b = bundleFromAggregate(_messageEdit->text());
     if (!b.isValid()) return;
 
-    QString webhookUrl = QSettings("MidiEditor", "NONE")
-        .value("Collab/webhookUrl").toString().trimmed();
+    QString webhookUrl = AppPaths::settings()
+        ->value("Collab/webhookUrl").toString().trimmed();
     if (webhookUrl.isEmpty()) return;
 
     QString fileLabel = tr("PR (%1 hunks)").arg(b.hunks.size());

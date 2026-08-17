@@ -1,15 +1,18 @@
 #include "ModelFavorites.h"
 
+#include "../AppPaths.h"
+
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QRegularExpression>
 #include <QSettings>
 
 namespace {
-QSettings *settings()
+// Phase 45 / PORTABLE-SPLIT-001: through AppPaths (the old function-static
+// hard-wired the registry - portable installs forked favourites per machine).
+std::unique_ptr<QSettings> settings()
 {
-    static QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    return &s;
+    return AppPaths::settings();
 }
 
 QString settingsKey(const QString &provider)

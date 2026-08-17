@@ -1,5 +1,6 @@
 #include "EditorContext.h"
 #include "MidiEventSerializer.h"
+#include "../AppPaths.h"
 
 #include <cmath>
 
@@ -9,6 +10,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDir>
+#include <QSettings>
 
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
@@ -43,6 +45,14 @@ QJsonObject EditorContext::captureState(MidiFile *file, MatrixWidget *matrix)
         return state;
     }
 
+    // Phase 46 (octet finding #1): report the FFXIV-mode state. The FFXIV
+    // tool bundle is gated on this, and an MCP client previously could
+    // neither see nor request it - now it reads the flag here and toggles
+    // it with set_ffxiv_mode.
+    state[QStringLiteral("ffxivMode")] =
+        AppPaths::settings()
+            ->value(QStringLiteral("AI/ffxiv_mode"), false).toBool();
+
     // Cursor position
     int cursorTick = file->cursorTick();
     state[QStringLiteral("cursorTick")] = cursorTick;
@@ -52,7 +62,10 @@ QJsonObject EditorContext::captureState(MidiFile *file, MatrixWidget *matrix)
     int measureStart = 0, measureEnd = 0;
     int measureNum = file->measure(cursorTick, &measureStart, &measureEnd);
     QJsonObject measureObj;
-    measureObj[QStringLiteral("number")] = measureNum + 1; // 1-based for user display
+    // measure() is ALREADY 1-based (tick 0 -> measure 1) and is what the
+    // status bar shows. The former +1 here reported every bar one too high,
+    // so the AI's bar numbers disagreed with the editor the user was reading.
+    measureObj[QStringLiteral("number")] = measureNum;
     measureObj[QStringLiteral("startTick")] = measureStart;
     measureObj[QStringLiteral("endTick")] = measureEnd;
     state[QStringLiteral("currentMeasure")] = measureObj;
@@ -116,10 +129,11 @@ QJsonObject EditorContext::captureFileInfo(MidiFile *file)
     info[QStringLiteral("endTick")] = file->endTick();
     info[QStringLiteral("modified")] = !file->saved();
 
-    // Total measures (1-based)
-    int ms = 0, me = 0;
-    int lastMeasure = file->measure(file->endTick(), &ms, &me);
-    info[QStringLiteral("totalMeasures")] = lastMeasure + 1;
+    // Total measures = the 1-based bar of the last SOUNDING tick.
+    // measure(endTick()) overcounts by one whenever the song ends exactly on a
+    // bar line (endTick() is the exclusive end, so it already sits in the next
+    // bar) - an AI asked to work "in the last bar" aimed past the end.
+    info[QStringLiteral("totalMeasures")] = file->measureCount();
 
     return info;
 }
@@ -208,7 +222,10 @@ QJsonArray EditorContext::captureTrackList(MidiFile *file)
         obj[QStringLiteral("name")] = t->name();
         obj[QStringLiteral("channel")] = t->assignedChannel();
         obj[QStringLiteral("muted")] = t->muted();
-        obj[QStringLiteral("hidden")] = t->hidden();
+        // The DOCUMENT flag, not hidden(): a temporary view overlay (the
+        // playability workbench's focus mode) must not make the AI believe the
+        // user hid six of seven tracks (FOCUS-DEADEYE-001).
+        obj[QStringLiteral("hidden")] = t->hiddenByUser();
         arr.append(obj);
     }
     return arr;
@@ -472,6 +489,9 @@ QString EditorContext::agentSystemPrompt()
         "IMPORTANT:\n"
         "- The user's FIRST message already contains the full editor state, tracks, tempo,\n"
         "  time signature, and surrounding events. Do NOT call get_editor_state redundantly.\n"
+        "- For questions about the EDITOR ITSELF (features, dialogs, menus, 'how do I...'),\n"
+        "  call search_help first, read the best match with get_help_section, and answer\n"
+        "  from the manual, citing the page - do not guess about the application.\n"
         "- Start working immediately: create tracks, set tempo, and insert events right away.\n"
         "- Use PARALLEL tool calls when possible (e.g. create multiple tracks in one step).\n"
         "- Insert events ONE TRACK AT A TIME to avoid output truncation.\n"
@@ -580,7 +600,34 @@ QString EditorContext::ffxivContext(bool includeDrums, bool includeGuitar)
         );
     }
 
+    // Phase 46: arrangement CRAFT - the four things the octet experiment
+    // showed an AI misses while a human does them by reflex. Most of what
+    // separated the hand-made comparison arrangement from the AI's was
+    // knowledge, not tooling.
     ctx += QStringLiteral(
+        "\n"
+        "### Arrangement Craft (what good bard arrangements do)\n"
+        "- GUITAR SWITCHES: one guitar track may CHANGE variants mid-song - a lead\n"
+        "  switching Clean (verse) to Overdriven (chorus) sounds like a real player.\n"
+        "  This is the ONE exception to the no-manual-channels rule: on a guitar\n"
+        "  track, the per-note channel field selects the variant; place section\n"
+        "  boundaries on different channels, then setup_channel_pattern writes the\n"
+        "  switch program changes and reports which channel is which variant.\n"
+        "- REGISTER IS TONE: when folding into C3-C6, prefer bringing parts DOWN\n"
+        "  (-12) over up (+24) - distorted rhythm guitar sits better low and\n"
+        "  narrow. transpose_events(foldToRange=true) folds; pick the octave\n"
+        "  deliberately, do not just take the nearest legal one.\n"
+        "- DENSITY IS TONE: thinning dense tremolo/32nd runs (keep 1 of 2) often\n"
+        "  sounds BETTER in game, not worse - auto_fit_voice_load's ratePercent is\n"
+        "  a musical tool, not only a limit fixer.\n"
+        "- CHANNEL SHARING is allowed: the game selects instruments by track NAME,\n"
+        "  so two performers may share one MIDI channel.\n"
+        "- Workhorse tools: split_chords_to_tracks (chords -> monophonic\n"
+        "  performers), transpose_events, copy_events_to_track.\n"
+        "- Judge voice load by rawPeak from analyze_voice_load - the display-model\n"
+        "  numbers read higher on perfectly fine files.\n"
+        "- ORDER OF WORK: arrange -> name every performer track exactly ->\n"
+        "  setup_channel_pattern LAST -> validate_ffxiv.\n"
         "\n"
         "### Polyphony / Chord Simulation\n"
         "Multiple notes at the same tick play as a fast arpeggio = chord effect.\n"

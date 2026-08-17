@@ -1,0 +1,207 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MidiPilot in FFXIV Bard Mode | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0B1020">
+<meta name="description" content="MidiPilot under Final Fantasy XIV Bard Performance rules: the enforced constraints, the five FFXIV tools, arrangement guidance, and the deterministic Fix X|V Channels tool.">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+<style>
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img,
+.screenshot-single video {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+}
+.screenshot-single video { height: auto; aspect-ratio: 2074 / 926; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="midipilot-modes.html">&nbsp;&nbsp;&middot; Modes &amp; Conversations</a>
+                <a href="midipilot-ffxiv.html">&nbsp;&nbsp;&middot; MidiPilot in FFXIV Bard Mode</a>
+                <a href="midipilot-settings.html">&nbsp;&nbsp;&middot; Settings &amp; Providers</a>
+                <a href="midipilot-tools.html">&nbsp;&nbsp;&middot; AI Tools Reference</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="midipilot.html">&larr; MidiPilot overview</a></p>
+<h1 id="midipilot-ffxiv">MidiPilot in FFXIV Bard Mode</h1>
+
+<p>
+With the FFXIV checkbox on, MidiPilot works under Final Fantasy XIV Bard Performance rules and gains
+five FFXIV-specific tools. This page collects what that mode enforces, the arrangement guidance behind
+it, and the one-click channel fixer that needs no AI call at all.
+</p>
+
+<hr>
+
+<h2 id="ffxiv-mode">FFXIV Bard Mode</h2>
+
+<p>
+When the <b>FFXIV</b> checkbox is enabled, MidiPilot appends additional constraints to the system prompt that enforce Final Fantasy XIV Bard Performance rules. This works with both Simple and Agent mode.
+</p>
+
+<ul>
+<li><b>Agent + FFXIV</b> - the full FFXIV context with detailed guidance, plus <a href="midipilot-tools.html#tools">5 FFXIV-specific tools</a> (<code>validate_ffxiv</code>, <code>convert_drums_ffxiv</code>, <code>setup_channel_pattern</code>, <code>analyze_voice_load</code>, <code>auto_fit_voice_load</code>)</li>
+<li><b>Simple + FFXIV</b> - a compact FFXIV context that leaves more of the token budget for the answer itself. Includes a warning that large compositions may exceed limits</li>
+</ul>
+
+<p>
+You do not have to reach for the checkbox yourself. MidiPilot can switch the mode through the
+<code>set_ffxiv_mode</code> tool, so &ldquo;prepare this for an FFXIV octet&rdquo; is enough to
+bring the FFXIV tools and the FFXIV rules into play - both are in effect from the next step
+of the same request - and <code>get_editor_state</code> reports the current mode back
+to it as <code>ffxivMode</code>. The checkbox and the tool are the same switch: whichever one is
+used, the panel, the tool list and any connected <a href="mcp-server.html">MCP client</a> follow
+along.
+</p>
+
+<h3 id="ffxiv-craft">Arrangement Guidance</h3>
+
+<p>
+In FFXIV mode MidiPilot works from more than the hard rules. It also carries the craft that
+separates a merely playable file from an arrangement that sounds like a band, and you will notice
+it in what it proposes:
+</p>
+
+<ul>
+<li><b>Guitar variants as a musical device</b> - one guitar performer switching from Clean in the
+    verse to Overdriven in the chorus, instead of one sound for the whole song.</li>
+<li><b>Register is a choice</b> - when a part has to be folded into C3-C6, bringing it down is
+    usually the better answer than pushing it up, and the octave is picked deliberately rather
+    than taken as the nearest legal one.</li>
+<li><b>Density is tone</b> - thinning a dense tremolo or 32nd run often sounds better in game, so
+    a reduction may be suggested as a musical decision and not only as a fix for an overflow.</li>
+<li><b>Channel sharing is allowed</b> - the game picks instruments by track name, so two
+    performers may share one MIDI channel.</li>
+<li><b>The order of work</b> - arrange first, name every performer track exactly, run
+    <code>setup_channel_pattern</code> last, then validate. Expect the channel setup near the end
+    of a run rather than at the start.</li>
+</ul>
+
+<p>
+External clients get the same guidance from the <code>midi://ffxiv-guide</code>
+<a href="mcp-server.html#resources">MCP resource</a>.
+</p>
+
+<h3>Enforced Rules Overview</h3>
+
+<ul>
+<li>&#x2705; <b>Note range C3-C6</b> (MIDI 48-84) - strict boundaries, no notes outside</li>
+<li>&#x2705; <b>Monophonic tracks</b> - one note at a time (Lute/Harp/Piano allow limited chords)</li>
+<li>&#x2705; <b>Track name = instrument</b> - the track name determines which instrument the bard equips in-game (28 valid names)</li>
+<li>&#x2705; <b>Instrument &rarr; GM program mapping</b> - correct <code>program_change</code> at tick 0 per channel</li>
+<li>&#x2705; <b>Channels are cosmetic</b> - the channel number does not affect the instrument. Unique channels per track are recommended for clean editing, but not required</li>
+<li>&#x2705; <b>Drums can stay on channel 9</b> - the track name (Bass Drum, Snare Drum, Cymbal, etc.) determines the percussion instrument, not the channel</li>
+<li>&#x2705; <b>GM drum conversion</b> - kick &rarr; Bass Drum C4, snare &rarr; Snare C5, hi-hat &rarr; Cymbal C6, crash &rarr; Cymbal C5, toms &rarr; Timpani</li>
+<li>&#x2705; <b>Guitar switches</b> - the only case where channels matter functionally. Each of the 5 variants (Clean, Muted, Overdriven, PowerChords, Special) needs its own channel with <code>program_change</code> at tick 0. Switch sound mid-track by changing the note&rsquo;s channel</li>
+<li>&#x2705; <b>No pitch bend / no velocity editing</b> - velocity fixed at 100</li>
+<li>&#x2705; <b>Instrument transposition</b> - native ranges mapped per instrument (e.g., Piano C4-C7 = &minus;1 octave, Tuba C1-C4 = +2 octaves)</li>
+<li>&#x2705; <b>Track ordering</b> - melodic instruments first, drums at end (highest track indices)</li>
+</ul>
+
+<p>
+See <a href="prompt-examples.html#ffxiv">FFXIV Prompt Examples</a> for tested prompts.
+</p>
+
+<hr>
+
+<h2 id="fix-xv-channels">Fix X|V Channels</h2>
+
+<p>
+The <b>Fix X|V Channels</b> tool provides a <b>one-click, deterministic</b> channel fixer
+that sets up the complete MidiBard2 channel mapping - no AI calls needed.
+Find it in the toolbar or via <b>Tools &rarr; Fix X|V Channels</b>.
+</p>
+
+<p>
+&#x1F449; <a href="ffxiv-channel-fixer.html"><b>Full documentation: Fix X|V Channels</b></a> -
+the 5-step algorithm, Rebuild vs Preserve modes, supported instruments, guitar variant switching,
+before/after screenshots, and tips.
+</p>
+
+<hr>
+
+<h2 id="see-also">See also</h2>
+
+<ul>
+<li><a href="midipilot.html">MidiPilot - Your AI Copilot</a> - the overview: key features, getting started, the chat panel, and the mode comparison table.</li>
+<li><a href="midipilot-modes.html">MidiPilot Modes and Conversations</a> - Simple and Agent mode, which FFXIV mode layers its constraints on top of.</li>
+<li><a href="midipilot-settings.html">MidiPilot Settings and Providers</a> - where the FFXIV toggle lives alongside the provider and model settings.</li>
+<li><a href="midipilot-tools.html">MidiPilot AI Tools Reference</a> - the five FFXIV tools in context with the full tool list.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

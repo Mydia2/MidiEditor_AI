@@ -110,12 +110,10 @@ public:
     /// Convenience: load using the global QSettings singleton.
     void initialize();
 
-    /// Test seam: redirect the QSettings scope. Without this the unit tests
-    /// operate on the REAL "MidiEditor"/"NONE" scope - on Windows that is
-    /// the registry, which QStandardPaths::setTestModeEnabled does NOT
-    /// redirect, so clearing it wipes the user's actual configuration.
-    static void setSettingsScopeForTests(const QString &organization,
-                                         const QString &application);
+    // Phase 45 step 4: the former per-service setSettingsScopeForTests seam
+    // moved to AppPaths::setSettingsScopeForTests - ONE central seam. Tests
+    // redirect there; the reason (Windows registry is not covered by
+    // QStandardPaths test mode) is documented on AppPaths.
 
     /// Snapshot of the live mixer state — used by the dialog to seed
     /// row controls without touching private members.

@@ -47,6 +47,9 @@ private slots:
     void schedulePreview();
     void runPreviewNow();
     void onAccept();
+    /// Keeps the tempo-map radios in step with the scope picker: a partial
+    /// scope may only scale events, because the tempo map is shared.
+    void updateModeAvailability();
 
 private:
     void buildUi();
@@ -62,9 +65,14 @@ private:
     QRadioButton *_modeReplaceFixed = nullptr;
     QRadioButton *_modeScaleMap = nullptr;
     QRadioButton *_modeEventsOnly = nullptr;
+    QLabel *_modeScopeHint = nullptr;
     QLabel *_previewLabel = nullptr;
     QLabel *_warningLabel = nullptr;
     QTimer *_previewTimer = nullptr;
+
+    /// Mode the user had picked while the scope was "Whole project", parked so
+    /// it can be restored when they go back to it. -1 = nothing parked.
+    int _parkedWholeProjectMode = -1;
 };
 
 #endif // TEMPO_CONVERSION_DIALOG_H_

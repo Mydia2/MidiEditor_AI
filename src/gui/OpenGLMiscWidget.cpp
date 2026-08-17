@@ -57,14 +57,22 @@ void OpenGLMiscWidget::paintContent(QPainter *painter) {
 }
 
 // === Event Forwarding ===
+//
+// Every forwarded event goes through OpenGLPaintWidget::forwardToHosted(), which
+// delivers it to the hidden MiscWidget exactly once and then accepts it. The
+// accept() is what this lane was missing: MiscWidget implements no wheelEvent at
+// all, so a forwarded wheel notch fell through to QWidget::wheelEvent - whose
+// entire body is event->ignore() - and Qt propagated it back up to this wrapper,
+// which forwarded it again. Every single notch over the velocity lane therefore
+// ended in EXCEPTION_STACK_OVERFLOW. The re-entry latch inside forwardToHosted()
+// closes the whole class of bug, not just the wheel.
 
 void OpenGLMiscWidget::mousePressEvent(QMouseEvent *event) {
     // Call parent to handle OpenGL mouse state
     OpenGLPaintWidget::mousePressEvent(event);
 
     // Forward to internal MiscWidget for business logic
-    if (_miscWidget) {
-        QApplication::sendEvent(_miscWidget, event);
+    if (forwardToHosted(event)) {
         // Use asynchronous update for consistent behavior with software rendering
         // This prevents GPU pipeline stalls during interactive operations
         update();
@@ -76,11 +84,12 @@ void OpenGLMiscWidget::mouseReleaseEvent(QMouseEvent *event) {
     OpenGLPaintWidget::mouseReleaseEvent(event);
 
     // Forward to internal MiscWidget for business logic
-    if (_miscWidget) {
-        QApplication::sendEvent(_miscWidget, event);
+    if (forwardToHosted(event)) {
         // Use asynchronous update for consistent behavior with software rendering
         // This prevents GPU pipeline stalls during interactive operations
         update();
+        // A drag ends the SizeVerCursor feedback, so re-read it here too.
+        syncCursorFromHosted();
     }
 }
 
@@ -89,35 +98,37 @@ void OpenGLMiscWidget::mouseMoveEvent(QMouseEvent *event) {
     OpenGLPaintWidget::mouseMoveEvent(event);
 
     // Forward to internal MiscWidget for business logic
-    if (_miscWidget) {
-        QApplication::sendEvent(_miscWidget, event);
+    if (forwardToHosted(event)) {
         // Use asynchronous update for smooth drag operations
         // This prevents GPU pipeline stalls and eliminates flickering during editing
         update();
+        // The hover hit test the forwarded move just ran is the only thing that
+        // produces the velocity lane's drag affordance.
+        syncCursorFromHosted();
     }
 }
 
 void OpenGLMiscWidget::wheelEvent(QWheelEvent *event) {
-    // Forward wheel events to internal MiscWidget
-    if (_miscWidget) {
-        QApplication::sendEvent(_miscWidget, event);
-        update(); // Smooth scrolling
-    }
+    // Forward wheel events to internal MiscWidget. No update(): MiscWidget
+    // implements no wheel handling, so nothing in the lane can have changed -
+    // repainting the whole GL surface per notch was pure waste.
+    forwardToHosted(event);
 }
 
 void OpenGLMiscWidget::enterEvent(QEnterEvent *event) {
     // Forward to internal MiscWidget for hover effects
-    if (_miscWidget) {
-        QApplication::sendEvent(_miscWidget, event);
+    if (forwardToHosted(event)) {
         // Hidden widget's update() doesn't trigger OpenGL repaint
         update();
+        syncCursorFromHosted();
     }
 }
 
 void OpenGLMiscWidget::leaveEvent(QEvent *event) {
-    // Forward to internal MiscWidget for hover effects
-    if (_miscWidget) {
-        QApplication::sendEvent(_miscWidget, event);
+    // Forward to internal MiscWidget for hover effects. No cursor mirroring
+    // here: the pointer has already moved on to another widget, which sets its
+    // own shape.
+    if (forwardToHosted(event)) {
         // Hidden widget's update() doesn't trigger OpenGL repaint
         update();
     }
@@ -125,8 +136,7 @@ void OpenGLMiscWidget::leaveEvent(QEvent *event) {
 
 void OpenGLMiscWidget::keyPressEvent(QKeyEvent *event) {
     // Forward to internal MiscWidget for keyboard shortcuts
-    if (_miscWidget) {
-        QApplication::sendEvent(_miscWidget, event);
+    if (forwardToHosted(event)) {
         // Hidden widget's conditional update() doesn't trigger OpenGL repaint
         // Update unconditionally since we can't check the tool's return value
         update();
@@ -135,11 +145,27 @@ void OpenGLMiscWidget::keyPressEvent(QKeyEvent *event) {
 
 void OpenGLMiscWidget::keyReleaseEvent(QKeyEvent *event) {
     // Forward to internal MiscWidget for keyboard shortcuts
-    if (_miscWidget) {
-        QApplication::sendEvent(_miscWidget, event);
+    if (forwardToHosted(event)) {
         // Hidden widget's conditional update() doesn't trigger OpenGL repaint
         // Update unconditionally since we can't check the tool's return value
         update();
+    }
+}
+
+void OpenGLMiscWidget::syncCursorFromHosted() {
+    if (!_miscWidget) {
+        return;
+    }
+
+    // Qt::WA_SetCursor tells us whether the hidden widget has an explicit
+    // cursor at all; without the test we would pin the wrapper to an inherited
+    // default instead of letting it inherit too.
+    if (_miscWidget->testAttribute(Qt::WA_SetCursor)) {
+        if (cursor().shape() != _miscWidget->cursor().shape()) {
+            setCursor(_miscWidget->cursor());
+        }
+    } else if (testAttribute(Qt::WA_SetCursor)) {
+        unsetCursor();
     }
 }
 

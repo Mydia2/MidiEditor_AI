@@ -2,9 +2,12 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QSettings>
 
+#include "../src/AppPaths.h"
 #include "../src/ai/AiClient.h"
 #include "../src/ai/AgentRunner.h"
+#include "../src/ai/EditorContext.h"
 #include "../src/ai/ToolDefinitions.h"
 
 class MidiFile;
@@ -17,6 +20,7 @@ void AiClient::cancelRequest() {}
 bool AiClient::isReasoningModel() const { return false; }
 bool AiClient::agentStreamingEnabled() const { return false; }
 void AiClient::markToolsIncapableForCurrentModel(const QString &) {}
+void AiClient::clearToolsIncapableFlag(const QString &, const QString &) {}
 bool AiClient::errorIndicatesNoToolSupport(const QString &) { return false; }
 void AiClient::onReplyFinished(QNetworkReply *) {}
 void AiClient::onStreamDataAvailable() {}
@@ -25,6 +29,11 @@ void AiClient::onResponsesStreamDataAvailable() {}
 QString AiClient::model() const { return QString(); }
 QString AiClient::provider() const { return QString(); }
 void AiClient::setNextRequestPolicyOverride(bool, const QString &) {}
+
+// AgentRunner's mid-run FFXIV-mode notice quotes the FFXIV rule block. Stubbed
+// like the AiClient/ToolDefinitions symbols above so this target keeps linking
+// without dragging EditorContext.cpp (and the whole editor) into it.
+QString EditorContext::ffxivContext(bool, bool) { return QString(); }
 
 QJsonArray ToolDefinitions::toolSchemas() { return QJsonArray(); }
 QJsonArray ToolDefinitions::toolSchemas(const ToolDefinitions::ToolSchemaOptions &) { return QJsonArray(); }
@@ -37,7 +46,29 @@ QJsonObject ToolDefinitions::executeTool(const QString &, const QJsonObject &, M
 class TestAgentRunnerState : public QObject {
     Q_OBJECT
 
+private:
+    static constexpr const char *kTestOrg = "MidiEditorTest";
+    static constexpr const char *kTestApp = "AgentRunnerState";
+
 private slots:
+    // AgentRunner reads AI/ffxiv_mode (and more) through AppPaths::settings(),
+    // so without the central seam the assertions below depend on - and the code
+    // under test reads - the developer's real configuration. Install the
+    // throwaway scope before the first slot runs, so the prompt-building tests
+    // see documented defaults instead of whatever this machine has configured.
+    void initTestCase()
+    {
+        AppPaths::setSettingsScopeForTests(QLatin1String(kTestOrg),
+                                          QLatin1String(kTestApp));
+        AppPaths::settings()->clear();
+    }
+
+    void cleanupTestCase()
+    {
+        QSettings(QLatin1String(kTestOrg), QLatin1String(kTestApp)).clear();
+        AppPaths::setSettingsScopeForTests(QString(), QString());
+    }
+
     void classifyTask_detectsCompositionEditAnalysisRepair()
     {
         QCOMPARE(AgentRunner::classifyTask(QStringLiteral("Compose a two minute FFXIV lofi octet")),
@@ -203,6 +234,33 @@ private slots:
         QVERIFY(hint.contains(QStringLiteral("Do not repeat")));
         QVERIFY(hint.contains(QStringLiteral("ONE track per call")));
         QVERIFY(hint.contains(QStringLiteral("30 events")));
+    }
+
+    // Phase 47 — the gap the prompt-profile switch exists to close.
+    //
+    // The AND-composition itself lives inside AgentRunner::run(), which needs
+    // a live AiClient, so it is not drivable here. What IS drivable, and what
+    // actually matters, is the base policy it composes with: gpt-5.5* loses
+    // pitch_bend on its own, every other model keeps it - including the local
+    // ones that produce the placeholder bends. If this test ever flips to
+    // "false" for the Ollama model, the profile flag has become redundant and
+    // someone widened the model check instead.
+    void buildPolicyFor_leavesPitchBendOnForEveryModelButGpt55()
+    {
+        const AgentToolPolicy gpt55 = AgentToolPolicyUtil::buildPolicyFor(
+            QStringLiteral("gpt-5.5"), QStringLiteral("openai"), /*isCompositionOrEdit=*/true);
+        QVERIFY2(!gpt55.allowPitchBendEvents,
+                 "gpt-5.5 composition must keep its schema-light policy");
+        QVERIFY(gpt55.sanitizeRejectionGuidance);
+
+        const AgentToolPolicy local = AgentToolPolicyUtil::buildPolicyFor(
+            QStringLiteral("hf.co/Qwen/Qwen3-14B-GGUF:Q4_K_M"),
+            QStringLiteral("ollama"), /*isCompositionOrEdit=*/true);
+        QVERIFY2(local.allowPitchBendEvents,
+                 "a local model must keep pitch_bend unless a prompt profile opts out");
+        // ...and it does NOT get the positive-only rejection guidance either,
+        // which is why run() sets that flag alongside the AND.
+        QVERIFY(!local.sanitizeRejectionGuidance);
     }
 
     void genuineOutageStillRetriesSilently()

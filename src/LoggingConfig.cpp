@@ -4,6 +4,8 @@
 
 #include "LoggingConfig.h"
 
+#include "AppPaths.h"
+
 #include <QLoggingCategory>
 #include <QSettings>
 #include <QStringList>
@@ -13,10 +15,11 @@ const char *kLevelKey = "Logging/level";
 const char *kPerCatKey = "Logging/perCategory";
 const char *kCollabVerboseKey = "Collab/verboseLogging";
 
-QSettings appSettings() {
+std::unique_ptr<QSettings> appSettings() {
     // Same store as RtcRendezvousClient / CollabSettingsWidget so all
-    // settings end up in one file.
-    return QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    // settings end up in one place - which AppPaths decides (Phase 45:
+    // native scope normally, INI next to the exe in portable mode).
+    return AppPaths::settings();
 }
 } // namespace
 
@@ -61,7 +64,8 @@ QString LoggingConfig::buildFilterRules(Level level, const QString &perCategoryO
 }
 
 LoggingConfig::Level LoggingConfig::loadLevel() {
-    QSettings s = appSettings();
+    auto sp = appSettings();
+    QSettings &s = *sp;
     int raw = s.value(QLatin1String(kLevelKey),
                       static_cast<int>(Level::Warnings)).toInt();
     if (raw < 0 || raw > 4) raw = static_cast<int>(Level::Warnings);
@@ -69,7 +73,8 @@ LoggingConfig::Level LoggingConfig::loadLevel() {
 }
 
 QString LoggingConfig::loadPerCategory() {
-    QSettings s = appSettings();
+    auto sp = appSettings();
+    QSettings &s = *sp;
     return s.value(QLatin1String(kPerCatKey)).toString();
 }
 
@@ -79,7 +84,8 @@ void LoggingConfig::applyFromSettings() {
 }
 
 void LoggingConfig::applyAndPersist(Level level, const QString &perCategoryOverrides) {
-    QSettings s = appSettings();
+    auto sp = appSettings();
+    QSettings &s = *sp;
     s.setValue(QLatin1String(kLevelKey), static_cast<int>(level));
     if (perCategoryOverrides.trimmed().isEmpty()) {
         s.remove(QLatin1String(kPerCatKey));
@@ -90,11 +96,12 @@ void LoggingConfig::applyAndPersist(Level level, const QString &perCategoryOverr
 }
 
 bool LoggingConfig::loadCollabVerbose() {
-    return appSettings().value(QLatin1String(kCollabVerboseKey), false).toBool();
+    return appSettings()->value(QLatin1String(kCollabVerboseKey), false).toBool();
 }
 
 void LoggingConfig::setCollabVerbose(bool on) {
-    QSettings s = appSettings();
+    auto sp = appSettings();
+    QSettings &s = *sp;
     if (on) {
         s.setValue(QLatin1String(kCollabVerboseKey), true);
     } else {

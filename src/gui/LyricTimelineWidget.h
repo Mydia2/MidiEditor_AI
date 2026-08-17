@@ -62,6 +62,17 @@ public:
      */
     QList<QPair<int, MidiEvent *>> collectLyricEvents();
 
+    /**
+     * \brief Drops the cached MatrixWidget reference (shutdown).
+     *
+     * The timeline caches the piano roll for its pixel mapping and grid. Under
+     * hardware acceleration that widget is destroyed with its OpenGL wrapper
+     * while this pane is still alive, so the reference must be cut before the
+     * delete - otherwise a repaint scheduled in the same event-loop pass paints
+     * from freed memory. The widget renders empty afterwards.
+     */
+    void detachMatrixWidget();
+
 public slots:
     void onPlaybackPositionChanged(int ms);
 

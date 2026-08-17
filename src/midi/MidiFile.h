@@ -155,11 +155,30 @@ public:
     /**
      * \brief Gets measure information for a given tick position.
      * \param startTick The tick position to query
-     * \param startTickOfMeasure Pointer to receive measure start tick
-     * \param endTickOfMeasure Pointer to receive measure end tick
-     * \return The measure number (0-based)
+     * \param startTickOfMeasure Pointer to receive measure start tick.
+     *        MUST NOT be null - it is dereferenced unconditionally.
+     * \param endTickOfMeasure Pointer to receive measure end tick.
+     *        MUST NOT be null - it is dereferenced unconditionally.
+     * \return The measure number, 1-BASED: tick 0 is in measure 1. This is
+     *         the number the status bar, the time display and the measure
+     *         tool show, so it is what the user sees - never add 1 to it.
+     *         Matches startTickOfMeasure(), which is 1-based as well.
      */
     int measure(int startTick, int *startTickOfMeasure, int *endTickOfMeasure);
+
+    /**
+     * \brief Number of measures the song occupies - the 1-based bar number of
+     *        the last SOUNDING tick, i.e. measure(endTick() - 1).
+     *
+     *        Do NOT use measure(endTick()) for this. endTick() is the EXCLUSIVE
+     *        end of the song, so a file that ends exactly on a bar line (File >
+     *        New: 7680 ticks = 10 bars of 4/4 at 192 ticks/quarter) has its end
+     *        tick in the first tick of the NEXT bar and measure() then reports
+     *        one bar too many. Every "how many bars does this song have?"
+     *        caller must go through here so they cannot drift apart.
+     * \return The bar count, always >= 1 (an empty file still shows one bar).
+     */
+    int measureCount();
 
     // === Event Access and Management ===
 
@@ -451,8 +470,15 @@ public:
      * \brief Gets the time signature at a specific tick.
      * \param tick The tick position to query
      * \param num Pointer to receive the numerator
-     * \param denum Pointer to receive the denominator
-     * \param lastTimeSigEvent Optional pointer to receive the time signature event
+     * \param denum Pointer to receive the denominator as the SMF POWER-OF-TWO
+     *        EXPONENT, not the printed number: 2 means /4, 3 means /8. To show
+     *        or divide by it, use `1 << *denum`.
+     * \param lastTimeSigEvent Optional pointer to receive the time signature
+     *        event the reported meter comes from. Set to NULLPTR when channel
+     *        18 holds no event at or before \a tick - and that null is the ONLY
+     *        way to tell that case apart, because the fallback then reported in
+     *        num/denum is a valid 4/4 (4, 2). Never decide "is the meter still
+     *        anchored?" by comparing num/denum.
      */
     void meterAt(int tick, int *num, int *denum, TimeSignatureEvent **lastTimeSigEvent = 0);
 
@@ -557,6 +583,19 @@ private:
      * \param log The string list containing log messages
      */
     void printLog(QStringList *log);
+
+    /**
+     * \brief Length of one measure in ticks for a meter given as the
+     *        (numerator, power-of-two denominator EXPONENT) pair that
+     *        meterAt() reports - i.e. 4 * num * ticksPerQuarter() / (1 <<
+     *        denumPow).
+     *
+     *        Used wherever channel 18 holds no TimeSignatureEvent to ask:
+     *        those paths used to dereference a null (or, in deleteMeasures()
+     *        and insertMeasures(), an uninitialised) TimeSignatureEvent*.
+     * \return The measure length, always >= 1.
+     */
+    int ticksPerMeasureOfMeter(int num, int denumPow);
 
     // === Private Member Variables ===
 

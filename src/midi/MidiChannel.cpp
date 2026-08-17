@@ -55,6 +55,17 @@ MidiChannel::MidiChannel(MidiChannel &other) {
 }
 
 ProtocolEntry *MidiChannel::copy() {
+    // v2.2 #3 (undo-memory instrumentation): this is the SINGLE heavy snapshot
+    // factory of the undo system - every protocolled channel mutation clones
+    // the whole event map here (tens of bytes per event per snapshot), which
+    // dwarfs every other undo cost by orders of magnitude. Count instead of
+    // estimating: the live channel keeps a running count and node sum, and the
+    // status-bar sampler turns the sum into structural bytes. The counters are
+    // NOT copied into the snapshot (the copy ctor lists its fields explicitly)
+    // and reloadState() does not touch them, so they survive undo and stay
+    // monotonic for the life of this document.
+    ++_snapshotCount;
+    _snapshotNodeSum += _events->size();
     return new MidiChannel(*this);
 }
 

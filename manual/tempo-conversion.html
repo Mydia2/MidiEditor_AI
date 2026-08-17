@@ -107,7 +107,8 @@ or right-click a track / channel / selection and pick the same entry from the co
 <a href="screenshots/ConvertTempo_Tool.png" class="lightbox-link">
 <img src="screenshots/ConvertTempo_Tool.png" alt="Convert Tempo, Preserve Duration dialog" loading="lazy">
 </a>
-<p class="caption">The dialog with live preview, scope chips and tempo-mode picker.</p>
+<p class="caption">The dialog: detected source tempo, target tempo, the scope picker, the three
+tempo-map modes and the live preview above the Convert button.</p>
 </div>
 
 <hr>
@@ -155,9 +156,10 @@ tempo_meta := target_bpm</div>
 
 <p>
 Real playback duration is preserved; the file now lives in the host project's 180&nbsp;BPM grid.
-Round-trip 90 &rarr; 180 &rarr; 90 may introduce <b>&le; 1 tick of drift per event</b> from
-rounding; the dialog shows a toast when this happens, and the optional <i>Snap to grid</i>
-checkbox cleans it up.
+Because every tick is rounded to a whole number, a round trip 90 &rarr; 180 &rarr; 90 can land
+<b>up to one tick per event</b> away from where it started. That is inaudible, but if you need the
+result exactly on the grid afterwards, <a href="editing-midi-files.html#quantization">quantize</a>
+the converted events.
 </p>
 
 <hr>
@@ -168,50 +170,48 @@ checkbox cleans it up.
 <thead><tr><th>Field</th><th>What it does</th></tr></thead>
 <tbody>
 <tr>
-  <td><b>Source BPM</b></td>
-  <td>Auto-detected from the tempo at tick&nbsp;0; the label shows <i>(detected)</i>. Override
-    it manually for files whose first tempo event lies elsewhere.</td>
+  <td><b>Source BPM (detected)</b></td>
+  <td>Filled in from the file's earliest tempo event. Override it for material whose real tempo
+    differs from what the file claims - the conversion always works from the number in this
+    box.</td>
 </tr>
 <tr>
   <td><b>Target BPM</b></td>
-  <td>Where you want to end up. Defaults to the current project tempo.</td>
+  <td>Where you want to end up. It starts at the detected tempo, so the dialog opens on
+    "nothing to do" until you change it.</td>
 </tr>
 <tr>
-  <td><b>Scope</b></td>
+  <td><b>Apply to</b></td>
   <td>
     <i>Whole project</i>, <i>Selected tracks</i>, <i>Selected channels</i> or <i>Selected events</i>.
-    A chip strip below the combo lists the affected tracks / channels and lets you add or remove
-    entries on the fly - the right-click entry points pre-fill this strip from your panel
-    selection.
+    The entry point decides <i>which</i> tracks, channels or events those are, and a coloured line
+    under the picker names them (<i>"Pre-filled tracks: 2"</i>, <i>"Pre-filled with 128 selected
+    event(s)."</i>). To convert one track, open the dialog from that track - see
+    <a href="#entry-points">Entry points</a>.
   </td>
 </tr>
 <tr>
-  <td><b>Tempo handling</b></td>
+  <td><b>Tempo map handling</b></td>
   <td>
-    <i>Replace tempo map with target tempo</i> (default), <i>Scale existing tempo map</i>, or
-    <i>Keep tempo map, scale events only</i>. The default does what most people mean by
-    "convert tempo": rewrite the tempo meta to the target BPM <b>and</b> scale every event tick
-    by <code>target/source</code> so the real-time playback length stays identical. See the
-    <a href="#modes">modes section</a> for the other two.
+    <i>Replace with single fixed tempo at tick 0</i> (default), <i>Scale existing tempo map
+    (preserve curves)</i>, or <i>Scale events only (leave tempo map untouched)</i>. The default
+    does what most people mean by "convert tempo": rewrite the tempo to the target BPM <b>and</b>
+    scale every event tick by <code>target/source</code> so the real-time playback length stays
+    identical. See the <a href="#modes">modes section</a> for the other two.
   </td>
 </tr>
 <tr>
-  <td><b>Include</b> checkboxes</td>
-  <td>Notes, controllers, pitch bend, program changes, aftertouch, lyrics &amp; text events,
-    markers and time signatures - all on by default <b>except time signatures</b>, which
-    are intentionally off (scaling them moves the bar lines relative to the notes and is rarely
-    what you want).</td>
+  <td><b>Preview box</b></td>
+  <td>The dark box above the buttons recomputes after every change - without touching the file -
+    and reports the scale factor, how many events would be affected, and the playback duration
+    before and after. When the chosen mode rewrites the tempo map it also reports how many tempo
+    events go and how many arrive. A warning line appears below it when there is something to
+    warn about.</td>
 </tr>
 <tr>
-  <td><b>Quantize after conversion</b></td>
-  <td>Optional. Runs the existing quantizer with the project grid right after the conversion so
-    the result lands cleanly on beats.</td>
-</tr>
-<tr>
-  <td><b>Live preview pane</b></td>
-  <td>Recomputes on every field change (100&nbsp;ms debounce) without modifying the file. Shows
-    the projected new duration with a &Delta; indicator, the scale factor, the affected event
-    count and the number of source tempo events.</td>
+  <td><b>Convert</b></td>
+  <td>The only button that changes anything. Everything above it is a projection; <b>Cancel</b>
+    leaves the file untouched.</td>
 </tr>
 </tbody>
 </table>
@@ -224,7 +224,7 @@ checkbox cleans it up.
 <thead><tr><th>Mode</th><th>Behaviour</th><th>Use when</th></tr></thead>
 <tbody>
 <tr>
-  <td><b>Replace tempo map with target tempo</b><br><span style="color:var(--text-muted);">(default - "just convert the BPM")</span></td>
+  <td><b>Replace with single fixed tempo at tick 0</b><br><span style="color:var(--text-muted);">(default - "just convert the BPM")</span></td>
   <td>All <code>TempoChange</code> events are removed and a single tempo at <code>target_bpm</code>
     is inserted at tick&nbsp;0. Event ticks scale by <code>target/source</code> so note lengths
     grow / shrink to match. The piece sounds <b>exactly</b> the same speed as before but now
@@ -233,26 +233,29 @@ checkbox cleans it up.
     180&nbsp;BPM project, etc.</td>
 </tr>
 <tr>
-  <td><b>Scale existing tempo map</b></td>
-  <td>Tempo events keep their tick-relative position and their BPM values are inverse-scaled so
-    the real-time tempo curve is preserved at the new musical-tick rate.</td>
+  <td><b>Scale existing tempo map (preserve curves)</b></td>
+  <td>The tempo events move with the music and their BPM values are scaled along, so a written-in
+    tempo curve keeps its shape at the new musical-tick rate.</td>
   <td>Pieces with a written-in ritardando / accelerando that you want to retime without
     flattening the tempo changes.</td>
 </tr>
 <tr>
-  <td><b>Keep tempo map, scale events only</b></td>
-  <td>The tempo map is left exactly as it was. Only the selected event ticks are rescaled.</td>
+  <td><b>Scale events only (leave tempo map untouched)</b></td>
+  <td>The tempo map is left exactly as it was. Only the event ticks in scope are rescaled, so the
+    material really does take longer or shorter in real time.</td>
   <td>You want a half-time / double-time correction inside a project that already runs at the
-    correct musical tempo.</td>
+    correct musical tempo - and it is the mode every partial scope uses.</td>
 </tr>
 </tbody>
 </table>
 
 <div class="warn-box">
-<p>&#x26A0; <b>Channel-scoped conversions cannot use Replace mode.</b> Rewriting the project tempo
-from a single channel's local conversion would silently retime every other channel, so the dialog
-disables <i>Replace</i> when scope is <i>Selected channels</i> and forces <i>Events only</i>
-(or, eventually, <i>Scale tempo map</i>).</p>
+<p>&#x26A0; <b>Partial scopes use <i>Scale events only</i>.</b> The tempo map belongs to the whole
+file, not to a track or a channel, so changing it from a partial scope would retime everything
+outside the scope. As soon as <i>Apply to</i> is anything other than <i>Whole project</i>, the
+dialog therefore selects <i>Scale events only</i> and greys the other two modes out, with that
+reason printed under them. Set the scope back to <i>Whole project</i> and all three are available
+again, with your previous choice restored.</p>
 </div>
 
 <hr>
@@ -263,18 +266,19 @@ disables <i>Replace</i> when scope is <i>Selected channels</i> and forces <i>Eve
   <li><b>Tools menu</b> &rarr; <b>Tempo Tools</b> &rarr; <b>Convert Tempo, Preserve
     Duration&hellip;</b> - opens the dialog with scope set to <i>Whole project</i>.</li>
   <li><b>Tracks panel</b> - right-click a track row, pick <i>Convert Tempo, Preserve
-    Duration&hellip;</i>. Scope is pre-set to <i>Selected tracks</i> with the right-clicked track
-    plus any other already-selected tracks pre-filled into the chip strip.</li>
-  <li><b>Channels panel</b> - same idea: right-click a channel, scope pre-set to
-    <i>Selected channels</i>.</li>
+    Duration&hellip;</i>. The dialog opens on <i>Selected tracks</i> with the right-clicked track
+    pre-filled.</li>
+  <li><b>Channels panel</b> - same idea: right-click a channel, and the dialog opens on
+    <i>Selected channels</i> with that channel pre-filled.</li>
   <li><b>Matrix / piano roll</b> - with at least one event selected, the right-click menu
-    adds the same entry with scope pre-set to <i>Selected events</i>. Mirrors the existing
-    Quantize-selection idiom.</li>
+    adds the same entry, scoped to <i>Selected events</i>. The note ends travel along
+    automatically, so converted notes keep their lengths.</li>
 </ul>
 <p>
-All four entry points open the same dialog and route through the same
-<code>onConvertTempoPreserveDuration(ScopeHint)</code> slot. The dialog itself remains the source
-of truth - you can change scope, chips, modes and include-flags before clicking OK.
+All four open the same dialog; only the scope it starts on differs. Tempo numbers and the
+tempo-map mode are yours to change before you press <b>Convert</b> - <i>which</i> tracks, channels
+or events are in scope is decided by the entry point you used, so pick the one that matches what
+you want to convert.
 </p>
 
 <hr>
@@ -285,15 +289,17 @@ of truth - you can change scope, chips, modes and include-flags before clicking 
   <li><b>Single undo step.</b> The whole conversion runs inside one
     <code>Protocol::startNewAction("Convert tempo (preserve duration): X&rarr;Y BPM")</code>
     block - one Ctrl+Z restores every event tick and the tempo map exactly.</li>
-  <li><b>NoteOn / Off pairing is preserved.</b> Each NoteOn and its matching OffEvent are scaled
-    together via <code>noteOn-&gt;offEvent()</code> so the pair never desyncs.</li>
-  <li><b>Tick-domain math.</b> Scaling happens at the absolute-tick layer; the existing MIDI
-    writer converts to deltas on save, so we never have to touch delta-time encoding.</li>
-  <li><b>Meta channels are opt-in.</b> Channels 16 (lyrics/text), 17 (tempo) and 18 (time
-    signature) are never scaled implicitly - you have to tick the matching include flag.</li>
-  <li><b>Drum / FFXIV percussion safety.</b> The CH9 program-change injection used by FFXIV
-    SoundFont Mode reads NoteOn ticks live and doesn't cache, so it stays correct after a
-    conversion.</li>
+  <li><b>Note ends move with their notes.</b> Every event in scope is rescaled, note ends
+    included - and a conversion started from a selection carries each selected note's end along
+    even though a selection never contains note ends itself. No note is ever left hanging.</li>
+  <li><b>Tick-domain math.</b> Scaling happens on absolute ticks; the MIDI writer works out the
+    delta times on save, so the file stays a perfectly ordinary MIDI file.</li>
+  <li><b>Lyrics, markers and bar lines keep their place.</b> In a whole-project conversion the
+    meta events are scaled together with the notes, so words stay under their syllables and time
+    signatures stay on the same musical position. A narrower scope moves exactly what is in scope
+    and nothing else.</li>
+  <li><b>FFXIV drum playback stays correct.</b> The program change that gives each percussion
+    track its sound is sent live with every note, so it still matches after a conversion.</li>
 </ul>
 
 <hr>
@@ -303,13 +309,26 @@ of truth - you can change scope, chips, modes and include-flags before clicking 
 <table class="info-table">
 <thead><tr><th>Situation</th><th>What you'll see</th></tr></thead>
 <tbody>
-<tr><td>Source &equiv; Target BPM</td><td>OK button disabled. Footer: <i>"Source and target tempo are identical - nothing to do."</i></td></tr>
-<tr><td>Scope returns 0 events</td><td>OK disabled. <i>"No events in scope."</i></td></tr>
-<tr><td>&gt; 1 tempo event in source + Replace mode</td><td>Yellow warning row: <i>"Source contains N tempo changes - they will be collapsed to a single tempo at the target BPM."</i></td></tr>
-<tr><td>Time signatures unchecked but selection contains them</td><td>Inline warning: bar lines will visually drift relative to the notes after conversion.</td></tr>
-<tr><td>Round-trip drift</td><td>After-action toast: <i>"N events scaled. Round-trip back to source BPM may differ by &le; 1 tick per event."</i></td></tr>
+<tr><td>Source and target BPM are the same</td><td>A warning line under the preview: <i>"Source and target BPM are identical - nothing to convert."</i> <b>Convert</b> then closes the dialog without changing anything.</td></tr>
+<tr><td>The scope holds no events</td><td>The preview reads <i>0 events affected</i>. That is the sign you opened the dialog from the wrong place - close it and start from the track, channel or selection you mean.</td></tr>
+<tr><td>Several tempo events + <i>Replace</i> mode</td><td>The preview adds a <i>Tempo events</i> line showing how many are removed and how many are inserted, so you can see the tempo curve being collapsed to one value before you commit.</td></tr>
+<tr><td>No file open</td><td>The preview shows the reason instead of numbers, and converting does nothing.</td></tr>
 </tbody>
 </table>
+
+<hr>
+
+<h2 id="ai-tool">Letting the AI do it</h2>
+
+<p>
+The same conversion is available to <a href="midipilot-tools.html#tools">MidiPilot</a> as the
+<code>convert_tempo_preserve_duration</code> tool, with the same four scopes - the whole file,
+given tracks, given channels, or your current selection - and the same tempo-map modes. It follows
+the dry-run rule: the agent first reports what the conversion would change, waits for your
+confirmation, and only then runs it for real, as one undoable step. Ask for it in plain words
+("this was recorded at 90 BPM, fit it to the project's 180") and check the summary before you say
+yes.
+</p>
 
 <hr>
 
@@ -318,9 +337,9 @@ of truth - you can change scope, chips, modes and include-flags before clicking 
 <ul>
   <li><a href="menu-tools.html">Tools menu reference</a></li>
   <li><a href="editing-midi-files.html">Editing MIDI files</a></li>
-  <li><a href="midipilot.html">MidiPilot AI - tool calls</a></li>
+  <li><a href="midipilot-tools.html#tools">MidiPilot AI - tool calls</a></li>
   <li><a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a></li>
-  <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
+  <li><a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a></li>
 </ul>
 
 </main>

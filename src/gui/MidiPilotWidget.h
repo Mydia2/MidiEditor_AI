@@ -47,6 +47,35 @@ public:
      * \brief Sets focus to the input field.
      */
     void focusInput();
+
+    /**
+     * \brief Sends `text` as a user message through the NORMAL send path
+     *  (busy/configured guards, chat bubble, context + selection capture),
+     *  exactly as if the user had typed it and pressed Enter. Used by "Ask
+     *  MidiPilot about the selection": one right-click, one answer - the
+     *  selection itself travels along as serialized events, so the model
+     *  sees the notes, not just a summary. A half-written draft in the
+     *  input field survives the round trip. No-op for Show-mode viewers
+     *  (only the presenter may drive MidiPilot).
+     * \return true if the message was actually dispatched to the AI client or
+     *  the agent runner; false when a guard refused it (busy, agent running,
+     *  not configured, Show-mode lock, or a tool-incapable model in agent
+     *  mode). The verdict comes from \ref sendCurrentPrompt, not from any side
+     *  effect. Callers that wait for assistantReplied (the playability
+     *  workbench) must not latch on a refusal - nothing will ever arrive.
+     */
+    bool submitPrompt(const QString &text);
+
+    /**
+     * \brief Whether MidiPilot can actually be used, i.e. an AI provider is
+     *  configured (an API key is stored, or the provider is local and needs
+     *  none). When false the panel shows the setup prompt instead of a chat
+     *  and the input field is disabled, so seeding a question would silently
+     *  do nothing - callers that offer such an action (context menus) must
+     *  not show it at all.
+     */
+    bool isConfigured() const;
+
     /**
      * \\brief Returns the current mode: \"simple\" or \"agent\".
      */
@@ -56,6 +85,15 @@ public:
      * \brief Returns whether FFXIV Bard Performance mode is enabled.
      */
     bool ffxivMode() const;
+
+    /**
+     * \brief Phase 46: programmatic FFXIV-mode switch - drives the same
+     *  checkbox the user clicks, so persistence and the ffxivModeChanged
+     *  notification take the one existing path. Used by the set_ffxiv_mode
+     *  AI tool: an MCP client sees the 5 FFXIV tools appear/disappear with
+     *  the mode and could previously neither see nor change it.
+     */
+    void setFfxivMode(bool enabled);
 
     /**
      * \brief Abort whatever request is currently in flight (agent or
@@ -131,6 +169,23 @@ signals:
      */
     void requestRepaint();
 
+    /**
+     * \brief Phase 46: FFXIV mode was toggled (checkbox or set_ffxiv_mode
+     *  tool). MainWindow forwards this to McpServer::broadcastToolsChanged
+     *  so connected MCP clients refresh their tool list - the notification
+     *  the manual always promised but nothing ever sent.
+     */
+    void ffxivModeChanged(bool enabled);
+
+    /**
+     * \brief Phase 46: the final text of every completed reply, simple AND
+     *  agent mode. Lets a caller that submitted a prompt programmatically
+     *  (the playability dialog's "Analyze with MidiPilot") mirror the answer
+     *  into its own window. Fired for every reply, not only submitted ones -
+     *  listeners latch on their own send and drop the rest.
+     */
+    void assistantReplied(const QString &text);
+
 
 private slots:
     void onSendMessage();
@@ -160,6 +215,21 @@ private:
         QJsonObject context;
         QDateTime timestamp;
     };
+
+    /**
+     * \brief The real send path: validates, captures context and dispatches the
+     *  request to \ref AiClient (simple mode) or \ref AgentRunner (agent mode).
+     * \return true ONLY when the request was actually handed to the client or the
+     *  runner, i.e. a terminal signal (responseReceived / errorOccurred /
+     *  agentFinished / agentError) is guaranteed to follow. false on every guard
+     *  and refusal path (empty prompt, provider not configured, busy, agent
+     *  already running, tool-incapable model in agent mode) - nothing was sent
+     *  and no reply will ever arrive. ANALYZE-LATCH-001: \ref submitPrompt
+     *  forwards this verdict to programmatic callers that latch on
+     *  \ref assistantReplied; it must never be inferred from side effects such
+     *  as the input field having been cleared.
+     */
+    bool sendCurrentPrompt();
 
     void setupUi();
     void setupSetupPrompt();

@@ -205,21 +205,13 @@ bool StandardTool::move(int mouseX, int mouseY) {
                         ev->y() + ev->height())
             || pointInRect(mouseX, mouseY, ev->x() + ev->width() - 2, ev->y(),
                            ev->x() + ev->width() + 2, ev->y() + ev->height())) {
-            // Set cursor on OpenGL container if available, otherwise on matrix widget
-            if (_openglContainer) {
-                _openglContainer->setCursor(Qt::SplitHCursor);
-            } else {
-                matrixWidget->setCursor(Qt::SplitHCursor);
-            }
+            // Cursor goes to the visible pane the tool is acting on
+            setToolCursor(Qt::SplitHCursor);
             return false;
         }
     }
-    // Set cursor on OpenGL container if available, otherwise on matrix widget
-    if (_openglContainer) {
-        _openglContainer->setCursor(Qt::ArrowCursor);
-    } else {
-        matrixWidget->setCursor(Qt::ArrowCursor);
-    }
+    // Cursor goes to the visible pane the tool is acting on
+    setToolCursor(Qt::ArrowCursor);
     return false;
 }
 
@@ -239,12 +231,8 @@ void StandardTool::reloadState(ProtocolEntry *entry) {
 }
 
 bool StandardTool::release() {
-    // Set cursor on OpenGL container if available, otherwise on matrix widget
-    if (_openglContainer) {
-        _openglContainer->setCursor(Qt::ArrowCursor);
-    } else {
-        matrixWidget->setCursor(Qt::ArrowCursor);
-    }
+    // Cursor goes to the visible pane the tool is acting on
+    setToolCursor(Qt::ArrowCursor);
     return true;
 }
 

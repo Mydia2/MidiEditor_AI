@@ -101,7 +101,7 @@ can plug into MidiEditor AI and control it.
 </p>
 
 <p>
-MidiEditor AI&rsquo;s MCP server exposes the <b>15 core tools</b> that the built-in MidiPilot AI uses, plus two document
+MidiEditor AI&rsquo;s MCP server exposes the <b>22 core tools</b> that the built-in MidiPilot AI uses, plus two document
 tools of its own (and extra FFXIV tools when FFXIV mode is enabled).
 The difference is that with MCP, <i>you choose</i> which AI client and model to use.
 </p>
@@ -131,7 +131,7 @@ created using the MCP protocol with shredding guitars, strings, and drums:
 </p>
 
 <div class="audio-box">
-<div class="audio-label">ðŸ”Š Listen</div>
+<div class="audio-label">&#x1F50A; Listen</div>
 <audio controls preload="none" aria-label="MCP demo: Metal remix of Mozart's Eine kleine Nachtmusik"><source src="wav/midieditor_ai_MCP.wav" type="audio/wav"></audio>
 <div class="audio-links"><a href="midi/midieditor_ai_MCP.mid">Download MIDI</a> &middot; <a href="wav/midieditor_ai_MCP.wav">Download WAV</a></div>
 </div>
@@ -148,7 +148,7 @@ All 20 measures were created via the MCP protocol with a guitar solo in the midd
 <ol class="step-list">
     <li>
         <b>Enable the MCP Server</b><br>
-        Go to <b>Edit &rarr; Settings &rarr; AI Settings</b>. In the <b>MCP Server</b> section,
+        Go to <b>Edit &rarr; Settings &rarr; MidiPilot AI</b>. In the <b>MCP Server</b> section,
         check <b>&ldquo;Start MCP server on launch&rdquo;</b>. Optionally generate an auth token for security.
     </li>
     <li>
@@ -207,6 +207,14 @@ You can reposition or hide it via <b>Edit &rarr; Settings &rarr; Layout &rarr; C
 <p>
 Click <b>&ldquo;Copy MCP Config to Clipboard&rdquo;</b> in MidiEditor AI&rsquo;s settings, then paste it into
 the appropriate config file for your AI client.
+</p>
+
+<p>
+What lands on the clipboard is a single server entry named <code>midieditor</code>, carrying the
+<code>url</code> for the port you configured and - if you generated one - an
+<code>Authorization: Bearer</code> header. Every client below wraps that entry in its own key
+(<code>mcpServers</code>, <code>mcp.servers</code>, &hellip;); the entry itself is the same
+everywhere. Without a token the <code>headers</code> block is simply absent.
 </p>
 
 <div class="config-tabs">
@@ -304,7 +312,7 @@ the appropriate config file for your AI client.
 <h2 id="tools">Available Tools</h2>
 
 <p>
-All 15 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP, plus two MCP-only
+All 22 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP, plus two MCP-only
 document tools (and the FFXIV tools below when FFXIV mode is on). The AI client discovers them
 automatically via <code>tools/list</code>.
 </p>
@@ -323,10 +331,12 @@ session at whichever document is currently active, or use <code>list_documents</
 <table>
     <tr><th>Tool</th><th>Description</th></tr>
     <tr><td><code>get_editor_state</code></td><td>Get file info, tracks, cursor position, tempo, time signature, and the selected-event count</td></tr>
-    <tr><td><code>get_track_info</code></td><td>Get details about a specific track (name, channel, note count, pitch range)</td></tr>
+    <tr><td><code>get_track_info</code></td><td>Get details about a specific track: name, assigned channel, total event count, and how many of those are notes</td></tr>
     <tr><td><code>query_events</code></td><td>Query MIDI events in a tick range on a track</td></tr>
     <tr><td><code>get_selection</code></td><td>Get the user's current selection as full events, each with a 0-based index (the index <code>delete_events_by_index</code> expects)</td></tr>
-    <tr><td><code>list_documents</code></td><td>List the open tabs: index, name, file path, modified flag, and which one is active</td></tr>
+    <tr><td><code>search_help</code></td><td>Search the built-in manual (title/keyword/body scoring) - for questions about the editor itself</td></tr>
+    <tr><td><code>get_help_section</code></td><td>Read one manual section's full plain text, found via <code>search_help</code></td></tr>
+    <tr><td><code>list_documents</code></td><td>List the open tabs across both <a href="editor-groups.html">editor groups</a>: index, title, file path, group (0 = left, 1 = right), modified flag, and which one is active</td></tr>
 </table>
 
 <h3>Document Tools <span class="tool-badge badge-write">WRITE</span></h3>
@@ -351,19 +361,25 @@ session at whichever document is currently active, or use <code>list_documents</
     <tr><td><code>set_tempo</code></td><td><code>bpm</code>, <code>tick</code></td><td>Set tempo at a tick position</td></tr>
     <tr><td><code>set_time_signature</code></td><td><code>numerator</code>, <code>denominator</code>, <code>tick</code></td><td>Set time signature at a tick position</td></tr>
     <tr><td><code>move_events_to_track</code></td><td><code>sourceTrackIndex</code>, <code>targetTrackIndex</code>, <code>startTick</code>, <code>endTick</code></td><td>Move events between tracks</td></tr>
+    <tr><td><code>convert_tempo_preserve_duration</code></td><td><code>targetBpm</code>, <code>scope</code>, <code>dryRun</code>, opt. <code>sourceBpm</code>, <code>trackIds</code>, <code>channelIds</code>, <code>tempoMode</code></td><td>Re-tempo material while keeping its real-time duration: scales event ticks and updates the tempo map so e.g. a 90&nbsp;BPM vocal fits a 180&nbsp;BPM project. Defaults to a dry run; the live pass converts as one undo step</td></tr>
+    <tr><td><code>set_ffxiv_mode</code></td><td><code>enabled</code></td><td>Turn FFXIV Bard Performance mode on or off. The FFXIV tools below appear/disappear with it and the server sends <code>notifications/tools/list_changed</code>; <code>get_editor_state</code> reports the current state as <code>ffxivMode</code></td></tr>
+    <tr><td><code>transpose_events</code></td><td><code>semitones</code>, opt. <code>trackIndex</code>, <code>startTick</code>, <code>endTick</code>, <code>foldToRange</code></td><td>Transpose notes by semitones as one undo step; <code>foldToRange</code> folds the result octave-wise into the bard range C3-C6</td></tr>
+    <tr><td><code>split_chords_to_tracks</code></td><td><code>trackIndex</code>, opt. <code>minNotes</code>, <code>keepOriginal</code></td><td>Split a track's chords voice-wise onto new tracks (voice 1 = highest note) - chords become monophonic performers</td></tr>
+    <tr><td><code>copy_events_to_track</code></td><td><code>sourceTrackIndex</code>, <code>targetTrackIndex</code>, opt. <code>startTick</code>, <code>endTick</code></td><td>Copy notes to another track, keeping channels and timing</td></tr>
 </table>
 
 <h3>FFXIV Tools <span class="tool-badge badge-ffxiv">FFXIV</span></h3>
 
 <p>
-These tools appear automatically when FFXIV mode is enabled in MidiEditor AI.
+These tools appear automatically when FFXIV mode is enabled in MidiEditor AI - either via the
+FFXIV checkbox in the MidiPilot panel or by the AI client itself calling <code>set_ffxiv_mode</code>.
 The server sends a <code>notifications/tools/list_changed</code> notification when FFXIV mode is toggled,
 so connected clients refresh their tool list automatically.
 </p>
 
 <table>
     <tr><th>Tool</th><th>Description</th></tr>
-    <tr><td><code>validate_ffxiv</code></td><td>Check if the file meets FFXIV Bard Performance constraints</td></tr>
+    <tr><td><code>validate_ffxiv</code></td><td>Check if the file meets FFXIV Bard Performance constraints - every same-tick note collision and stacked duplicate with its tick, range and instrument-name problems; the legal instrument spellings are returned when a name is rejected. Same engine as the editor's <a href="ffxiv-playability.html">Check FFXIV Playability</a></td></tr>
     <tr><td><code>convert_drums_ffxiv</code></td><td>Convert a GM drum track into FFXIV drum instrument tracks</td></tr>
     <tr><td><code>setup_channel_pattern</code></td><td>Fix FFXIV channel assignments and program_change events</td></tr>
     <tr><td><code>analyze_voice_load</code></td><td>Analyse simultaneous-voice count against the FFXIV 16-voice ceiling</td></tr>
@@ -376,7 +392,8 @@ so connected clients refresh their tool list automatically.
 
 <p>
 MCP resources provide read-only context. AI clients can read these to understand the current editor state
-without making tool calls.
+without making tool calls. A resource read follows the same document the session&rsquo;s tool calls act on,
+so state and edits stay in step even if you switch tabs in the editor meanwhile.
 </p>
 
 <table>
@@ -384,6 +401,7 @@ without making tool calls.
     <tr><td><code>midi://state</code></td><td>Full editor state - file info, all tracks, cursor, tempo, time signature</td></tr>
     <tr><td><code>midi://tracks</code></td><td>Track list with names, channels, and event counts</td></tr>
     <tr><td><code>midi://config</code></td><td>FFXIV mode status, file path, ticks per beat, current tempo</td></tr>
+    <tr><td><code>midi://ffxiv-guide</code></td><td>The FFXIV arrangement guide: hard constraints (8 tracks, monophonic, C3-C6, exact instrument names), drums, guitar variant switches, register and density guidance, and the order of work - the same knowledge the built-in MidiPilot agent gets. AI clients should read this before arranging for FFXIV</td></tr>
 </table>
 
 <hr>
@@ -391,9 +409,10 @@ without making tool calls.
 <h2 id="protocol-panel">Protocol Panel &amp; Client Identification</h2>
 
 <p>
-Every tool call made via MCP appears in the <b>Protocol panel</b> with a special prefix that identifies
-the source client. During the MCP <code>initialize</code> handshake, the client sends its name and version
-in the <code>clientInfo</code> field. MidiEditor AI displays this in the Protocol panel:
+Tool calls that change the file are recorded in the <b>Protocol panel</b>, and the entry starts with a
+prefix that identifies the source client. During the MCP <code>initialize</code> handshake, the client
+sends its name and version in the <code>clientInfo</code> field. MidiEditor AI displays this in the
+Protocol panel:
 </p>
 
 <ul>
@@ -482,7 +501,11 @@ AI clients should be aware of these when composing or editing large MIDI files.
 <h3>Tools not showing up</h3>
 <ul>
     <li>Make sure a MIDI file is loaded in MidiEditor AI (open or create a new file)</li>
-    <li>For FFXIV tools, verify FFXIV mode is enabled in MidiPilot settings</li>
+    <li>For FFXIV tools, verify FFXIV mode is enabled - either via the FFXIV checkbox in the
+        MidiPilot panel, or by calling <code>set_ffxiv_mode</code> from the client itself</li>
+    <li>The server announces the change with <code>notifications/tools/list_changed</code>, but a
+        client only receives it while an SSE stream is open. If your client shows a stale list,
+        ask it to refresh the tools or reconnect</li>
 </ul>
 
 <h3>&ldquo;Rate limit exceeded&rdquo; error</h3>

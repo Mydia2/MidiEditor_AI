@@ -50,6 +50,13 @@ void PerformanceSettingsWidget::setupUI() {
 
     _checkUpdatesOnStartup = new QCheckBox(tr("Check for updates at startup"), this);
     _checkUpdatesOnStartup->setToolTip(tr("Automatically check for new versions when the application starts."));
+    // Save immediately like every other toggle on this page: accept() only runs
+    // from the Close button (or a page switch), so a change followed by Esc or
+    // the window X used to be discarded.
+    connect(_checkUpdatesOnStartup, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (_isLoading) return;
+        _settings->setValue("updater/check_on_startup", enabled);
+    });
     updaterLayout->addWidget(_checkUpdatesOnStartup, 0, 0, 1, 2);
 
     QLabel *updaterDesc = new QLabel(tr("If unchecked, MidiEditor AI will not contact the GitHub release API on startup."), this);
@@ -176,8 +183,10 @@ void PerformanceSettingsWidget::setupUI() {
     vsyncDescription->setStyleSheet("color: gray; font-size: 11px; margin-left: 10px;");
     accelLayout->addWidget(vsyncDescription, 5, 0, 1, 2);
 
+    // States which renderer is actually live (filled by updateBackendInfoLabel()).
     _backendInfoLabel = new QLabel(this);
     _backendInfoLabel->setWordWrap(true);
+    _backendInfoLabel->setStyleSheet("color: gray; font-size: 11px; margin-left: 10px;");
     accelLayout->addWidget(_backendInfoLabel, 6, 0, 1, 2);
 
     mainLayout->addWidget(_hardwareAccelerationGroup);
@@ -346,6 +355,11 @@ void PerformanceSettingsWidget::enableHardwareAccelerationChanged(bool enabled) 
     // Always update UI state, but skip save/signal during loading
     if (!_isLoading) {
         qDebug() << "PerformanceSettingsWidget: Hardware acceleration changed to" << enabled;
+        // Save immediately, like every sibling toggle in this group. accept() only
+        // runs from the Close button (or when the user switches settings pages), so
+        // ticking the box and then pressing Esc / the window X used to throw the
+        // change away without any hint.
+        _settings->setValue("rendering/hardware_acceleration", enabled);
     }
 
     // Enable/disable OpenGL-specific options based on hardware acceleration setting
@@ -355,27 +369,46 @@ void PerformanceSettingsWidget::enableHardwareAccelerationChanged(bool enabled) 
     _enableHardwareSmoothTransforms->setEnabled(enabled);
     _enableVSync->setEnabled(enabled);
 
-    // Software rendering options are only available when hardware acceleration is OFF
-    if (enabled) {
-        // Hardware acceleration is ON - disable software rendering options (but preserve user's preferences)
-        if (!_isLoading) {
-            qDebug() << "PerformanceSettingsWidget: Hardware acceleration ON, disabling software rendering options";
-        }
-        _enableAntialiasing->setEnabled(false);
-        _enableSmoothPixmapTransform->setEnabled(false);
-        // Don't uncheck them - preserve the user's preferences for when they turn hardware acceleration off
-        _enableAntialiasing->setToolTip(tr("Disabled when hardware acceleration is enabled. Use Hardware anti-aliasing (MSAA) instead."));
-        _enableSmoothPixmapTransform->setToolTip(tr("Disabled when hardware acceleration is enabled. Use Hardware Smooth Transforms instead."));
-    } else {
-        // Hardware acceleration is OFF - enable software rendering options
-        if (!_isLoading) {
-            qDebug() << "PerformanceSettingsWidget: Hardware acceleration OFF, enabling software rendering options";
-        }
-        _enableAntialiasing->setEnabled(true);
-        _enableSmoothPixmapTransform->setEnabled(true);
-        _enableAntialiasing->setToolTip(tr("CPU-based anti-aliasing. Provides smoother edges but reduces performance."));
-        _enableSmoothPixmapTransform->setToolTip(tr("CPU-based smooth pixmap transforms. Smoother scaling but reduces performance."));
+    // The two software rendering hints stay usable in BOTH modes: the piano roll
+    // and the velocity lane are always rasterized by a QPainter into a cached
+    // pixmap, and the GPU path only blits that pixmap - so these hints still
+    // govern what is drawn, and MSAA (which only smooths primitives drawn into
+    // the multisampled buffer) cannot stand in for them.
+    _enableAntialiasing->setEnabled(true);
+    _enableSmoothPixmapTransform->setEnabled(true);
+    _enableAntialiasing->setToolTip(tr("CPU-based anti-aliasing for the note grid. Smoother edges but reduces performance. Applies with and without GPU acceleration."));
+    _enableSmoothPixmapTransform->setToolTip(tr("CPU-based smooth pixmap transforms for the note grid. Smoother scaling but reduces performance. Applies with and without GPU acceleration."));
+
+    updateBackendInfoLabel();
+}
+
+void PerformanceSettingsWidget::updateBackendInfoLabel() {
+    if (!_backendInfoLabel) {
+        return;
     }
+
+    const bool requested = _enableHardwareAcceleration->isChecked();
+    const bool active = Appearance::hardwareAccelerationActive();
+    const qreal overrideScale = Appearance::hardwareAccelerationOverrideScale();
+
+    QString text;
+    if (active) {
+        text = tr("Active now: OpenGL (GPU acceleration).");
+        if (!requested) {
+            text += QLatin1Char(' ');
+            text += tr("Software rendering takes effect after a restart.");
+        }
+    } else if (overrideScale > 0.0) {
+        text = tr("Active now: software rendering - GPU acceleration is ignored at %1% display scaling. "
+                  "Enable 'Ignore system UI scaling' above to use it (restart required).")
+                   .arg(qRound(overrideScale * 100.0));
+    } else if (requested) {
+        text = tr("Active now: software rendering - GPU acceleration takes effect after a restart.");
+    } else {
+        text = tr("Active now: software rendering.");
+    }
+
+    _backendInfoLabel->setText(text);
 }
 
 void PerformanceSettingsWidget::multisamplingChanged(int index) {

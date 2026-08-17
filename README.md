@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 2.1.2
+**Version:** 2.2.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -85,6 +85,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎚️ **FFXIV SoundFont Equalizer** | Per-instrument volume mixer for the FFXIV bard SoundFont with 0-200 % gain sliders, mute, master gain, per-row ▶ Preview, plus user presets. Affects live playback **and** offline export via `GEN_ATTENUATION` |
 | 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts - built-in LAME 3.100 encoder. Honours channel mute/solo, per-track mute, and auto-routes named FFXIV percussion tracks to the correct bard preset |
 | 🎻 **FFXIV Voice Limiter** | Read-only audit against the in-game 16-voice ceiling - per-tick voice peak, overflow ranges, per-channel rate hotspots; optional voice-load lane under the velocity strip |
+| 🔎 **Check FFXIV Playability** | Workbench that examines a file the way the game plays it - chords and stacked duplicates on monophonic performers, notes outside C3-C6, track names no FFXIV instrument matches, voice peak, channel spread, empty tracks. Click a finding to select its notes, double-click to focus the track; delete exactly the marked notes, or hand the report to MidiPilot for a prioritised assessment |
 | ⏱️ **Convert Tempo (Preserve Duration)** | Time-preserving tempo conversion - rescales every event tick by `target/source` and rewrites the tempo meta in one undoable step. Whole-file / events-only / per-channel / selected-events scopes |
 | 📈 **Tempo Transition Curves** | Edit Tempo's Smooth Transition with Linear / Ease-in / Ease-out / S-curve - one tempo event per BPM step, exact endpoint, single undo step |
 | 📥 **Paste Special** | Cross-instance Ctrl+V opens a dialog: *Create new tracks per source* (default), *Preserve source mapping (1:1)*, or *Paste to current edit track* (legacy). Track creation + paste in one undo step |
@@ -111,7 +112,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 15 MIDI manipulation tools (12 base + 3 FFXIV)
+│   ├── ToolDefinitions   → 27 MIDI manipulation tools (22 core + 5 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Collaboration        → Live multi-peer co-editing + async PR workflow
 │   ├── LanLiveSession    → LAN host/joiner state machine + heartbeat + ghost-peer dedup
@@ -141,9 +142,11 @@ MidiEditor AI
 2. Extract the zip file
 3. Run **MidiEditorAI.exe**
 
+> **Portable Mode:** create an empty `portable.txt` next to `MidiEditorAI.exe` (or start with `--portable`) and all settings live in a `config/` folder beside the exe instead of the registry - existing settings are copied over on first portable start. The whole folder then travels on a USB stick with everything included.
+
 ### 2. Configure AI
 
-1. Open **Settings** (gear icon) and go to the **AI** tab
+1. Open **Settings** (gear icon) and go to the **MidiPilot AI** page
 2. Select your provider (OpenAI, OpenRouter, Google Gemini, Ollama for local/free, or Custom)
 3. Enter your API key (not needed for Ollama - install it from [ollama.com](https://ollama.com) and `ollama pull` a model instead)
 4. Choose a model
@@ -168,6 +171,7 @@ When the **FFXIV** checkbox is enabled, MidiPilot enforces Final Fantasy XIV con
 | 🎸 **Guitars** | 5 electric guitar variants via channel-based switching |
 | ⚡ **Auto-Setup** | Channel pattern tool configures MidiBard2 mapping automatically |
 | 🎸 **Fix X\|V Channels** | One-click toolbar button - deterministic channel fixer with Rebuild/Preserve modes and rich result summary (no AI needed) |
+| 🔎 **Check FFXIV Playability** | Tools menu / toolbar - lists what would go wrong in game (chords, stacked notes, range, track names, voice peak) and offers the matching repair next to each finding; the AI's `validate_ffxiv` runs the same engine |
 
 ## 🎮 Fix X|V Channels - FFXIV Channel Fixer
 
@@ -204,6 +208,29 @@ The **FFXIV Drum Split** tool converts the GM drum kit (channel 10) into the sep
 Find it in the toolbar or via **Tools → FFXIV drum split**.
 
 📖 **[FFXIV Drum Split Documentation →](https://happytunesai.github.io/MidiEditor_AI/ffxiv-drum-split.html)**
+
+---
+
+## 🔎 Check FFXIV Playability
+
+The **Check FFXIV Playability** workbench examines a file the way the game will play it and lists what would go wrong - with the matching repair offered right next to each finding. It is deterministic and works offline; the AI is optional.
+
+<p align="center">
+  <img src="manual/screenshots/ffxiv-playability_workbench.png" alt="Check FFXIV Playability workbench with the checks row, summary line and findings tree" width="700"/>
+  <br/>
+  <i>The workbench - checks across the top, findings grouped by type, repairs underneath</i>
+</p>
+
+**Checks** (each individually selectable):
+- **Chords** - several pitches starting on the same tick on one performer (the game rolls them as a fast arpeggio) and **Stacked notes** - the same pitch twice on one tick (played once, the duplicate wasted); separate checks because a chord is often intentional and a stacked note almost always a defect
+- **Range** - notes outside C3-C6; **Track names** - names matching no FFXIV instrument (in game, the track name selects the instrument)
+- **Voice limit** - the raw voice peak against the 16-voice ceiling with notes/sec hotspots; **Channel spread** (editor playback only) and **Empty tracks**
+
+**Working with the findings:** click a finding to select its notes and jump there, double-click to show only that track; select single findings, a range or a whole group such as "Stacked duplicates" and delete exactly those notes in one undo step; the window stays open and re-checks after every change. **Analyze with MidiPilot** shows the AI's prioritised assessment right in the window, and the AI's `validate_ffxiv` tool runs the same engine.
+
+Find it in the toolbar or via **Tools → Check FFXIV Playability...**.
+
+📖 **[Check FFXIV Playability Documentation →](https://happytunesai.github.io/MidiEditor_AI/ffxiv-playability.html)**
 
 ---
 
@@ -439,7 +466,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **15 core tools**, plus **5 more when FFXIV mode is on** (20 total), for inspecting and modifying MIDI files:
+The AI has access to **22 core tools**, plus **5 more when FFXIV mode is on** (27 total), for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
@@ -451,7 +478,13 @@ The AI has access to **15 core tools**, plus **5 more when FFXIV mode is on** (2
 | `insert_events` / `replace_events` / `delete_events` | Add, modify, remove MIDI events |
 | `delete_events_by_index` | Delete selected events by index (e.g. every second note) |
 | `move_events_to_track` | Move events between tracks |
+| `transpose_events` | Transpose notes by semitones (track/range/file), optionally folded into the bard range C3-C6 |
+| `split_chords_to_tracks` | Split a chordal track voice-wise onto new tracks (voice 1 = highest) - chords become monophonic performers |
+| `copy_events_to_track` | Copy notes to another track (e.g. double a melody, then transpose the copy) |
+| `search_help` / `get_help_section` | Ask about the editor itself - the AI searches the built-in manual and answers from it, citing the page |
 | `set_tempo` / `set_time_signature` | Change tempo and meter |
+| `convert_tempo_preserve_duration` | Re-tempo material while keeping its real-time duration (e.g. fit a 90 BPM vocal into a 180 BPM project) - dry run first, your confirmation required |
+| `set_ffxiv_mode` | Turn FFXIV mode on/off - the FFXIV tool bundle appears/disappears with it (MCP clients are notified) |
 | `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
 | `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
@@ -468,9 +501,9 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 ### How It Works
 
-1. Enable the MCP server in **Settings → AI → MCP Server**
+1. Enable the MCP server in **Settings → MidiPilot AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 17 by default (the 15 core tools plus `list_documents` / `switch_document` for driving the open tabs), 22 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 24 by default (the 22 core tools plus `list_documents` / `switch_document` for driving the open tabs), 29 with FFXIV mode on
 
 ### Quick Setup
 

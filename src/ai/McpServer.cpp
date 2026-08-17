@@ -1,4 +1,5 @@
 #include "McpServer.h"
+#include "../AppPaths.h"
 #include "ToolDefinitions.h"
 #include "EditorContext.h"
 
@@ -820,6 +821,24 @@ QJsonObject McpServer::handleResourcesList(const QJsonObject &params) {
         resources.append(res);
     }
 
+    // midi://ffxiv-guide - the FFXIV arrangement guide (Phase 46). External
+    // clients never see MidiPilot's system prompt, so without this resource
+    // they arrange blind: the octet experiment produced single-variant
+    // guitars and upward folds because nothing told it otherwise. Same text
+    // the built-in agent gets.
+    {
+        QJsonObject res;
+        res["uri"] = QString("midi://ffxiv-guide");
+        res["name"] = QString("FFXIV Arrangement Guide");
+        res["description"] = QString(
+            "Rules AND craft for FFXIV bard arrangements: hard constraints "
+            "(8 tracks, monophonic, C3-C6, exact instrument names), drums, "
+            "guitar variant switches, register/density guidance, tool order. "
+            "READ THIS before arranging for FFXIV.");
+        res["mimeType"] = QString("text/markdown");
+        resources.append(res);
+    }
+
     QJsonObject result;
     result["resources"] = resources;
     return result;
@@ -890,8 +909,7 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject &params, Session &s
         content["mimeType"] = QString("application/json");
 
         QJsonObject config;
-        QSettings settings("MidiEditor", "NONE");
-        config["ffxivMode"] = settings.value("AI/ffxiv_mode", false).toBool();
+        config["ffxivMode"] = AppPaths::settings()->value("AI/ffxiv_mode", false).toBool();
         config["filePath"] = target ? target->path() : QString();
         config["ticksPerBeat"] = target ? target->ticksPerQuarter() : 480;
         // Tempo is part of the state, but provide a quick reference
@@ -899,6 +917,15 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject &params, Session &s
             config["tempo"] = EditorContext::captureState(target)["tempo"];
         }
         content["text"] = QString::fromUtf8(QJsonDocument(config).toJson(QJsonDocument::Compact));
+        contents.append(content);
+
+    } else if (uri == "midi://ffxiv-guide") {
+        // Phase 46: the same rules-and-craft text the built-in agent gets in
+        // its system prompt - external clients otherwise arrange blind.
+        QJsonObject content;
+        content["uri"] = uri;
+        content["mimeType"] = QString("text/markdown");
+        content["text"] = EditorContext::ffxivContext();
         contents.append(content);
 
     } else {

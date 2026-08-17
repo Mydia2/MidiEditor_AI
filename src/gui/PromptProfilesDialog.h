@@ -29,7 +29,8 @@ class PromptProfileStore;
  * Layout mirrors \ref ModelFavoritesDialog:
  *   * Left list: one row per profile (checkbox = enabled, lock icon for
  *     built-ins, Add/Duplicate/Delete buttons below).
- *   * Right pane: name field, "append to default" checkbox, monospace
+ *   * Right pane: name field, "append to default" and "hide pitch-bend
+ *     events" checkboxes, monospace
  *     prompt editor, model picker tree (Provider → Model with checkbox
  *     per row + a "*" wildcard row per provider), and a token-count hint.
  *
@@ -52,6 +53,7 @@ private slots:
     void onProfileSelected();
     void onNameEdited();
     void onAppendToggled(bool checked);
+    void onPitchBendToggled(bool checked);
     void onSystemEdited();
     void onModelTreeChanged(QTreeWidgetItem *item, int column);
 
@@ -75,6 +77,7 @@ private:
 
     QLineEdit     *_nameEdit;
     QCheckBox     *_appendCheck;
+    QCheckBox     *_pitchBendCheck;
     QPlainTextEdit *_systemEdit;
     QLabel        *_tokenLabel;
     QTreeWidget   *_modelTree;

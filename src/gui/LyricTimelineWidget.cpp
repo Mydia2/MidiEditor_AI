@@ -88,6 +88,15 @@ void LyricTimelineWidget::setFile(MidiFile *file)
     update();
 }
 
+void LyricTimelineWidget::detachMatrixWidget()
+{
+    if (!_matrixWidget) {
+        return;
+    }
+    disconnect(_matrixWidget, nullptr, this, nullptr);
+    _matrixWidget = nullptr;
+}
+
 void LyricTimelineWidget::onPlaybackPositionChanged(int ms)
 {
     _currentPlaybackMs = ms;
@@ -96,13 +105,13 @@ void LyricTimelineWidget::onPlaybackPositionChanged(int ms)
 
 int LyricTimelineWidget::xPosOfTick(int tick)
 {
-    if (!_file) return 0;
+    if (!_file || !_matrixWidget) return 0;
     return _matrixWidget->xPosOfMs(_file->msOfTick(tick)) - LEFT_BORDER;
 }
 
 int LyricTimelineWidget::tickOfXPos(int x)
 {
-    if (!_file) return 0;
+    if (!_file || !_matrixWidget) return 0;
     return _file->tick(_matrixWidget->msOfXPos(x + LEFT_BORDER));
 }
 
@@ -150,7 +159,9 @@ QList<QPair<int, MidiEvent *>> LyricTimelineWidget::collectLyricEvents()
 
 void LyricTimelineWidget::paintEvent(QPaintEvent * /*event*/)
 {
-    if (!_matrixWidget->midiFile())
+    // _matrixWidget is null once the piano roll has been torn down (hardware
+    // acceleration destroys it with its OpenGL wrapper while this pane lives on).
+    if (!_matrixWidget || !_matrixWidget->midiFile())
         return;
 
     // Use local variable — don't overwrite _file, which bypasses setFile() connections (P3-004)

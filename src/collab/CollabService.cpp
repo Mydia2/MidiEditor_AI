@@ -4,6 +4,8 @@
 
 #include "CollabService.h"
 
+#include "../AppPaths.h"
+
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -32,7 +34,8 @@ CollabService *CollabService::instance() {
 
 CollabService::CollabService(QObject *parent)
     : QObject(parent), _enabled(false) {
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     _enabled = settings.value("Collab/enabled", false).toBool();
 }
 
@@ -43,7 +46,8 @@ bool CollabService::isEnabled() const {
 void CollabService::setEnabled(bool enabled) {
     if (_enabled == enabled) return;
     _enabled = enabled;
-    QSettings settings("MidiEditor", "NONE");
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     settings.setValue("Collab/enabled", enabled);
     emit enabledChanged(_enabled);
     // When the feature flips on, the current file might have a sidecar

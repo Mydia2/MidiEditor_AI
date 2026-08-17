@@ -301,6 +301,7 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-playability.html">Check FFXIV Playability</a>
                 <a href="ffxiv-drum-split.html">FFXIV Drum Split</a>
                 <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
                 <a href="supported-files.html">Supported Files</a>
@@ -330,7 +331,7 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-    <span class="version-badge" id="hero-badge" style="opacity:0">v2.1.2 &middot; Manual</span>
+    <span class="version-badge" id="hero-badge" style="opacity:0">v2.2.0 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
@@ -380,23 +381,60 @@
 
 <div class="section-card">
 <h3><span class="icon">&#x1F4AC;</span> MidiPilot - AI Copilot</h3>
-<p class="card-desc">The integrated AI brain with live Agent streaming, provider model refresh, favourites, and natural-language MIDI editing.</p>
+<p class="card-desc">The integrated AI brain with live Agent streaming, provider model refresh, favourites, and natural-language MIDI editing. Start here, then follow the four pages below.</p>
 <ul>
 <li><a href="midipilot.html#features">&#x2B50; Key Features</a></li>
-<li><a href="midipilot.html#chat-panel">&#x1F4AC; Chat Panel</a></li>
-<li><a href="midipilot.html#simple-mode">&#x1F4E8; Simple Mode (One-Shot)</a></li>
-<li><a href="midipilot.html#agent-mode">&#x1F3AF; Agent Mode (Multi-Step)</a></li>
-<li><a href="midipilot.html#ffxiv-mode">&#x1F3AE; FFXIV Bard Mode</a></li>
-<li><a href="midipilot.html#mode-comparison">&#x2696;&#xFE0F; Mode Comparison</a></li>
-<li><a href="midipilot.html#streaming">&#x26A1; Live Agent Streaming</a></li>
-<li><a href="midipilot.html#model-management">&#x1F504; Model Refresh &amp; Favourites</a></li>
-<li><a href="midipilot.html#conversation-history">&#x1F4DC; Conversation History</a></li>
-<li><a href="midipilot.html#token-tracking">&#x1F525; Token Tracking</a></li>
-<li><a href="midipilot.html#settings">&#x2699;&#xFE0F; AI Settings</a></li>
-<li><a href="midipilot.html#system-prompts">&#x270F;&#xFE0F; Custom System Prompts</a></li>
-<li><a href="midipilot.html#tools">&#x1F527; AI Tools Reference (15 tools)</a></li>
-<li><a href="midipilot.html#providers">&#x1F50C; Supported Providers</a></li>
 <li><a href="midipilot.html#getting-started">&#x1F680; Getting Started</a></li>
+<li><a href="midipilot.html#chat-panel">&#x1F4AC; Chat Panel</a></li>
+<li><a href="midipilot.html#mode-comparison">&#x2696;&#xFE0F; Mode Comparison</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F500;</span> MidiPilot Modes &amp; Conversations</h3>
+<p class="card-desc">The two answer modes in full, how responses stream in while they are written, the two ways to start a conversation from what is on screen, and where past chats are stored.</p>
+<ul>
+<li><a href="midipilot-modes.html#simple-mode">&#x1F4E8; Simple Mode (One-Shot)</a></li>
+<li><a href="midipilot-modes.html#agent-mode">&#x1F3AF; Agent Mode (Multi-Step)</a></li>
+<li><a href="midipilot-modes.html#streaming">&#x26A1; Live Agent Streaming</a></li>
+<li><a href="midipilot-modes.html#ask-selection">&#x1F5B1;&#xFE0F; Ask MidiPilot About a Selection</a></li>
+<li><a href="midipilot-modes.html#manual-answers">&#x1F4D6; Questions About the Editor Itself</a></li>
+<li><a href="midipilot-modes.html#conversation-history">&#x1F4DC; Conversation History</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F3AE;</span> MidiPilot in FFXIV Bard Mode</h3>
+<p class="card-desc">What the FFXIV checkbox enforces, the five FFXIV tools it adds, the arrangement guidance behind them, and the one-click channel fixer that needs no AI call.</p>
+<ul>
+<li><a href="midipilot-ffxiv.html#ffxiv-mode">&#x1F3AE; FFXIV Bard Mode</a></li>
+<li><a href="midipilot-ffxiv.html#ffxiv-craft">&#x1F3BC; Arrangement Guidance</a></li>
+<li><a href="midipilot-ffxiv.html#fix-xv-channels">&#x1F6E0;&#xFE0F; Fix X|V Channels</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x2699;&#xFE0F;</span> MidiPilot Settings &amp; Providers</h3>
+<p class="card-desc">Provider and model setup including local Ollama, the prompts MidiPilot sends, per-file presets, auto-save, and the counters and logs that show what a request cost.</p>
+<ul>
+<li><a href="midipilot-settings.html#settings">&#x2699;&#xFE0F; AI Settings</a></li>
+<li><a href="midipilot-settings.html#model-management">&#x1F504; Model Refresh &amp; Favourites</a></li>
+<li><a href="midipilot-settings.html#providers">&#x1F50C; Supported Providers</a></li>
+<li><a href="midipilot-settings.html#prompt-profiles">&#x1F4DD; Prompt Profiles</a></li>
+<li><a href="midipilot-settings.html#system-prompts">&#x270F;&#xFE0F; Custom System Prompts</a></li>
+<li><a href="midipilot-settings.html#presets">&#x1F4BE; Per-File AI Presets</a></li>
+<li><a href="midipilot-settings.html#auto-save">&#x23F1;&#xFE0F; Auto-Save</a></li>
+<li><a href="midipilot-settings.html#token-tracking">&#x1F525; Token Tracking</a></li>
+<li><a href="midipilot-settings.html#api-log">&#x1F4C4; API Log</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F527;</span> MidiPilot AI Tools Reference</h3>
+<p class="card-desc">Every tool the model can call in Agent mode, with what each one does - and the MCP server that offers the same set to external AI clients.</p>
+<ul>
+<li><a href="midipilot-tools.html#tools">&#x1F527; AI Tools Reference (22 core + 5 FFXIV)</a></li>
+<li><a href="midipilot-tools.html#mcp-server">&#x1F517; MCP Server - External AI Clients</a></li>
 </ul>
 </div>
 
@@ -546,7 +584,7 @@
 <li><a href="ffxiv-channel-fixer.html#before-after">&#x1F4F7; Before &amp; After</a></li>
 <li><a href="ffxiv-channel-fixer.html#instruments">&#x1F3B5; Supported Instruments</a></li>
 <li><a href="ffxiv-channel-fixer.html#guitar">&#x1F3B8; Guitar Variant Switching</a></li>
-<li><a href="ffxiv-channel-fixer.html#validation">&#x2705; Validation</a></li>
+<li><a href="ffxiv-playability.html">&#x2705; Check FFXIV Playability</a></li>
 <li><a href="ffxiv-channel-fixer.html#tips">&#x1F4A1; Tips</a></li>
 </ul>
 </div>
@@ -564,6 +602,20 @@
 <li><a href="ffxiv-drum-split.html#options">&#x1F527; Options</a></li>
 <li><a href="ffxiv-drum-split.html#undo">&#x21A9;&#xFE0F; Undo &amp; Re-running</a></li>
 <li><a href="ffxiv-drum-split.html#tips">&#x1F4A1; Tips</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon"><img src="tools/ffxiv_check.png" alt="Check FFXIV Playability" style="height:1.1em;vertical-align:middle;"></span> Check FFXIV Playability</h3>
+<p class="card-desc">Reads a file by the rules of a bard performance, lists what would go wrong, and offers the matching repair - clickable findings, selection-scoped delete, optional AI verdict.</p>
+<ul>
+<li><a href="ffxiv-playability.html#overview">&#x1F50E; What it is, and how to open it</a></li>
+<li><a href="ffxiv-playability.html#playability-rules">&#x1F3AE; The in-game rules the checks encode</a></li>
+<li><a href="ffxiv-playability.html#playability-checks">&#x2705; The checks</a></li>
+<li><a href="ffxiv-playability.html#playability-list">&#x1F4CB; Reading the list</a></li>
+<li><a href="ffxiv-playability.html#playability-repair">&#x1F527; Repairing from the window</a></li>
+<li><a href="ffxiv-playability.html#playability-ai">&#x1F916; Analyze with MidiPilot</a></li>
+<li><a href="ffxiv-playability.html#playability-ai-tool">&#x1F9E9; The same check as an AI tool</a></li>
 </ul>
 </div>
 
@@ -672,7 +724,7 @@
 <li><a href="mcp-server.html#what-is-mcp">&#x1F4A1; What is MCP?</a></li>
 <li><a href="mcp-server.html#quick-start">&#x1F680; Quick Start</a></li>
 <li><a href="mcp-server.html#client-setup">&#x1F50C; Client Setup (5 clients)</a></li>
-<li><a href="mcp-server.html#tools">&#x1F527; Available Tools (15)</a></li>
+<li><a href="mcp-server.html#tools">&#x1F527; Available Tools (22 core + 2 document tools, 5 more with FFXIV mode)</a></li>
 <li><a href="mcp-server.html#resources">&#x1F4C4; MCP Resources</a></li>
 <li><a href="mcp-server.html#protocol-panel">&#x1F4CB; Protocol Panel &amp; Client ID</a></li>
 <li><a href="mcp-server.html#security">&#x1F512; Security</a></li>
@@ -788,7 +840,10 @@
 <li><a href="setup.html#connect">&#x1F50A; Making Input Device Audible</a></li>
 <li><a href="setup.html#external">&#x1F3B9; Starting Synthesizers</a></li>
 <li><a href="setup.html#updates">&#x1F504; Auto-Updater (Update Now / After Exit)</a></li>
+<li><a href="setup.html#gpu">&#x1F5A5;&#xFE0F; GPU Acceleration</a></li>
 <li><a href="setup.html#old">&#x1F3B9; Older MIDI Devices</a></li>
+<li><a href="setup.html#portable">&#x1F4BE; Portable Mode</a></li>
+<li><a href="setup.html#files">&#x1F4C1; Where MidiEditor AI Keeps Its Files</a></li>
 </ul>
 </div>
 

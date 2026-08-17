@@ -61,14 +61,22 @@ void OpenGLMatrixWidget::paintContent(QPainter *painter) {
 }
 
 // === Event Forwarding ===
+//
+// Every forwarded event goes through OpenGLPaintWidget::forwardToHosted(), which
+// delivers it to the hidden MatrixWidget exactly once and then accepts it. Both
+// halves matter: accepting stops Qt from propagating an un-accepted event from
+// the hidden child back up into this wrapper, and the re-entry latch inside
+// forwardToHosted() refuses the second forward even if some future handler
+// starts ignoring events again. That combination is what GLCTX-001 (the
+// 1.8.1.1 right-click stack overflow) needed, and it was still missing for the
+// wheel.
 
 void OpenGLMatrixWidget::mousePressEvent(QMouseEvent *event) {
     // Call parent to handle OpenGL mouse state
     OpenGLPaintWidget::mousePressEvent(event);
 
     // Forward to internal MatrixWidget for business logic
-    if (_matrixWidget) {
-        QApplication::sendEvent(_matrixWidget, event);
+    if (forwardToHosted(event)) {
         // Use asynchronous update for consistent behavior with software rendering
         // This prevents GPU pipeline stalls during interactive operations
         update();
@@ -80,8 +88,7 @@ void OpenGLMatrixWidget::mouseReleaseEvent(QMouseEvent *event) {
     OpenGLPaintWidget::mouseReleaseEvent(event);
 
     // Forward to internal MatrixWidget for business logic
-    if (_matrixWidget) {
-        QApplication::sendEvent(_matrixWidget, event);
+    if (forwardToHosted(event)) {
         // Use asynchronous update for consistent behavior with software rendering
         // This prevents GPU pipeline stalls during interactive operations
         update();
@@ -93,8 +100,7 @@ void OpenGLMatrixWidget::mouseMoveEvent(QMouseEvent *event) {
     OpenGLPaintWidget::mouseMoveEvent(event);
 
     // Forward to internal MatrixWidget for business logic
-    if (_matrixWidget) {
-        QApplication::sendEvent(_matrixWidget, event);
+    if (forwardToHosted(event)) {
         // Use asynchronous update for smooth drag operations
         // This prevents GPU pipeline stalls and eliminates flickering during note selection/dragging
         update();
@@ -103,8 +109,7 @@ void OpenGLMatrixWidget::mouseMoveEvent(QMouseEvent *event) {
 
 void OpenGLMatrixWidget::mouseDoubleClickEvent(QMouseEvent *event) {
     // Forward to internal MatrixWidget for timeline cursor positioning
-    if (_matrixWidget) {
-        QApplication::sendEvent(_matrixWidget, event);
+    if (forwardToHosted(event)) {
         // Use asynchronous update for consistent behavior with software rendering
         update();
     }
@@ -122,8 +127,7 @@ void OpenGLMatrixWidget::resizeEvent(QResizeEvent *event) {
 
 void OpenGLMatrixWidget::enterEvent(QEnterEvent *event) {
     // Forward to internal MatrixWidget for piano key hover effects
-    if (_matrixWidget) {
-        QApplication::sendEvent(_matrixWidget, event);
+    if (forwardToHosted(event)) {
         // Hidden widget's update() doesn't trigger OpenGL repaint
         update();
     }
@@ -131,17 +135,21 @@ void OpenGLMatrixWidget::enterEvent(QEnterEvent *event) {
 
 void OpenGLMatrixWidget::leaveEvent(QEvent *event) {
     // Forward to internal MatrixWidget for piano key hover effects
-    if (_matrixWidget) {
-        QApplication::sendEvent(_matrixWidget, event);
+    if (forwardToHosted(event)) {
         // Hidden widget's update() doesn't trigger OpenGL repaint
         update();
     }
 }
 
 void OpenGLMatrixWidget::wheelEvent(QWheelEvent *event) {
-    // Forward wheel events to internal MatrixWidget for mouse scrolling
-    if (_matrixWidget) {
-        QApplication::sendEvent(_matrixWidget, event);
+    // Forward wheel events to internal MatrixWidget for mouse scrolling.
+    //
+    // The matrix used to survive this only by accident: MatrixWidget::wheelEvent
+    // never calls the QWidget base handler, so the event stayed accepted. One
+    // early-out that reached QWidget::wheelEvent (whose whole body is
+    // event->ignore()) would have turned piano-roll scrolling into the same
+    // unbounded parent/child ping-pong that killed the velocity lane.
+    if (forwardToHosted(event)) {
         // Hidden widget's zoom/scroll->update() doesn't trigger OpenGL repaint
         update();
     }
@@ -158,31 +166,39 @@ void OpenGLMatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     // ignored → propagate → ... an unbounded loop that blows the stack
     // (0xc00000fd EXCEPTION_STACK_OVERFLOW). Accepting the event here breaks
     // the cycle: we have handled it by delegating to the internal widget, so it
-    // must not bubble back up to us.
-    if (_matrixWidget) {
-        QApplication::sendEvent(_matrixWidget, event);
-    }
-    event->accept();
+    // must not bubble back up to us. forwardToHosted() does both, and its
+    // re-entry latch is a second line of defence if the child ever ignores it
+    // again.
+    forwardToHosted(event);
 }
 
 void OpenGLMatrixWidget::keyPressEvent(QKeyEvent *event) {
-    // Forward to internal MatrixWidget
+    // Forward to internal MatrixWidget. takeKeyPressEvent() is a direct call
+    // rather than a posted event, so there is no propagation to re-enter - but
+    // the event still has to be accepted: since G10 gave this wrapper
+    // Qt::ClickFocus it can hold keyboard focus, and an un-accepted key would
+    // travel on to MainWindow::keyPressEvent, whose fallback hands it to the
+    // very same takeKeyPressEvent() a second time (double piano notes). The
+    // software path behaves identically - MatrixWidget::keyPressEvent never
+    // ignores either.
     if (_matrixWidget) {
         _matrixWidget->takeKeyPressEvent(event);
         // Hidden widget's conditional update() doesn't trigger OpenGL repaint
         // Update unconditionally since we can't check the tool's return value
         update();
     }
+    event->accept();
 }
 
 void OpenGLMatrixWidget::keyReleaseEvent(QKeyEvent *event) {
-    // Forward to internal MatrixWidget
+    // Forward to internal MatrixWidget (see keyPressEvent for the accept()).
     if (_matrixWidget) {
         _matrixWidget->takeKeyReleaseEvent(event);
         // Hidden widget's conditional update() doesn't trigger OpenGL repaint
         // Update unconditionally since we can't check the tool's return value
         update();
     }
+    event->accept();
 }
 
 void OpenGLMatrixWidget::setFile(MidiFile *file) {

@@ -10,9 +10,14 @@
 
   <!-- Documentation -->
   <url><loc>https://midieditor-ai.de/midipilot.html</loc><priority>0.8</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midipilot-modes.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midipilot-ffxiv.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midipilot-settings.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midipilot-tools.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/prompt-examples.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/supported-files.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/ffxiv-channel-fixer.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/ffxiv-playability.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/ffxiv-voice-limiter.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/tempo-conversion.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/auto-fit-voice-load.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
@@ -26,6 +31,27 @@
   <url><loc>https://midieditor-ai.de/editing-midi-files.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/midi-overview.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://midieditor-ai.de/editor-and-components.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+
+  <!-- Feature & topic pages -->
+  <url><loc>https://midieditor-ai.de/collab-chat.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/collab-cloudflare.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/collab-discord.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/collab-lan.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/collab-pr.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/collab-settings.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/collab-show-mode.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/collab-wan.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/collaboration.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/commodore-64.html</loc><priority>0.6</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/cursor-time-display.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/editor-groups.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/ffxiv-drum-split.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/guitar-pro.html</loc><priority>0.6</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/introduction.html</loc><priority>0.6</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/logging.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/lyrics.html</loc><priority>0.6</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/mcp-server.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/shortcuts.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
 
   <!-- Menu Reference -->
   <url><loc>https://midieditor-ai.de/menu-file.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>

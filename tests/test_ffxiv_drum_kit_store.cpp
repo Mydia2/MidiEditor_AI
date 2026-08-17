@@ -49,6 +49,7 @@
 #include <QtTest/QtTest>
 
 #include "../src/gui/FfxivDrumKitStore.h"
+#include "../src/AppPaths.h"
 
 namespace {
 
@@ -86,7 +87,9 @@ private slots:
         // which QStandardPaths test mode does not cover - clearing it here
         // would wipe the developer's actual app configuration and their
         // hand-made drum kits (found by the round-2 pre-release review).
-        FfxivDrumKitStore::setSettingsScopeForTests(
+        // Phase 45: the seam is central now - one redirect covers every
+        // AppPaths::settings() user, not just this store.
+        AppPaths::setSettingsScopeForTests(
             QStringLiteral("MidiEditorTest"),
             QStringLiteral("DrumKitStoreTest"));
         QSettings(QStringLiteral("MidiEditorTest"),

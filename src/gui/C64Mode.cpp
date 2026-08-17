@@ -3,6 +3,8 @@
  */
 #include "C64Mode.h"
 
+#include "../AppPaths.h"
+
 #include "C64SoundFontHelper.h"
 #include "../midi/SidAudioPlayer.h"
 #ifdef FLUIDSYNTH_SUPPORT
@@ -52,8 +54,7 @@ Notifier *Notifier::instance() {
 }
 
 QString current() {
-    const QString m = QSettings("MidiEditor", "NONE")
-                          .value(kModeKey, "soundfont").toString();
+    const QString m = AppPaths::settings()->value(kModeKey, "soundfont").toString();
     return (m == QStringLiteral("emulation")) ? m : QStringLiteral("soundfont");
 }
 
@@ -62,13 +63,13 @@ bool emulationAvailable() {
 }
 
 bool isChosen() {
-    return QSettings("MidiEditor", "NONE").value(kChosenKey, false).toBool();
+    return AppPaths::settings()->value(kChosenKey, false).toBool();
 }
 
 void setMode(const QString &mode, QWidget *parent) {
     const QString m = (mode == QStringLiteral("emulation"))
                           ? QStringLiteral("emulation") : QStringLiteral("soundfont");
-    QSettings("MidiEditor", "NONE").setValue(kModeKey, m);
+    AppPaths::settings()->setValue(kModeKey, m);
 
     // Hand the active engine over to the newly chosen one (same logic the
     // Settings radios used; only acts when C64 was actually active).
@@ -130,7 +131,7 @@ QString ensureChosen(QWidget *parent) {
 
     const QString chosen = (box.clickedButton() == emuBtn)
                                ? QStringLiteral("emulation") : QStringLiteral("soundfont");
-    QSettings("MidiEditor", "NONE").setValue(kChosenKey, true);
+    AppPaths::settings()->setValue(kChosenKey, true);
     setMode(chosen, parent);   // persist + (no-op) handover + notify
     // Only prefetch for the Emulation choice: if they picked SoundFont, the
     // activation path (C64SoundFontHelper::requestEnable) downloads the font
@@ -152,10 +153,7 @@ void prefetchSoundFont() {
     if (!C64SoundFontHelper::findLocalC64SoundFont().isEmpty())
         return;
 
-    QDir dir(QCoreApplication::applicationDirPath());
-    if (!dir.exists("soundfonts"))
-        dir.mkpath("soundfonts");
-    dir.cd("soundfonts");
+    QDir dir(AppPaths::soundFontsDir());
     const QString dest = dir.absoluteFilePath("Commodore_64.sf2");
     if (QFileInfo::exists(dest))
         return;

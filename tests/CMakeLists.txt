@@ -75,13 +75,14 @@ add_test(NAME MidiHash COMMAND test_midi_hash)
 # test_collab_identity
 # -----------------------------------------------------------------------------
 # Validates CollabIdentity (display name + machine UUID) in
-# src/collab/CollabIdentity. Sandboxes QSettings via
-# QStandardPaths::setTestModeEnabled(true) so the developer's real
-# Collab/identity/* keys are never touched. Pure Qt - no MidiFile, no
-# network deps.
+# src/collab/CollabIdentity. Sandboxed via the AppPaths settings seam
+# (setSettingsScopeForTests) so the developer's real Collab/identity/*
+# keys are never touched - QStandardPaths test mode does NOT cover the
+# Windows registry. Pure Qt - no MidiFile, no network deps.
 add_executable(test_collab_identity
     test_collab_identity.cpp
     ../src/collab/CollabIdentity.cpp
+    ../src/AppPaths.cpp # v2.2 review: CollabIdentity routes through the seam
 )
 target_include_directories(test_collab_identity PRIVATE
     ../src/collab
@@ -120,12 +121,13 @@ add_test(NAME HistoryReconciliation COMMAND test_history_reconciliation)
 # Validates IceConfig (STUN/TURN URI list I/O via QSettings) in
 # src/collab/IceConfig. The IceConfig header gates its declarations on
 # MIDIEDITOR_WEBRTC_ENABLED, so the test target defines it. No
-# libdatachannel symbols are referenced from IceConfig.cpp, so the test
-# stays a single-cpp build with just Qt6::Core. Sandboxed via
-# QStandardPaths::setTestModeEnabled.
+# libdatachannel symbols are referenced from IceConfig.cpp. Sandboxed via
+# the AppPaths settings seam (QStandardPaths test mode does NOT cover the
+# Windows registry).
 add_executable(test_ice_config
     test_ice_config.cpp
     ../src/collab/IceConfig.cpp
+    ../src/AppPaths.cpp # v2.2 review: IceConfig routes through the seam
 )
 target_include_directories(test_ice_config PRIVATE
     ../src/collab
@@ -514,6 +516,7 @@ add_test(NAME FfxivVoiceAnalyzer COMMAND test_ffxiv_voice_analyzer)
 add_executable(test_ffxiv_equalizer_service
     test_ffxiv_equalizer_service.cpp
     ../src/midi/FfxivEqualizerService.cpp
+    ../src/AppPaths.cpp # Phase 45: central settings scope + test seam
 )
 target_include_directories(test_ffxiv_equalizer_service PRIVATE
     ../src/midi
@@ -534,6 +537,7 @@ add_executable(test_ffxiv_drum_kit_store
     test_ffxiv_drum_kit_store.cpp
     ../src/gui/FfxivDrumKitStore.cpp
     ../src/gui/DrumKitPreset.cpp
+    ../src/AppPaths.cpp # Phase 45: central settings scope + test seam
 )
 target_include_directories(test_ffxiv_drum_kit_store PRIVATE
     ../src/gui
@@ -683,6 +687,11 @@ add_test(NAME MidiTrack COMMAND test_midi_track)
 add_executable(test_tool_definitions
     test_tool_definitions.cpp
     ../src/ai/ToolDefinitions.cpp
+    # Phase 44: ToolDefinitions references HelpDatabase unconditionally
+    # (pure QtCore, no shims needed).
+    ../src/ai/HelpDatabase.cpp
+    # Phase 45: ... and AppPaths for the central settings scope.
+    ../src/AppPaths.cpp
 )
 target_include_directories(test_tool_definitions PRIVATE
     ../src/ai
@@ -725,6 +734,7 @@ add_test(NAME AgentToolPolicy COMMAND test_agent_tool_policy)
 add_executable(test_model_favorites
     test_model_favorites.cpp
     ../src/ai/ModelFavorites.cpp
+    ../src/AppPaths.cpp # v2.2 review: ModelFavorites routes through the seam
 )
 target_include_directories(test_model_favorites PRIVATE ../src/ai)
 target_link_libraries(test_model_favorites PRIVATE
@@ -811,10 +821,13 @@ endif()
 # -----------------------------------------------------------------------------
 # Pure unit test for PromptProfileStore: glob match, resolution layering,
 # QSettings round-trip, and the read-only "GPT-5.5 Decisive" built-in.
-# No GUI, no network. Sandboxes through QStandardPaths::setTestModeEnabled.
+# No GUI, no network. Sandboxed via the AppPaths settings seam - QStandardPaths
+# test mode does NOT cover the Windows registry (TESTWIPE #8: the old wipe helper
+# deleted the developer's real prompt profiles on every ctest run).
 add_executable(test_prompt_profiles
     test_prompt_profiles.cpp
     ../src/ai/PromptProfileStore.cpp
+    ../src/AppPaths.cpp # v2.2 review: PromptProfileStore routes through the seam
 )
 target_include_directories(test_prompt_profiles PRIVATE ../src/ai)
 target_link_libraries(test_prompt_profiles PRIVATE
@@ -845,6 +858,7 @@ add_executable(test_agent_runner_state
     ../src/ai/AiClient.h
     ../src/ai/AgentRunner.cpp
     ../src/ai/AgentToolPolicy.cpp
+    ../src/AppPaths.cpp # Phase 45: AgentRunner's API-log path
 )
 target_include_directories(test_agent_runner_state PRIVATE ../src/ai)
 target_link_libraries(test_agent_runner_state PRIVATE
@@ -872,6 +886,7 @@ add_executable(test_provider_matrix
     test_provider_matrix.cpp
     ../src/ai/AiClient.cpp
     ../src/ai/ModelListCache.cpp
+    ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
 )
 target_include_directories(test_provider_matrix PRIVATE ../src/ai)
 target_link_libraries(test_provider_matrix PRIVATE
@@ -900,6 +915,7 @@ add_executable(test_streaming_fallback
     test_streaming_fallback.cpp
     ../src/ai/AiClient.cpp
     ../src/ai/ModelListCache.cpp
+    ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
 )
 target_include_directories(test_streaming_fallback PRIVATE ../src/ai)
 target_link_libraries(test_streaming_fallback PRIVATE
@@ -1544,6 +1560,7 @@ add_test(NAME CollabHistoryFile COMMAND test_collab_history_file)
 add_executable(test_logging_config
     test_logging_config.cpp
     ../src/LoggingConfig.cpp
+    ../src/AppPaths.cpp # Phase 45: central settings scope
 )
 target_include_directories(test_logging_config PRIVATE
     ../src
@@ -1628,6 +1645,158 @@ target_link_libraries(test_ffxiv_fixer_resync PRIVATE
 )
 add_test(NAME FfxivFixerResync COMMAND test_ffxiv_fixer_resync)
 
+# -----------------------------------------------------------------------------
+# test_midi_measure
+# -----------------------------------------------------------------------------
+# Pins the 1-BASED bar-numbering contract of MidiFile::measure() and
+# startTickOfMeasure(). The header used to claim "0-based", so callers added 1
+# and reported bars one too high (the AI context shipped that way). Same
+# harness as test_ffxiv_fixer_resync, minus the fixer.
+add_executable(test_midi_measure
+    test_midi_measure.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_midi_measure PRIVATE
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_midi_measure PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME MidiMeasure COMMAND test_midi_measure)
+
+# -----------------------------------------------------------------------------
+# test_ffxiv_playability
+# -----------------------------------------------------------------------------
+# Phase 46: hard-gate tests for FfxivPlayabilityValidator - the headless
+# FFXIV playability check shared by the validate_ffxiv AI tool and the GUI
+# dialog. Same harness as test_ffxiv_fixer_resync (real midi core, GUI
+# periphery shimmed), plus the validator and the fixer it classifies with.
+add_executable(test_ffxiv_playability
+    test_ffxiv_playability.cpp
+    ../src/ai/FfxivPlayabilityValidator.cpp
+    ../src/ai/FFXIVChannelFixer.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_ffxiv_playability PRIVATE
+    ../src/ai
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_ffxiv_playability PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME FfxivPlayability COMMAND test_ffxiv_playability)
+
+# -----------------------------------------------------------------------------
+# test_help_database
+# -----------------------------------------------------------------------------
+# Phase 44 ("Manual Bot"): pins the generated help_db.json against manual/
+# (no drift) and the retrieval quality of HelpDatabase (known questions land
+# on the right page). Pure QtCore - no shims.
+add_executable(test_help_database
+    test_help_database.cpp
+    ../src/ai/HelpDatabase.cpp
+)
+target_include_directories(test_help_database PRIVATE
+    ../src/ai
+)
+target_compile_definitions(test_help_database PRIVATE
+    HELPDB_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(test_help_database PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME HelpDatabase COMMAND test_help_database)
+
+# -----------------------------------------------------------------------------
+# test_app_paths
+# -----------------------------------------------------------------------------
+# Phase 45 (issue #13): pins the Windows portable promise (dataDir == exe
+# dir, byte-identical to history) and the routing guard (no .cpp outside
+# the whitelist uses applicationDirPath - new data paths must go through
+# AppPaths or the macOS build regresses).
+add_executable(test_app_paths
+    test_app_paths.cpp
+    ../src/AppPaths.cpp
+)
+target_include_directories(test_app_paths PRIVATE
+    ../src
+)
+target_compile_definitions(test_app_paths PRIVATE
+    APPPATHS_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(test_app_paths PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME AppPaths COMMAND test_app_paths)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1667,6 +1836,10 @@ if(WIN32)
         ThreeMleParser
         DrumKitPreset
         FfxivFixerResync
+        MidiMeasure
+        FfxivPlayability
+        HelpDatabase
+        AppPaths
         GpToNative
         MidiDiff
         PrBundle

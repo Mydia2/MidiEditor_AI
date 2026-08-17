@@ -104,12 +104,35 @@ TrackListItem::TrackListItem(MidiTrack *track, TrackListWidget *parent)
 }
 
 void TrackListItem::toggleVisibility(bool visible) {
+    // FOCUS-DEADEYE-001: the eye mirrors the EFFECTIVE visibility, so it also
+    // reads "hidden" for a track that only the playability workbench's focus
+    // overlay dims. Showing such a track again is pure VIEW state - _hidden is
+    // already false - so no protocol action is opened: an action with nothing
+    // in it would still wipe the redo stack and mark the document modified,
+    // which is exactly what made this control feel dead. Every other case
+    // (hiding, or showing a track the user really hid) keeps the undoable path,
+    // where setHidden() ends the overlay for that track as well.
+    if (visible && !track->hiddenByUser()) {
+        track->setFocusHidden(false);
+        // Up the parent chain rather than window(): the panel is a tab page
+        // today, but a floating dock's window() would be the dock, not us.
+        MainWindow *mw = nullptr;
+        for (QObject *o = trackList->parent(); o && !mw; o = o->parent()) {
+            mw = qobject_cast<MainWindow *>(o);
+        }
+        if (mw) {
+            mw->updateAll(); // repaints piano roll + this panel, no undo step
+        } else {
+            trackList->update();
+        }
+        return;
+    }
     QString text = tr("Hide track");
     if (visible) {
         text = tr("Show track");
     }
     trackList->midiFile()->protocol()->startNewAction(text);
-    track->setHidden(!visible);
+    track->setHidden(!visible); // also ends the focus overlay for this track
     trackList->midiFile()->protocol()->endAction();
 }
 
@@ -134,6 +157,11 @@ void TrackListItem::removeTrack() {
 void TrackListItem::onBeforeUpdate() {
     trackNameLabel->setText(track->name());
 
+    // FOCUS-DEADEYE-001: the eye shows what the user SEES - hidden(), the
+    // workbench's focus overlay included - so a dimmed track reads as hidden
+    // and ONE click brings it back. The click itself is what must be smart, not
+    // the display: see toggleVisibility(), which skips the protocol action when
+    // there is no document state to change.
     if (visibleAction->isChecked() == track->hidden()) {
         disconnect(visibleAction, SIGNAL(toggled(bool)), this, SLOT(toggleVisibility(bool)));
         visibleAction->setChecked(!track->hidden());

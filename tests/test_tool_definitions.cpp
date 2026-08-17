@@ -123,9 +123,11 @@ class MidiPilotWidget {
 public:
     QJsonObject executeAction(QJsonObject const &);
     void setApplyTarget(MidiFile *);  // Phase 28: executeTool's apply-target guard
+    void setFfxivMode(bool);          // Phase 46: set_ffxiv_mode tool
 };
 QJsonObject MidiPilotWidget::executeAction(QJsonObject const &) { return QJsonObject(); }
 void MidiPilotWidget::setApplyTarget(MidiFile *) {}
+void MidiPilotWidget::setFfxivMode(bool) {}
 
 class EditorContext {
 public:
@@ -153,6 +155,7 @@ Selection *Selection::forFile(MidiFile *) { return nullptr; }
 QList<MidiEvent *> Selection::selectedEvents() { return QList<MidiEvent *>(); }
 
 #include "../src/ai/ToolDefinitions.h"
+#include "../src/AppPaths.h"
 
 namespace {
 
@@ -173,6 +176,13 @@ const QStringList kCoreToolNames = {
     QStringLiteral("set_tempo"),
     QStringLiteral("set_time_signature"),
     QStringLiteral("move_events_to_track"),
+    QStringLiteral("convert_tempo_preserve_duration"), // v2.2 #2: CORE, not FFXIV
+    QStringLiteral("set_ffxiv_mode"), // Phase 46: CORE - reaches the gated bundle
+    QStringLiteral("transpose_events"),        // Phase 46 pt 3 (octet #2)
+    QStringLiteral("split_chords_to_tracks"),  // Phase 46 pt 3 (octet #2)
+    QStringLiteral("copy_events_to_track"),    // Phase 46 pt 3 (octet #2)
+    QStringLiteral("search_help"),             // Phase 44 manual bot
+    QStringLiteral("get_help_section"),        // Phase 44 manual bot
 };
 
 // Extra tools added when FFXIV mode is ON.
@@ -218,46 +228,22 @@ bool hasOnlyValidTypes(const QJsonValue &v) {
     return true;
 }
 
-// TESTWIPE-007: these helpers write the REAL "MidiEditor"/"NONE" scope.
-// QStandardPaths::setTestModeEnabled does NOT redirect NativeFormat QSettings
-// on Windows (no sandbox key is ever created), so the old clearFfxivMode()
-// DELETED the developer's own FFXIV setting on every ctest run - measured, not
-// theorised. FFXIV mode is a daily-driver setting here, so the suite must put
-// back exactly what it found instead of removing the key.
-QVariant g_savedFfxivMode;
-bool g_ffxivModeSaved = false;
-
-void saveFfxivModeOnce() {
-    if (g_ffxivModeSaved)
-        return;
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    g_savedFfxivMode = s.value(QStringLiteral("AI/ffxiv_mode"));
-    g_ffxivModeSaved = true;
-}
-
+// Phase 45: through AppPaths::settings(), which initTestCase redirects to a
+// throwaway scope. The previous code wrote QSettings("MidiEditor","NONE")
+// DIRECTLY - on Windows that is the user's real registry key (test mode
+// does not cover the registry), so every run toggled and finally REMOVED
+// the developer's actual FFXIV-mode setting. Same defect class the v2.1.0
+// round-2 review found in the service tests.
 void setFfxivMode(bool on) {
-    saveFfxivModeOnce();
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    s.setValue(QStringLiteral("AI/ffxiv_mode"), on);
-    s.sync();
+    auto s = AppPaths::settings();
+    s->setValue(QStringLiteral("AI/ffxiv_mode"), on);
+    s->sync();
 }
 
-// Per-test reset. Writes an explicit false rather than removing the key, so a
-// test never depends on what the developer happens to have configured.
 void clearFfxivMode() {
-    setFfxivMode(false);
-}
-
-// End-of-run cleanup: puts back exactly what was there before, including the
-// case "the key did not exist at all". Only cleanupTestCase() may call this.
-void restoreFfxivMode() {
-    saveFfxivModeOnce();
-    QSettings s(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-    if (g_savedFfxivMode.isValid())
-        s.setValue(QStringLiteral("AI/ffxiv_mode"), g_savedFfxivMode);
-    else
-        s.remove(QStringLiteral("AI/ffxiv_mode"));
-    s.sync();
+    auto s = AppPaths::settings();
+    s->remove(QStringLiteral("AI/ffxiv_mode"));
+    s->sync();
 }
 
 } // namespace
@@ -268,14 +254,18 @@ class TestToolDefinitions : public QObject {
 private slots:
 
     void initTestCase() {
-        // Redirect QSettings to a private path so we never modify the
-        // developer's real MidiEditor settings on this machine.
+        // Redirect BOTH mechanisms away from the developer's real config:
+        // QStandardPaths test mode for file-based scopes, and the central
+        // AppPaths seam for the explicit scope (= the Windows registry,
+        // which test mode does NOT cover).
         QStandardPaths::setTestModeEnabled(true);
+        AppPaths::setSettingsScopeForTests(QStringLiteral("MidiEditorTest"),
+                                           QStringLiteral("ToolDefinitionsTest"));
         clearFfxivMode();
     }
 
     void cleanupTestCase() {
-        restoreFfxivMode();
+        clearFfxivMode();
     }
 
     void init() {
@@ -554,6 +544,63 @@ private slots:
     }
 
     // -----------------------------------------------------------------
+    // Phase 46 follow-up: the FFXIV gate is read on EVERY toolSchemas() call,
+    // in both directions. AgentRunner relies on exactly this to re-derive its
+    // tool list mid-run after a set_ffxiv_mode call (the panel checkbox and the
+    // MCP tools/list_changed broadcast already followed along); if the gate
+    // were ever cached, the run that switched the mode would keep the old list
+    // to its last step.
+    void toolSchemas_ffxivGate_isReReadOnEveryCall() {
+        const auto coreCount = ToolDefinitions::toolSchemas().size();
+        QCOMPARE(coreCount, kCoreToolNames.size());
+
+        setFfxivMode(true);
+        QJsonArray on = ToolDefinitions::toolSchemas();
+        QCOMPARE(on.size(), coreCount + kFfxivToolNames.size());
+
+        // ... and back off again, same process, no re-init.
+        setFfxivMode(false);
+        QJsonArray off = ToolDefinitions::toolSchemas();
+        QCOMPARE(off.size(), coreCount);
+        QSet<QString> namesSeen;
+        for (const QJsonValue &v : off) {
+            namesSeen.insert(v.toObject().value(QStringLiteral("function"))
+                                          .toObject().value(QStringLiteral("name")).toString());
+        }
+        for (const QString &name : kFfxivToolNames) {
+            QVERIFY2(!namesSeen.contains(name),
+                     qPrintable(QStringLiteral("FFXIV tool still listed after "
+                                               "disabling the mode: %1").arg(name)));
+        }
+        // set_ffxiv_mode itself must survive both states — it is the only way
+        // back in once the bundle is gone.
+        QVERIFY(namesSeen.contains(QStringLiteral("set_ffxiv_mode")));
+    }
+
+    // -----------------------------------------------------------------
+    // Protocol-panel attribution. These three strings are documented in
+    // manual/mcp-server.html and must stay identical to the static
+    // protoPrefix() in MidiPilotWidget.cpp — the tools that open their own
+    // Protocol action (transpose_events, split_chords_to_tracks,
+    // copy_events_to_track, convert_tempo_preserve_duration) build their
+    // label from this helper instead of a second, drifting format.
+    void protocolActorPrefix_matchesTheDocumentedFormat() {
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(QString()),
+                 QStringLiteral("MidiPilot"));
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(QStringLiteral("mcp")),
+                 QStringLiteral("MidiPilotMCP"));
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(
+                     QStringLiteral("mcp:VS Code Copilot")),
+                 QStringLiteral("MidiPilotMCP (VS Code Copilot)"));
+        // A trailing colon with no client name degrades to the plain MCP form.
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(QStringLiteral("mcp:")),
+                 QStringLiteral("MidiPilotMCP"));
+        // Anything that is not an MCP source is the built-in panel.
+        QCOMPARE(ToolDefinitions::protocolActorPrefix(QStringLiteral("agent")),
+                 QStringLiteral("MidiPilot"));
+    }
+
+    // -----------------------------------------------------------------
     // Phase 31 — public isPitchBendOnlyPayload helper used by AgentRunner.
     void isPitchBendOnlyPayload_detectsAllPitchBend() {
         QJsonArray evs;
@@ -646,6 +693,72 @@ private slots:
                  qPrintable(QStringLiteral(
                      "strict-mode schema violations - the Responses API rejects the "
                      "entire request over any one of these:\n  %1")
+                                .arg(problems.join(QStringLiteral("\n  ")))));
+    }
+
+    // Phase 47 — the no-pitch_bend schema is no longer a gpt-5.5-only code
+    // path: any prompt profile can switch it on for its models, so it now
+    // ships to arbitrary providers. Two invariants in one place: the
+    // pitch_bend branch really is gone from BOTH write tools, and dropping a
+    // branch does not break the strict-mode contract the Responses API
+    // enforces (a single violation rejects the whole request, so the reduced
+    // schema has to be as strict as the full one).
+    void toolSchemas_withoutPitchBend_hasNoPitchBendBranchAndStaysStrict() {
+        setFfxivMode(true); // widest tool set: core + FFXIV
+        ToolDefinitions::ToolSchemaOptions opts;
+        opts.includePitchBend = false;
+        const QJsonArray tools = ToolDefinitions::toolSchemas(opts);
+        QVERIFY(!tools.isEmpty());
+
+        // --- no pitch_bend branch in insert_events / replace_events -------
+        int writeToolsSeen = 0;
+        for (const QJsonValue &v : tools) {
+            const QJsonObject fn = v.toObject().value(QStringLiteral("function")).toObject();
+            const QString name = fn.value(QStringLiteral("name")).toString();
+            if (name != QStringLiteral("insert_events")
+                && name != QStringLiteral("replace_events"))
+                continue;
+            ++writeToolsSeen;
+
+            const QJsonArray anyOf = fn.value(QStringLiteral("parameters")).toObject()
+                                       .value(QStringLiteral("properties")).toObject()
+                                       .value(QStringLiteral("events")).toObject()
+                                       .value(QStringLiteral("items")).toObject()
+                                       .value(QStringLiteral("anyOf")).toArray();
+            QVERIFY2(!anyOf.isEmpty(),
+                     qPrintable(QStringLiteral("%1: events.items.anyOf missing").arg(name)));
+            bool sawNote = false;
+            for (const QJsonValue &branch : anyOf) {
+                const QJsonArray types = branch.toObject()
+                                             .value(QStringLiteral("properties")).toObject()
+                                             .value(QStringLiteral("type")).toObject()
+                                             .value(QStringLiteral("enum")).toArray();
+                for (const QJsonValue &t : types) {
+                    const QString type = t.toString();
+                    if (type == QStringLiteral("note"))
+                        sawNote = true;
+                    QVERIFY2(type != QStringLiteral("pitch_bend"),
+                             qPrintable(QStringLiteral("%1 still offers a pitch_bend branch")
+                                            .arg(name)));
+                }
+            }
+            QVERIFY2(sawNote, qPrintable(QStringLiteral("%1 lost its note branch").arg(name)));
+        }
+        QCOMPARE(writeToolsSeen, 2);
+
+        // --- and the reduced schema is still strict-mode clean -------------
+        QStringList problems;
+        for (const QJsonValue &v : tools) {
+            const QJsonObject fn = v.toObject().value(QStringLiteral("function")).toObject();
+            const QString name = fn.value(QStringLiteral("name")).toString();
+            checkStrictObject(fn.value(QStringLiteral("parameters")).toObject(),
+                              name, QStringLiteral("parameters"), problems);
+        }
+        clearFfxivMode();
+
+        QVERIFY2(problems.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "strict-mode schema violations in the no-pitch_bend variant:\n  %1")
                                 .arg(problems.join(QStringLiteral("\n  ")))));
     }
 

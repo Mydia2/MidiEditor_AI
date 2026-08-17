@@ -1,14 +1,20 @@
 // Unit tests for CollabIdentity — display name + machine UUID derivation
 // and persistence (Plan §6.4).
 //
-// Pure QSettings + QUuid — no MidiFile / network deps. Sandboxes its own
-// QSettings via QStandardPaths::setTestModeEnabled(true) so the developer's
-// real Collab/identity/* keys are never touched.
+// Pure QSettings + QUuid — no MidiFile / network deps. Sandboxed via the
+// AppPaths settings seam (TEST-WIPES-REAL-REGISTRY #6, v2.2 review): the
+// earlier QStandardPaths::setTestModeEnabled claim was FALSE on Windows -
+// registry-backed QSettings ignores it, so every run DELETED the
+// developer's real Collab/identity/* keys (display name + machine UUID).
+// CollabIdentity now routes through AppPaths::settings(), and so does
+// this test.
 //
 // Run from a build configured with -DBUILD_TESTING=ON:
 //     ctest --test-dir build -V -R CollabIdentity
 
 #include "CollabIdentity.h"
+
+#include "../src/AppPaths.h"
 
 #include <QSettings>
 #include <QStandardPaths>
@@ -41,18 +47,17 @@ private slots:
 
 private:
     static void wipeIdentityKeys() {
-        QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
-        settings.remove(QStringLiteral("Collab/identity/displayName"));
-        settings.remove(QStringLiteral("Collab/identity/machineId"));
-        settings.sync();
+        auto settings = AppPaths::settings();
+        settings->remove(QStringLiteral("Collab/identity/displayName"));
+        settings->remove(QStringLiteral("Collab/identity/machineId"));
+        settings->sync();
     }
 };
 
 void TestCollabIdentity::initTestCase() {
-    // Sandbox QSettings so the developer's real config isn't touched.
     QStandardPaths::setTestModeEnabled(true);
-    QCoreApplication::setOrganizationName(QStringLiteral("MidiEditor"));
-    QCoreApplication::setApplicationName(QStringLiteral("NONE"));
+    AppPaths::setSettingsScopeForTests(QStringLiteral("MidiEditorTest"),
+                                       QStringLiteral("CollabIdentityTest"));
 }
 
 void TestCollabIdentity::init() {
@@ -60,7 +65,9 @@ void TestCollabIdentity::init() {
 }
 
 void TestCollabIdentity::cleanupTestCase() {
-    wipeIdentityKeys();
+    QSettings(QStringLiteral("MidiEditorTest"),
+              QStringLiteral("CollabIdentityTest")).clear();
+    AppPaths::setSettingsScopeForTests(QString(), QString());
 }
 
 // ---------------------------------------------------------------------
@@ -113,7 +120,8 @@ void TestCollabIdentity::setDisplayName_emptyResetsToFallback() {
 // ---------------------------------------------------------------------
 
 void TestCollabIdentity::machineId_generatedLazilyOnFirstCall() {
-    QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     QVERIFY(settings.value(QStringLiteral("Collab/identity/machineId"))
                     .toString().isEmpty());
     QString id = CollabIdentity::machineId();
@@ -159,7 +167,8 @@ void TestCollabIdentity::regenerateMachineId_persistsNewValue() {
     QString first = CollabIdentity::machineId();
     QString second = CollabIdentity::machineId();
     QCOMPARE(first, second);
-    QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     QCOMPARE(settings.value(QStringLiteral("Collab/identity/machineId"))
                      .toString(), first);
 }

@@ -1,0 +1,427 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MidiPilot Modes &amp; Conversations | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0B1020">
+<meta name="description" content="The two MidiPilot modes side by side: Simple one-shot requests and the multi-step Agent loop, live response streaming, asking about a selection, manual-grounded answers, and conversation history.">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+<style>
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img,
+.screenshot-single video {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+}
+.screenshot-single video { height: auto; aspect-ratio: 2074 / 926; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="midipilot-modes.html">&nbsp;&nbsp;&middot; Modes &amp; Conversations</a>
+                <a href="midipilot-ffxiv.html">&nbsp;&nbsp;&middot; MidiPilot in FFXIV Bard Mode</a>
+                <a href="midipilot-settings.html">&nbsp;&nbsp;&middot; Settings &amp; Providers</a>
+                <a href="midipilot-tools.html">&nbsp;&nbsp;&middot; AI Tools Reference</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="midipilot.html">&larr; MidiPilot overview</a></p>
+<h1 id="midipilot-modes">MidiPilot Modes and Conversations</h1>
+
+<p>
+MidiPilot answers in one of two ways: Simple mode sends a single request, Agent mode works step by
+step and calls tools between the steps. This page covers both modes, how answers stream in while they
+are still being written, the two shortcuts that start a conversation from what is already on screen,
+and where finished conversations are kept.
+</p>
+
+<hr>
+
+<h2 id="simple-mode">Simple Mode (One-Shot)</h2>
+
+<p>
+Simple mode sends a <b>single API call</b> to the AI model containing your instruction, the current editor state, selected events, and surrounding musical context. The model responds with one complete answer - no follow-up calls, no iterative loop.
+</p>
+
+<h3>How It Works</h3>
+
+<ol>
+<li>Your prompt is bundled with a JSON snapshot of the editor (cursor position, active track, tempo, time signature, selection, and &#x00B1;5 measures of surrounding events)</li>
+<li>Everything is sent as one request to the model</li>
+<li>The model returns a single JSON response with one or more actions (<code>edit</code>, <code>delete</code>, <code>create_track</code>, <code>set_tempo</code>, etc.)</li>
+<li>MidiEditor executes all actions from that response at once</li>
+</ol>
+
+<h3>When to Use Simple Mode</h3>
+
+<ul>
+<li><b>Quick edits</b> - transpose a selection, quantize notes, change velocities</li>
+<li><b>Small segments</b> - work on a specific track or a few measures</li>
+<li><b>Focused tasks</b> - delete notes, change instruments, adjust tempo</li>
+<li><b>Fast turnaround</b> - one call means instant results with no waiting for multi-step loops</li>
+</ul>
+
+<h3>Limitations</h3>
+
+<ul>
+<li><b>Token limit risk</b> - Complex requests (many tracks, long passages) can exceed the model&rsquo;s output token limit. When this happens the response is <b>truncated</b>, which can result in incomplete or broken edits</li>
+<li><b>No tool access</b> - The model cannot call tools to inspect the file or request additional context. It works only with whatever was included in the initial snapshot</li>
+<li><b>No self-correction</b> - If something goes wrong, it cannot verify or retry. You have to undo and try again manually</li>
+</ul>
+
+<p>
+If MidiPilot detects a truncated response (<code>finish_reason: "length"</code>), it will display a warning suggesting you switch to Agent mode for the task.
+</p>
+
+<div class="screenshot-single">
+<video autoplay loop muted playsinline loading="lazy" width="900" aria-label="Simple Mode one-shot response from GPT-5.5">
+    <source src="screenshots/midieditor_ai_gpt_simple_gpt55.webm" type="video/webm">
+</video>
+<div class="caption">Simple Mode - one-shot response from GPT-5.5 streaming text and the resulting JSON action into the editor</div>
+</div>
+
+<hr>
+
+<h2 id="agent-mode">Agent Mode (Multi-Step)</h2>
+
+<p>
+Agent mode is the powerhouse for complex compositions and large-scale edits. Instead of squeezing everything into one response, the AI works <b>iteratively</b> - planning, executing, inspecting, and adjusting across multiple API calls until the task is complete.
+</p>
+
+<h3>How It Works</h3>
+
+<ol>
+<li>Your prompt is sent along with the system prompt and a set of <b><a href="midipilot-tools.html#tools">22 tools</a></b> (plus 5 FFXIV tools when FFXIV mode is on) the model can call</li>
+<li>The model responds with one or more <b>tool calls</b> (e.g., <code>create_track</code>, <code>insert_events</code>, <code>get_editor_state</code>)</li>
+<li>MidiEditor executes each tool call and sends the results back to the model</li>
+<li>The model reviews the results, decides the next step, and issues more tool calls</li>
+<li>This loop continues until the model decides the task is complete (or the <b>max steps</b> limit is reached)</li>
+</ol>
+
+<h3>Why This Matters</h3>
+
+<ul>
+<li><b>No token limit risk</b> - Work is split across many smaller API calls, so each individual response stays well within token limits. No truncation, no data loss</li>
+<li><b>Self-monitoring</b> - The model can call <code>get_editor_state</code> or <code>query_events</code> at any time to inspect what it has built so far, catch mistakes, and correct them</li>
+<li><b>Complex compositions</b> - Multi-track arrangements, genre conversions, full orchestrations - tasks that would overwhelm a single response are handled step by step</li>
+<li><b>Parallel tool calls</b> - The model can issue multiple tool calls in a single step (e.g., create three tracks at once), speeding up large jobs</li>
+<li><b>Granular undo</b> - Each tool call from an Agent run gets its own undo step. Press Ctrl+Z to revert one action at a time, keeping the rest intact</li>
+</ul>
+
+<h3>Agent Steps Panel</h3>
+
+<p>
+During an Agent run, a collapsible <b>Agent Steps</b> panel appears below the chat showing real-time progress: each tool call, its parameters, and results. The agent loop can also stream live reasoning summaries, assistant text, and tool-call argument progress while the step is still being generated. Step indicators use theme-aware colors that adapt to dark and light mode (&#x23F3; pending, &#x1F504; active, &#x2705; done, &#x26A0; retrying, &#x274C; failed).
+</p>
+
+<div class="screenshot-single">
+<video autoplay loop muted playsinline loading="lazy" width="900" poster="screenshots/midieditor_ai_gemini_streaming_poster.jpg" aria-label="Gemini 3.1 agent streaming with live thoughts">
+    <source src="screenshots/midieditor_ai_gemini_31_streaming.webm" type="video/webm">
+    <img src="screenshots/midieditor_ai_gemini_streaming_poster.jpg" alt="Gemini agent streaming with live thought summaries and tool progress" width="900" loading="lazy">
+</video>
+<div class="caption">Gemini 3.1 native streaming with live thought summaries and Agent tool progress</div>
+</div>
+
+<h3>When to Use Agent Mode</h3>
+
+<ul>
+<li><b>Composing from scratch</b> - &ldquo;Create a jazz waltz with piano, bass, and drums&rdquo;</li>
+<li><b>Multi-track work</b> - Adding harmonies, arranging for multiple instruments</li>
+<li><b>Genre conversion</b> - &ldquo;Make this classical piece into a metal version&rdquo;</li>
+<li><b>FFXIV setups</b> - Preparing an 8-track octet with channel mapping and drum conversion</li>
+<li><b>Analysis tasks</b> - &ldquo;Check all tracks for issues and fix them&rdquo;</li>
+</ul>
+
+<h3>Configuration</h3>
+
+<table>
+<tr><th>Setting</th><th>Description</th></tr>
+<tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per request (5-100, default 50). Increase for very large compositions.</td></tr>
+<tr><td><b>Token Limit</b></td><td>Optional output cap. Agent mode is less sensitive to this since each call is smaller, but very low limits can still truncate individual steps.</td></tr>
+</table>
+
+<h3>Agent Conductor &amp; Working State</h3>
+
+<p>
+The agent loop is wrapped by a lightweight <b>conductor</b> that owns a compact, program-managed <b>working state</b>: the user goal, the inferred task type, a list of <i>confirmed facts</i> (what the model has already accomplished), the last tool result, the active constraints (e.g. FFXIV rules), and a counter of consecutive failed write attempts.
+</p>
+
+<ul>
+<li>After every successful tool call, the conductor distils a one-line confirmation into the working state (e.g. <i>&ldquo;Tempo set to 82 BPM&rdquo;</i>, <i>&ldquo;8 tracks created&rdquo;</i>) so the model resumes from real progress instead of re-deriving it from raw tool output.</li>
+<li>After a rejected write (validation error, FFXIV violation, capability error&hellip;), the conductor injects a short, <b>positive</b> rejection guidance - describing what should be tried next instead of restating what failed.</li>
+<li>If two consecutive write attempts fail without making progress, the conductor performs a <b>bounded-failure stop</b> and reports the remaining problem in plain language instead of looping forever.</li>
+<li>The run remembers the document it was started on. If you switch to another <a href="editor-groups.html">tab</a> while MidiPilot is working, its edits still land on the original document and its selection.</li>
+</ul>
+
+<h3>GPT-5.5 model-isolation policy</h3>
+
+<p>
+For OpenAI <code>gpt-5.5*</code>, MidiPilot applies a small set of model-specific mitigations through a central policy table - <b>nothing else is touched</b>. Currently:
+</p>
+
+<ul>
+<li><b>Schema-light tools</b> - the <code>insert_events</code> / <code>replace_events</code> JSON schema drops the <code>pitch_bend</code> branch that this model frequently mis-emits.</li>
+<li><b>Sanitised, positive rejection guidance</b> - rejection messages avoid phrasing the model is known to over-react to.</li>
+<li><b>Serial tool calls + low reasoning effort</b> on the OpenAI Responses API (<code>parallel_tool_calls: false</code>, <code>reasoning.effort: "low"</code>).</li>
+</ul>
+
+<p>
+On OpenRouter, only the schema-light tools and prompt sanitisation apply (no Responses-API knobs). On every other model, including all current OpenAI <code>gpt-5*</code>/<code>gpt-4o</code>/<code>o-series</code>, Pitch Bend and parallel tool calls remain unchanged.
+</p>
+
+<hr>
+
+<h2 id="streaming">Response Streaming</h2>
+
+<p>
+MidiPilot uses <b>Server-Sent Events (SSE)</b> to stream responses in real time. Instead of waiting for the entire response to complete, Simple mode can show text or action composition immediately, and Agent mode can show live reasoning, assistant text, and tool-call progress while each step is still being generated.
+</p>
+
+<h3>How It Works</h3>
+
+<ul>
+<li><b>Simple text</b> - A chat bubble appears immediately and grows as text arrives</li>
+<li><b>Simple actions</b> - JSON action responses show a subdued composing indicator, then execute once the complete payload is available</li>
+<li><b>Agent thoughts</b> - Reasoning summaries stream into the grey italic thought block when the provider exposes them</li>
+<li><b>Agent tools</b> - Tool calls are reconstructed from streamed deltas, then dispatched through the same undo-safe tool path as non-streaming Agent mode</li>
+<li><b>Fallback</b> - Broken streams automatically retry without streaming and mark the model temporarily for the current app session</li>
+<li><b>Token capture</b> - Usage statistics are captured from the final SSE event when the provider reports them</li>
+</ul>
+
+<h3>When Streaming Is Used</h3>
+
+<table>
+<tr><th>Mode</th><th>Streaming</th><th>Reason</th></tr>
+<tr><td>Simple - text response</td><td>&#x2705; Yes</td><td>Reduces perceived latency</td></tr>
+<tr><td>Simple - JSON actions</td><td>&#x2705; Preview</td><td>Shows action composition, then executes after complete JSON arrives</td></tr>
+<tr><td>Agent - Chat Completions</td><td>&#x2705; Yes</td><td>Streams assistant text and tool-call argument deltas when the provider supports them</td></tr>
+<tr><td>Agent - OpenAI Responses API</td><td>&#x2705; Yes</td><td>Streams text, reasoning summaries, and function-call arguments for GPT-5-family tool use</td></tr>
+<tr><td>Agent - Gemini native</td><td>&#x2705; Yes</td><td>Streams thought summaries and whole function calls via <code>:streamGenerateContent</code></td></tr>
+<tr><td>Broken provider/model stream</td><td>&#x26A0; Fallback</td><td>Retries non-streaming and marks the model for the current app session</td></tr>
+</table>
+
+<div class="screenshot-row">
+<video autoplay loop muted playsinline loading="lazy" width="440" style="width:440px; max-width:48%; height:auto; border:1px solid var(--border); border-radius:8px;" aria-label="OpenAI GPT-5.4 streaming in Material Dark theme">
+    <source src="screenshots/midieditor_ai_gpt54_streaming_material_dark.webm" type="video/webm">
+</video>
+<video autoplay loop muted playsinline loading="lazy" width="440" style="width:440px; max-width:48%; height:auto; border:1px solid var(--border); border-radius:8px;" poster="screenshots/midieditor_ai_gemini_streaming_poster.jpg" aria-label="Gemini 3.1 streaming with thought summaries">
+    <source src="screenshots/midieditor_ai_gemini_31_streaming.webm" type="video/webm">
+    <img src="screenshots/midieditor_ai_gemini_streaming_poster.jpg" alt="Gemini streaming with thought summaries and Agent steps" width="440" loading="lazy">
+</video>
+</div>
+<div class="caption">OpenAI GPT-5.4 (Chat Completions, Material Dark) and Gemini 3.1 native streaming side by side - see the <a href="midipilot.html">MidiPilot overview</a> for the GPT-5.5 Responses-API run</div>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot_model_no_streaming.png" alt="Model dropdown showing a model marked with the warning icon and a (Simple) suffix after a streaming failure" width="520">
+<div class="caption">Mode-scoped streaming fallback - failed paths are marked <code>(Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code> in the model dropdown until you re-enable streaming for that model</div>
+</div>
+
+<h3>Non-Streaming Reference Run</h3>
+
+<p>
+For comparison, here is the same Agent loop running <b>without</b> live streaming - either because the provider does not support it, the user disabled <a href="midipilot-settings.html#settings"><i>Live Streaming</i> in settings</a>, or a previous request hit the per-session streaming-fallback marker. Tool calls and assistant text still arrive correctly, just in one chunk per round-trip instead of progressively.
+</p>
+
+<div class="screenshot-single">
+<video autoplay loop muted playsinline loading="lazy" width="900" aria-label="MidiPilot Agent mode without streaming">
+    <source src="screenshots/MidiPilot_Agent_run.webm" type="video/webm">
+    <img src="screenshots/MidiPilot_Agent_run.gif" alt="MidiPilot Agent mode without streaming" width="900" loading="lazy">
+</video>
+<div class="caption">Non-streaming Agent run - same multi-step composition flow, batched tool results per round-trip</div>
+</div>
+
+<hr>
+
+<h2 id="ask-selection">Ask MidiPilot About a Selection</h2>
+
+<p>
+The quickest way to start a conversation about the music in front of you: select notes in the
+editor, right-click them and choose <b>Ask MidiPilot about the selection</b>. There is no dialog
+and nothing to fill in - the question goes out immediately.
+</p>
+
+<p>
+MidiPilot writes that question for you, and it describes what you pointed at: how many notes are
+selected, the bar or bar range they sit in, the track they belong to (by name, or &ldquo;across N
+tracks&rdquo; when the selection spans several), and the pitch range from the lowest to the
+highest note. The selected notes themselves travel along with the question as data, so the answer
+is about your actual material rather than about a description of it.
+</p>
+
+<ul>
+<li><b>The panel comes to you</b> - if the MidiPilot panel is hidden, it is shown and raised, and
+    the answer lands there like any other reply.</li>
+<li><b>Your draft survives</b> - a half-written prompt in the input box is put back once the
+    question has been sent, with the cursor at its end. The entry never eats what you were
+    typing.</li>
+<li><b>It asks, it does not edit</b> - the question is deliberately an analysis request: what
+    stands out, and is there anything worth improving. Once the selection is in the conversation,
+    follow up with the change you actually want (&ldquo;make the second half quieter&rdquo;,
+    &ldquo;double this on a harp&rdquo;) and MidiPilot already has the context.</li>
+<li><b>It appears only when it can work</b> - the entry is in the menu while an AI provider is
+    configured. Without one the chat input is disabled, so the entry would promise an answer it
+    cannot deliver.</li>
+<li><b>Notes only</b> - the summary is built from selected notes. If the selection holds no notes,
+    the panel simply opens with the cursor in the input so you can ask in your own words.</li>
+</ul>
+
+<div class="screenshot-single">
+<a href="screenshots/midipilot_ask-about-selection.png" class="lightbox-link"><img src="screenshots/midipilot_ask-about-selection.png" class="lightbox-thumb" style="max-width:300px; width:auto;" alt="The note context menu with the entry Ask MidiPilot about the selection" loading="lazy"></a>
+<p class="caption">Right-click a selection - the entry sends the question straight to MidiPilot with the notes attached.</p>
+</div>
+
+<p>
+<b>Edit &rarr; Ask MidiPilot&hellip;</b> is the smaller version of the same idea: it opens the panel
+and puts the cursor in the input without sending anything.
+</p>
+
+<hr>
+
+<h2 id="manual-answers">Questions About the Editor Itself</h2>
+
+<p>
+MidiPilot does not only work on your music - it also answers questions about MidiEditor AI. Ask
+<i>&ldquo;How do I split drums?&rdquo;</i> or <i>&ldquo;What does the voice-load lane show?&rdquo;</i>
+and it looks the answer up in the built-in manual instead of guessing: <code>search_help</code>
+finds the matching sections, <code>get_help_section</code> reads the best one in full, and the
+reply is written from that text with the manual page named, so you can open the page and read the
+rest.
+</p>
+
+<ul>
+<li><b>Grounded in the manual</b> - the answer comes from the same pages you are reading here, and
+    the reply cites the page and section it used.</li>
+<li><b>Offline</b> - the manual is stored inside the application and searched locally. Only the
+    conversation with your AI provider needs the network; looking things up does not.</li>
+<li><b>In step with the manual</b> - the searchable copy is generated from the manual pages, so it
+    says what the manual says.</li>
+<li><b>Agent mode</b> - looking something up is a tool call, so this happens in Agent mode. Simple
+    mode sends a single request without tools and answers from the model&rsquo;s own knowledge.</li>
+</ul>
+
+<p>
+Both halves live in the same conversation: ask how a feature works, get the answer with its page
+reference, then ask MidiPilot to use that feature on the open file. External clients connected to
+the <a href="mcp-server.html">MCP server</a> get the same two tools.
+</p>
+
+<div class="screenshot-single">
+<a href="screenshots/midipilot_manual-answer.png" class="lightbox-link"><img src="screenshots/midipilot_manual-answer.png" class="lightbox-thumb" alt="MidiPilot answering a how-do-I question: the search_help and get_help_section steps above an answer that names the manual page" loading="lazy"></a>
+<p class="caption">A question about the editor itself - MidiPilot looks the answer up in the manual and says which page it comes from.</p>
+</div>
+
+<hr>
+
+<h2 id="conversation-history">Conversation History</h2>
+
+<p>
+MidiPilot automatically saves every conversation as a JSON file. You can browse, search, and resume past sessions at any time.
+</p>
+
+<h3>How It Works</h3>
+
+<ul>
+<li><b>Auto-save</b> - After every assistant response, the conversation is saved (debounced 2 seconds) to <code>AppData/MidiPilotHistory/</code></li>
+<li><b>Associated with MIDI file</b> - Each conversation records which MIDI file it was working on</li>
+<li><b>History button</b> - Click the &#x1F4DC; history icon in the toolbar (next to New Chat) to browse past conversations</li>
+<li><b>Turn metadata</b> - Agent reasoning, executed steps, latency, provider, model, and token counts are stored with each assistant turn</li>
+<li><b>Resume</b> - Click any past conversation to load it back into the chat and continue where you left off</li>
+<li><b>Persistent across sessions</b> - Conversations survive app restarts</li>
+</ul>
+
+<h3>Conversation File Format</h3>
+
+<p>
+Each conversation is stored as a single JSON file containing the full message history, model/provider info, token usage, per-turn metadata, and the associated MIDI file path. Files are human-readable and can be exported or shared.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/history_menu_dropdown.png" alt="Conversation history dropdown menu" width="380">
+</div>
+
+<hr>
+
+<h2 id="see-also">See also</h2>
+
+<ul>
+<li><a href="midipilot.html">MidiPilot - Your AI Copilot</a> - the overview: key features, getting started, the chat panel, and the mode comparison table.</li>
+<li><a href="midipilot-ffxiv.html">MidiPilot in FFXIV Bard Mode</a> - what the FFXIV checkbox adds on top of both modes described here.</li>
+<li><a href="midipilot-settings.html">MidiPilot Settings and Providers</a> - the provider, model, streaming, and reasoning settings these modes run on.</li>
+<li><a href="midipilot-tools.html">MidiPilot AI Tools Reference</a> - every tool Agent mode can call, and the MCP server that exposes the same set.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

@@ -58,7 +58,11 @@ public:
                                    ProgressCallback progress = nullptr,
                                    bool resyncNonGuitar = false);
 
-private:
+    // Phase 46: the four classifiers below are the CANONICAL FFXIV instrument
+    // knowledge of the app (names, programs, guitar/percussion routing) and
+    // are needed beyond the fixer - FfxivPlayabilityValidator and the AI
+    // tool surface reuse them instead of keeping duplicate tables.
+
     // Percussion instrument base names that go to CH9
     static bool isPercussion(const QString &baseName);
 
@@ -70,6 +74,13 @@ private:
 
     // Map instrument base name → GM program number (-1 if unknown)
     static int programNumber(const QString &baseName);
+
+    // All legal FFXIV instrument base names, sorted - the exact spellings
+    // programNumber() accepts ("Double Bass" with a space,
+    // "ElectricGuitarOverdriven" without). For error messages and the AI.
+    static QStringList instrumentNames();
+
+private:
 
     // 1.6.1 (upstream a35f1ee): for an unmatched track, return the MIDI
     // channel that carries the majority of its NoteOn events, or -1 if

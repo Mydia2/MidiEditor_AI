@@ -38,8 +38,10 @@ bool channelInScope(int channelIndex,
         if (channelIndex >= 0 && channelIndex < 16) {
             return opts.channelIds.contains(channelIndex);
         }
-        // Meta/tempo/timesig channels follow the include* flags directly.
-        return true;
+        // Channels 16-18 (meta / tempo / time signature) are file-GLOBAL, and
+        // channelIds can only name 0..15 - a channel scope can never ask for
+        // them. See eventInScope() for the full reasoning.
+        return false;
     case TempoConversionScope::SelectedEvents:
         return true;
     }
@@ -66,8 +68,19 @@ bool eventInScope(MidiEvent *ev,
         if (channelIndex >= 0 && channelIndex < 16) {
             return opts.channelIds.contains(channelIndex);
         }
-        // Meta/tempo/timesig: allow if their include* flag is set.
-        return true;
+        // Channels 16 (meta: lyrics, text, key signature), 17 (tempo) and
+        // 18 (time signature) are file-GLOBAL: every track and channel is
+        // played back through them. `channelIds` only holds MIDI channels
+        // 0..15, so a channel scope never names them - and re-ticking a shared
+        // time signature or meta event would move the bar grid (and the marker
+        // texts) for the material OUTSIDE the scope, which is exactly what the
+        // partial-scope contract promises not to do. Same reasoning that makes
+        // scopeModeConflict() refuse a shared tempo-map rewrite from a partial
+        // scope; the include* flags stay honoured for scope == WholeProject.
+        // SelectedTracks / SelectedEvents need no equivalent: their track
+        // filter / pointer set applies to channels 16-18 as well, so those
+        // scopes only ever touch what the caller actually named.
+        return false;
     case TempoConversionScope::SelectedEvents:
         return opts.selectedEventPtrs.contains(reinterpret_cast<quintptr>(ev));
     }
@@ -113,6 +126,23 @@ QList<MidiEvent *> snapshotChannel(MidiChannel *channel) {
 
 } // namespace
 
+QString TempoConversionService::scopeModeConflict(
+    const TempoConversionOptions &options) {
+    if (options.scope == TempoConversionScope::WholeProject) {
+        return QString();
+    }
+    if (options.tempoMode == TempoConversionTempoMode::EventsOnly) {
+        return QString();
+    }
+    // ReplaceFixed inserts a fixed tempo at tick 0 (and drops the old map);
+    // ScaleTempoMap rewrites the stored BPMs and moves the tempo events. Both
+    // touch the ONE map that every channel and track is played back through,
+    // so doing it from a partial scope silently retimes the rest of the file.
+    return QStringLiteral(
+        "The tempo map is shared, so changing it from a partial scope would retime "
+        "everything outside the scope. Use \"Scale events only\" for partial scopes.");
+}
+
 TempoConversionResult TempoConversionService::preview(
     MidiFile *file, const TempoConversionOptions &options) {
     TempoConversionResult result;
@@ -122,6 +152,11 @@ TempoConversionResult TempoConversionService::preview(
     }
     if (options.sourceBpm <= kBpmEpsilon || options.targetBpm <= kBpmEpsilon) {
         result.error = QStringLiteral("Source and target BPM must be > 0.");
+        return result;
+    }
+    const QString conflict = scopeModeConflict(options);
+    if (!conflict.isEmpty()) {
+        result.error = conflict;
         return result;
     }
 
@@ -212,10 +247,14 @@ TempoConversionResult TempoConversionService::convert(
     const qint64 oldDurationMs = result.oldDurationMs;
 
     Protocol *protocol = file->protocol();
-    const QString actionLabel = QStringLiteral(
-        "Convert tempo (preserve duration): %1 \xE2\x86\x92 %2 BPM")
-                                    .arg(options.sourceBpm, 0, 'f', 2)
-                                    .arg(options.targetBpm, 0, 'f', 2);
+    // The caller may own the label (the AI/MCP tool does, so the action names
+    // the actor); otherwise the service names itself.
+    const QString actionLabel =
+        options.actionLabel.isEmpty()
+            ? QStringLiteral("Convert tempo (preserve duration): %1 \xE2\x86\x92 %2 BPM")
+                  .arg(options.sourceBpm, 0, 'f', 2)
+                  .arg(options.targetBpm, 0, 'f', 2)
+            : options.actionLabel;
     protocol->startNewAction(actionLabel);
 
     int affected = 0;

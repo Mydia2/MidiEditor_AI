@@ -203,6 +203,29 @@ public:
         return !alreadyPainting && widgetVisible;
     }
 
+    /**
+     * \brief The QOpenGLPaintDevice size, in DEVICE pixels, for a widget of
+     *  \a logicalSize on a screen whose device pixel ratio is \a dpr.
+     *
+     * QOpenGLWidget hands us a framebuffer of size() * devicePixelRatio, so the
+     * paint device must be described in device pixels *plus* the real ratio.
+     * Pinning it to the logical size with a ratio of 1.0 (as this class used to
+     * do) confines the whole editor to a 1/dpr corner of the surface as soon as
+     * the window lands on a scaled monitor. Passing the ratio separately keeps
+     * QPainter's logical coordinate system unchanged, which is what the hosted
+     * MatrixWidget / MiscWidget draw in.
+     *
+     * Static and pure so it can be unit-tested without an OpenGL context
+     * (tests/test_opengl_paint_guard.cpp).
+     */
+    static QSize glPaintDeviceSize(const QSize &logicalSize, qreal dpr) {
+        if (dpr <= 0.0) {
+            return logicalSize;
+        }
+        return QSize(qRound(logicalSize.width() * dpr),
+                     qRound(logicalSize.height() * dpr));
+    }
+
 protected:
     // === OpenGL Methods ===
 
@@ -222,6 +245,58 @@ protected:
      * \param h New height
      */
     void resizeGL(int w, int h) override;
+
+    // === Event Forwarding Infrastructure ===
+
+    /**
+     * \brief The hidden widget this wrapper renders and forwards input to.
+     * \return The hosted widget, or nullptr for a wrapper that hosts nothing.
+     *
+     * Subclasses that composite a hidden child (OpenGLMatrixWidget,
+     * OpenGLMiscWidget) return it here so the base class can implement the
+     * forwarding rules once - see forwardToHosted() and event().
+     */
+    virtual QWidget *hostedWidget() const { return nullptr; }
+
+    /**
+     * \brief Sends \a event to hostedWidget() exactly once, without touching
+     *  its accepted state.
+     * \return True when the event was delivered.
+     *
+     * GLCTX-001 / G2: the hosted widget is a HIDDEN CHILD of this wrapper. When
+     * its handler leaves an event un-accepted - which every QWidget base
+     * handler does, because their whole body is event->ignore() - Qt propagates
+     * the event UP the parent chain, i.e. straight back into this wrapper,
+     * which forwards it to the child again: an unbounded loop that overflows the
+     * stack (0xc00000fd). It cost a hotfix once already (1.8.1.1, right-click)
+     * and it was still live for the mouse wheel over the velocity lane.
+     *
+     * The `_forwardingEvent` latch closes that class of bug structurally: a
+     * re-entered forward is refused instead of recursing, whatever event type
+     * Qt decides to propagate.
+     */
+    bool deliverToHosted(QEvent *event);
+
+    /**
+     * \brief deliverToHosted() plus accept(): the contract for every input
+     *  event this wrapper forwards.
+     * \return True when the event was delivered to the hosted widget.
+     *
+     * Accepting is the second half of the GLCTX-001 remedy and is required even
+     * where the hosted widget happens to accept the event today: we have handled
+     * the event by delegating it, so it must not bubble back to us (nor be
+     * handled a second time by MainWindow's key fallback).
+     */
+    bool forwardToHosted(QEvent *event);
+
+    /**
+     * \brief Routes QEvent::ToolTip into the hosted widget.
+     *
+     * Qt hit-tests only visible widgets, so a QHelpEvent for a hover over this
+     * wrapper never reaches the hidden widget whose content the user is looking
+     * at. Everything else is delegated to QOpenGLWidget.
+     */
+    bool event(QEvent *e) override;
 
     // === Mouse Event Handlers ===
 
@@ -282,8 +357,17 @@ protected:
     /** \brief Mouse position tracking */
     int mouseX, mouseY, mouseLastX, mouseLastY;
 
-    /** \brief Cached paint size to avoid unnecessary GPU reallocations */
+    /** \brief Cached LOGICAL paint size to avoid unnecessary GPU reallocations */
     QSize _lastPaintSize;
+
+    /** \brief Cached device pixel ratio the paint device was configured for.
+     *  A monitor / scaling change alters this without changing the logical
+     *  size, so it has to take part in the "needs re-sync" test. */
+    qreal _lastPaintDpr = 0.0;
+
+    /** \brief True while deliverToHosted() has an event in flight. Blocks the
+     *  parent-chain re-entry described in deliverToHosted(). */
+    bool _forwardingEvent = false;
 
     /** \brief GLBLANK-001: true while paintGL() holds a QPainter on
      *  _paintDevice. See canPaintNow(). */
@@ -298,6 +382,11 @@ protected:
      *  widget would keep its previous (usually empty) framebuffer forever.
      */
     void requestDeferredRepaint();
+
+    /**
+     * \brief Points the paint device at \a logicalSize / \a dpr and caches both.
+     */
+    void applyPaintDeviceGeometry(const QSize &logicalSize, qreal dpr);
 };
 
 #endif // OPENGLPAINTWIDGET_H_

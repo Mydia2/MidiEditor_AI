@@ -61,6 +61,7 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-playability.html">Check FFXIV Playability</a>
                 <a href="ffxiv-drum-split.html">FFXIV Drum Split</a>
                 <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
                 <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a>
@@ -325,16 +326,21 @@ FFXIV electric guitar supports 5 tonal variants that share channels via <code>pr
 
 <hr>
 
-<h2 id="validation">Validation</h2>
+<h2 id="validation">Validation - Check FFXIV Playability</h2>
 
 <p>
-After applying the fix, you can use MidiPilot's <b>validate_ffxiv</b> tool (via Agent mode with FFXIV enabled) to confirm all tracks pass FFXIV Bard Performance rules:
+Setting the channels up is one half of the job; the other is making sure the arrangement is
+something a performer can actually play. <b>Tools &rarr; Check FFXIV Playability&hellip;</b>
+examines the file the way the game will play it - notes colliding on the same tick, stacked
+duplicates, range, track names, channel spread and voice load - and offers the matching repair for
+each kind of finding, this fixer among them.
 </p>
 
-<div class="screenshot-single">
-<img src="screenshots/midipilot-ffxiv-validate.png" alt="FFXIV validation after channel fix" width="600">
-<div class="caption">AI validation confirms all tracks pass FFXIV Bard Performance rules</div>
-</div>
+<p>
+&#x1F449; <a href="ffxiv-playability.html"><b>Full documentation: Check FFXIV Playability</b></a> -
+the checks and the in-game rules behind them, reading the findings list, the selection-scoped
+repairs, the AI analysis, and the <code>validate_ffxiv</code> tool.
+</p>
 
 <hr>
 
@@ -354,7 +360,7 @@ The entire Fix X|V Channels operation is wrapped in a <b>single undo action</b>.
 <li><b>Use Preserve for touch-ups</b> - if you only need to fix guitar variants after manual editing, Preserve keeps everything else intact</li>
 <li><b>Split the drums first</b> - the <a href="ffxiv-drum-split.html">FFXIV Drum Split</a> turns a GM drum track into named percussion tracks the fixer routes automatically</li>
 <li><b>Combine with MidiPilot</b> - use "Convert this for FFXIV Bard performance" in Agent mode to compose, then Fix X|V to clean up channels</li>
-<li><b>Check with validate_ffxiv</b> - after fixing, ask MidiPilot to validate for complete FFXIV rule compliance</li>
+<li><b>Check afterwards</b> - run <a href="ffxiv-playability.html">Check FFXIV Playability</a> once the channels are set up; it needs no AI and its findings are clickable. Ask MidiPilot to run <code>validate_ffxiv</code> when you want the same verdict inside a conversation</li>
 </ul>
 
 </main>

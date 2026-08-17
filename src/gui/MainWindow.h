@@ -44,6 +44,7 @@ class QProgressDialog;
 class QTabBar;
 class QToolButton;
 class DocumentTabBar;
+class SettingsDialog;
 class MatrixWidget;
 class OpenGLMatrixWidget;
 class OpenGLMiscWidget;
@@ -646,6 +647,15 @@ public slots:
     void ffxivDrumSplit();
 
     /**
+     * \brief Phase 46: runs the FFXIV playability check (overlaps, stacked
+     *        duplicates, range, instrument names, program mismatches) and
+     *        shows the report dialog. The check itself is
+     *        FfxivPlayabilityValidator - the same code the AI's
+     *        validate_ffxiv tool runs; this is its first GUI surface.
+     */
+    void checkFfxivPlayability();
+
+    /**
      * \brief v2.1.0 #1: opens the Auto-Fit Voice Load confirmation dialog
      *        for the whole file (Tools menu entry).
      */
@@ -663,6 +673,24 @@ public slots:
      *        individual regions can be thinned without touching the rest.
      */
     void autoFitVoiceLoadSelection();
+
+    /**
+     * \brief v2.2: asks MidiPilot about the current note selection straight
+     *        from the context menu - sends a neutral analysis question
+     *        describing what is selected (bars, tracks, note count, pitch
+     *        range); the selected notes travel along as serialized events.
+     *        Without a selection it behaves like the Edit-menu entry and
+     *        just focuses the chat.
+     */
+    void askMidiPilotAboutSelection();
+
+    /**
+     * \brief v2.2: whether the MidiPilot panel exists AND has a configured
+     *        AI provider. Context menus gate their "Ask MidiPilot" entry on
+     *        this - without a provider the chat input is disabled, so the
+     *        entry would look available and then do nothing.
+     */
+    bool isMidiPilotUsable() const;
 
     // v2.0 #3: per-track context-menu operations, called directly from the
     // Tracks/Channels panel context menus (each captures the right-clicked
@@ -845,6 +873,13 @@ public slots:
      * \brief Opens the configuration/settings dialog.
      */
     void openConfig();
+
+    /**
+     * \brief Opens Settings directly on the MidiPilot page. Used by the
+     *  MidiPilot panel's "MidiPilot Settings..." gear entry - landing on the
+     *  first page (Midi I/O) made that menu item a lie.
+     */
+    void openConfigOnMidiPilotTab();
 
     /**
      * \brief Enables or disables the metronome.
@@ -1060,9 +1095,25 @@ public slots:
     void openConfigOnAppearanceTab();
 
     /**
+     * \brief Constructs and fully wires a SettingsDialog (signals, live
+     *  rendering-mode hook, MCP server for the AI page). The ONE construction
+     *  path behind every openConfig* entry point; callers only pick the page.
+     */
+    SettingsDialog *buildSettingsDialog();
+
+    /**
      * \\brief Updates the status bar with cursor position, selection, and chord info.
      */
     void updateStatusBar();
+
+    /**
+     * \brief v2.2 #3: 1 Hz undo-memory sample - refreshes _statusUndoLabel
+     *  (active doc's undo depth + session-wide structural snapshot bytes,
+     *  both editor groups, deduped by MidiFile*) and, when the
+     *  "midieditor.memory" logging category is enabled, writes one
+     *  fixed-field line for measurement sessions.
+     */
+    void sampleUndoMemory();
 
     /**
      * \brief Applies widget size constraints at startup based on settings.
@@ -1120,6 +1171,26 @@ private:
      *  paths; widgets still enabled are recreated immediately afterwards.
      */
     void nullOnDemandToolbarWidgets();
+
+    /**
+     * \brief Repaints the primary editor view (piano roll) in either rendering
+     *  mode, and never through a dangling pointer.
+     *
+     *  Under hardware acceleration mw_matrixWidget is the HIDDEN inner widget of
+     *  the OpenGL wrapper: Qt drops update() on a hidden widget, so no GL frame
+     *  is ever scheduled and the surface keeps showing the previous frame. Only
+     *  the visible container repaints. In software rendering the container IS
+     *  mw_matrixWidget, so one call covers both modes. Both pointers are
+     *  legitimately null after performEarlyCleanup(), hence the guards - use
+     *  this helper instead of touching the pointers directly.
+     */
+    void refreshMatrixView();
+
+    /**
+     * \brief Repaints the velocity/controller lane in either rendering mode.
+     *  Same hidden-inner-widget and shutdown rules as refreshMatrixView().
+     */
+    void refreshMiscView();
 
     // === Core Widgets ===
 
@@ -1615,6 +1686,10 @@ private:
     /// v2.1.0 #1: the modeless Auto-Fit dialog (single instance; closed on
     /// document switch because it is bound to one file).
     QPointer<QDialog> _autoFitDialog;
+
+    /** \brief Phase 46: single-instance modeless playability workbench,
+     *  same lifecycle as _autoFitDialog (closed on tab switch). */
+    QPointer<QDialog> _playabilityDialog;
     QWidget *_voiceLaneArea = nullptr;
     QAction *_toggleVoiceLaneAction = nullptr;
     /** \brief 1.6.1 (UX-VOICE-LANE-002): auto-show the voice lane while FFXIV
@@ -1791,6 +1866,14 @@ private:
     QLabel *_statusCursorLabel = nullptr;
     QLabel *_statusSelectionLabel = nullptr;
     QLabel *_statusChordLabel = nullptr;
+
+    /** \brief v2.2 #3: undo-memory readout (steps + structural snapshot MB),
+     *  refreshed by a 1 Hz sampler timer - deliberately NOT by actionFinished,
+     *  which fires per protocol item and would repaint hundreds of times
+     *  during one erase-drag. The same tick optionally logs a fixed-field
+     *  line under the "midieditor.memory" category for measurement sessions. */
+    QLabel *_statusUndoLabel = nullptr;
+    QTimer *_memorySampler = nullptr;
 
     /** \brief Status bar indicator for active LAN Live Session (hosting or
      *  joined). Hidden when role is Idle. Built-in even when collab is

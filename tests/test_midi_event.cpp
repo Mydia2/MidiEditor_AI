@@ -187,7 +187,7 @@ private slots:
     // -----------------------------------------------------------------
     void setTrack_withToProtocolFalse_thenAccessorUpdated() {
         MidiEvent ev(0, nullptr);
-        auto *sentinel = reinterpret_cast<MidiTrack *>(0xDEADBEEF);
+        auto *sentinel = reinterpret_cast<MidiTrack *>(static_cast<quintptr>(0xDEADBEEF));
 
         ev.setTrack(sentinel, /*toProtocol=*/false);
 
@@ -196,7 +196,7 @@ private slots:
 
     void setFile_thenAccessorReturnsSameFile() {
         MidiEvent ev(0, nullptr);
-        auto *sentinel = reinterpret_cast<MidiFile *>(0xFEEDFACE);
+        auto *sentinel = reinterpret_cast<MidiFile *>(static_cast<quintptr>(0xFEEDFACE));
 
         ev.setFile(sentinel);
 
@@ -281,7 +281,7 @@ private slots:
         MidiEvent::setEventWidget(nullptr);
         QCOMPARE(MidiEvent::eventWidget(), static_cast<EventWidget *>(nullptr));
 
-        auto *sentinel = reinterpret_cast<EventWidget *>(0xA1A1A1A1);
+        auto *sentinel = reinterpret_cast<EventWidget *>(static_cast<quintptr>(0xA1A1A1A1));
         MidiEvent::setEventWidget(sentinel);
         QCOMPARE(MidiEvent::eventWidget(), sentinel);
 

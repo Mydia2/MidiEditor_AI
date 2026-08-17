@@ -20,6 +20,8 @@
 
 #include "DownloadSoundFontDialog.h"
 
+#include "../AppPaths.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QTableWidget>
@@ -249,13 +251,7 @@ void DownloadSoundFontDialog::populateTable() {
 }
 
 QString DownloadSoundFontDialog::getSoundFontsDirectory() const {
-    QString appDir = QCoreApplication::applicationDirPath();
-    QDir dir(appDir);
-    if (!dir.exists("soundfonts")) {
-        dir.mkpath("soundfonts");
-    }
-    dir.cd("soundfonts");
-    return dir.absolutePath();
+    return AppPaths::soundFontsDir();
 }
 
 void DownloadSoundFontDialog::onDownloadButtonClicked() {

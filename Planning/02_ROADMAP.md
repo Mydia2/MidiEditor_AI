@@ -12006,7 +12006,9 @@ cost is GL views and the per-tab undo stack.**
   `GraphicObject` holds 4 ints + a bool ([GraphicObject.h:120](src/gui/GraphicObject.h#L120));
   `MidiEvent` adds 2 ints + 2 ptrs + 1 int. With two vptrs (multiple polymorphic
   bases) a base event is ~64-72 B; a NoteOn/Off pair ~160 B of object data. Events
-  live in per-channel `QMultiMap<int, MidiEvent*>` (red-black tree, ~40 B/node).
+  live in per-channel `QMultiMap<int, MidiEvent*>` (red-black tree; measured
+  2026-07-27: sizeof one MSVC x64 node = 48 B, ~64 B committed via the LFH
+  bucket - the "~40 B" first written here was an estimate).
   **All-in ~= 250-300 B per note.**
 * **Per-document MIDI data** therefore: 20k notes ~= 6 MB, 50k ~= 15 MB, 100k (a
   very dense file) ~= 30 MB. Even heavy files are tens of MB - **not** the binding
@@ -12016,9 +12018,16 @@ cost is GL views and the per-tab undo stack.**
      (each action stores `copy()`s of touched events). This is per-tab and the main
      RAM wildcard in long sessions. Consider a configurable undo-depth cap and/or a
      memory readout.
-  2. **GL contexts dominate** (tens of MB each, driver-dependent). Keep only the
-     active (+ a pinned compare) `OpenGLMatrixWidget` live; lazily build/destroy the
-     view for inactive tabs while keeping their `MidiFile` resident.
+  2. ~~**GL contexts dominate**~~ **DISPROVEN 2026-07-27 (v2.2 #3 deep-dive):
+     there is no per-tab view to make lazy.** One MatrixWidget per editor
+     group (max 2, group 1 explicitly software), rebound by setFile() on tab
+     switch; hardware_acceleration defaults to OFF and needs a restart. Max
+     one GL context process-wide, usually zero - and the lazy lifecycle this
+     bullet asked for is exactly what setFile() rebinding already is. The
+     real per-tab unbounded terms besides undo: `MidiFile::playerMap` (a
+     second full event index, built on first play, freed only in ~MidiFile)
+     and the per-file singleton caches (FfxivVoiceAnalyzer, Selection,
+     ChannelVisibilityManager).
 * **Tab limit?** No hard *data* limit is needed. Recommended guardrails: (a) lazy
   GL-view lifecycle (the single most important decision); (b) a generous,
   configurable **soft** cap on open tabs (~20-30) with a warning rather than a hard
@@ -12599,7 +12608,31 @@ Order: #3 -> #1 -> #2.
 
 ---
 
-## Phase 44: Integrated Help - "Manual Bot" via AI tools (IDEA, 2.2 candidate)
+## Phase 44: Integrated Help - "Manual Bot" via AI tools — ✅ SHIPPED 2026-07-27 (v2.2)
+
+**Built exactly as sketched below** (retrieval, not embeddings; the manual
+stays the only truth). As-built record:
+
+* `scripts/build_help_db.py` (stdlib only, sibling of build_changelog.py)
+  chunks manual/*.html by h1/h2 anchors -> `run_environment/help_db.json`,
+  223 sections from 35 pages, ~345 KB, embedded via resources.qrc.
+  Marketing/generated pages skipped (index, download, changelog, 404).
+* `src/ai/HelpDatabase.{h,cpp}` - QtCore-only loader + scorer (title x3,
+  keywords x2, body x1 capped per token). `loadFromFile()` as test seam.
+* Two CORE tools `search_help` / `get_help_section` (22 core now; MCP
+  24/29). get_help_section caps at 8k chars with a truncated flag - one
+  manual section reaches 17.6k.
+* Agent prompt: "for questions about the editor itself, search_help first,
+  answer from the manual, cite the page - do not guess". Simple mode has
+  no tools, so the hook lives only in the agent prompt.
+* New test target test_help_database (suite 63): DB size sanity, EVERY
+  page#anchor resolves against manual/ (drift guard), retrieval pins
+  (drums -> ffxiv-drum-split, thinning -> auto-fit, playability -> fixer
+  page), section() round-trip, junk queries.
+* Release checklist: regenerate help_db.json after manual edits (step
+  added next to build_changelog).
+
+Original sketch (implemented 1:1):
 
 **The gap (user idea, 2026-07-25):** MidiPilot can edit music but cannot explain
 the editor. "How do I split drums?" gets a guess, not the manual's answer. The
@@ -12639,7 +12672,40 @@ existing chat IS the UI.
 
 ---
 
-## Phase 45: AppPaths - one storage layer (issue #13 + Portable Mode) - 2.2 candidate
+## Phase 45: AppPaths - one storage layer (issue #13 + Portable Mode) — ✅ SHIPPED 2026-07-28 (v2.2)
+
+**As-built record (two commits, steps 1-3 then step 4):**
+
+* `src/AppPaths.{h,cpp}`: dataDir()/soundFontsDir()/dataFilePath() +
+  isPortable()/initSettings()/settings()/setSettingsScopeForTests().
+  Windows byte-identical (exe-relative, pinned by test); macOS/Linux
+  AppDataLocation. All 12 data sites routed; AutoUpdater exe paths and
+  MainWindow's restart working dir deliberately stay exe-relative.
+  AutoUpdater gated to Q_OS_WIN (elsewhere: releases page).
+* Portable Mode: portable.txt or --portable -> ALL settings under
+  <exe>/config/*.ini with one-time copy migration; registry left intact
+  so switching back works. initSettings() runs first thing in main().
+* DISCOVERY, deliberately not unified: the soundfont helpers'
+  default-constructed QSettings() are a SEPARATE pre-existing scope (no
+  organizationName is ever set - their keys like out_port live under an
+  app-name-derived scope). In portable mode both scopes land inside
+  config/, so portability holds; merging them is its own migration
+  project with its own risks. Documented here so the next reader does
+  not "fix" it casually.
+* The per-service test seams (FfxivEqualizerService, FfxivDrumKitStore)
+  are gone - AppPaths::setSettingsScopeForTests is the ONE seam, as this
+  phase's design promised. Bonus fix of the same class:
+  test_tool_definitions had toggled and finally REMOVED the developer's
+  REAL AI/ffxiv_mode registry key on every run; it now runs against the
+  test scope.
+* test_app_paths (suite 64): Windows portable promise, seam round-trip,
+  and a source-grep ROUTING GUARD - applicationDirPath() outside the
+  whitelist (AppPaths/AutoUpdater/MainWindow-restart) fails the build's
+  tests with the offending file named.
+* Still out of scope (unchanged from the design): signing, notarization,
+  macOS packaging - Tier-1 build-from-source policy stays.
+
+Original design (implemented as written):
 
 Two long-standing items are the SAME problem seen from two sides, so they get
 one design, one review, one phase:
@@ -12697,11 +12763,40 @@ Mac for testing.
 
 ---
 
-# v2.2 PLAN (scoped 2026-07-25, everything still open to change)
+# v2.2 PLAN (scoped 2026-07-25) — ✅ SHIPPED as v2.2.0 on 2026-08-17
+
+All four items plus Phases 44-47 landed; release day added two multi-agent review passes
+(general pre-release review + a dedicated OpenGL/GPU bug run) whose findings were all fixed the
+same day - the record is in 03_bugs.md (top two entries).
 
 Four items picked from the 2.2 candidates. Deliberately mixed: two small wins,
 one measurement task, one technical-debt block. Order is by risk, smallest
 first, so the release can be cut after ANY of them if the cycle gets short.
+
+## #0 Bar-numbering family (unplanned, ✅ DONE 2026-07-27)
+
+Came out of a crash in #1 that a user hit immediately: selecting notes and
+choosing "Ask MidiPilot about the selection..." killed the app. Suspected
+cause was a missing API key; the real one was `MidiFile::measure()`
+dereferencing both out-params unconditionally while the new code passed
+`nullptr` because it only wanted the bar number.
+
+Chasing that turned up a whole family with ONE origin - the declaration
+documented the return value as "0-based" when the implementation is 1-based:
+the AI was told the cursor bar and the total bar count one too high, and the
+toolbar's bar display showed "4/2" for a 4/4 song because
+`meterAt()`'s denominator is a power-of-two exponent that was equally
+undocumented. All fixed, with a new `test_midi_measure` target (8 cases)
+pinning both conventions - neither had any test, and neither is visible by
+reading the code. The Export dialog had the same off-by-one in its custom
+range - a "measures 5-8" audio export rendered bars 4-7 - fixed as
+EXPORT-MEASURE-001 in a follow-up commit after user go (their export tests
+could not hit it: GP export does not use this dialog, SID locks the custom
+range out, and Full Song / Selection were always correct).
+
+Lesson worth keeping: a wrong doc comment on a core primitive is not a
+cosmetic defect - every caller that trusted it inherited the bug, and the
+ones that got it right did so by reading the implementation instead.
 
 ## #1 "Ask MidiPilot..." in the note context menu (small)
 
@@ -12717,7 +12812,16 @@ CONTEXT (bar range, track, note count), not just open an empty chat - that is
 the difference between a menu item and a useful one. Effort: half a day incl.
 the manual line.
 
-## #2 `convert_tempo_preserve_duration` AI tool (small)
+**Design revised after first QA (2026-07-27):** the prefill-only version read
+as "nothing happened" - the expectation for a right-click action is that it
+ACTS. Now the entry sends a neutral analysis question immediately through the
+normal send path (MidiPilotWidget::submitPrompt), with the selected notes
+serialized along; specific requests work as follow-ups because the selection
+is then already in the conversation. A draft in the chat box survives the
+round trip, the ellipsis was dropped from the label (nothing to fill in any
+more), and Show-mode viewers are locked out the same way the send button is.
+
+## #2 `convert_tempo_preserve_duration` AI tool (small) — ✅ DONE 2026-07-27
 
 Phase 33.5, deferred since 1.6.0. The service (TempoConversionService) is
 headless and shipped, the tool schema is already written out at roadmap
@@ -12731,42 +12835,136 @@ also exposes it over MCP), and it must clear `Selection::forFile(file)` after
 a live run rather than the active document's selection. Update the tool-count
 contract in test_tool_definitions (15 core -> 16). Effort: half a day.
 
+**Implementation notes (as built):**
+* Param names follow the house camelCase convention (`sourceBpm`, `trackIds`),
+  not the snake_case of the original draft above; the tool NAME keeps snake.
+* `sourceBpm` is nullable and auto-detects from the file's first tempo event
+  (same detection as the Convert Tempo dialog), so "fit this into the project
+  tempo" works without the agent reading the map first. The detected value is
+  echoed back as `detectedSourceBpm`.
+* The dialog's planned-but-never-implemented edge-case rule (33.6: ReplaceFixed
+  refused for partial scopes) IS enforced in the tool: partial scopes require
+  `tempoMode=events_only` - which is also their default when the param is
+  omitted - because the shared tempo map would retime everything outside the
+  scope. The error message explains exactly that.
+* Selection cleared with `forFile` when the live run changed anything,
+  INCLUDING tempo-only changes: ReplaceFixed deletes tempo events, and a
+  selection holding one would keep a stale pointer.
+* Also wired: AgentRunner step-chip label ("Convert tempo - 90 -> 180 BPM
+  (dry run)") and a working-state fact carrying the dry-run summary into the
+  confirm turn. Counts updated: test contract 16 core, README 16/21 + MCP
+  18/23, both manual pages.
+
 ## #3 Undo memory: analyse first, then cap (measurement task)
 
-**Analysis done 2026-07-25, findings:**
+**(a) instrumentation ✅ SHIPPED 2026-07-27; analysis re-verified by an
+8-agent deep-dive the same week - three of the four 2026-07-25 findings
+below needed correcting, and one correction changes the item's shape.**
 
-* The undo stack is `QList<ProtocolStep *> *_undoSteps` (Protocol.h:159) with
-  NO cap anywhere in the class - it grows for the lifetime of the document.
-* Cost per step is NOT uniform, which is why a naive "cap at N steps" is a
-  guess. Two very different shapes:
-  - *Fine-grained edits* (move one note) store a handful of small
-    ProtocolItems.
-  - *Bulk ops* (Auto-Fit, Edit Tempo, drum split, channel fixer, paste) take
-    a per-channel snapshot: `MidiChannel::copy()` -> `new MidiChannel(*this)`
-    (MidiChannel.cpp:48-59), which allocates an INDEPENDENT
-    `QMultiMap<int, MidiEvent*>` holding one node per event. The MidiEvents
-    themselves are shared, so a snapshot costs map nodes (tens of bytes each),
-    not note data - a 20k-event channel is roughly a megabyte per snapshot,
-    and one bulk op can snapshot several channels.
-  - Additionally, events REMOVED by a bulk op must stay alive for undo, so
-    their ~336 B/note (test_event_perf) is held by the stack, not freed.
-* Multiplied by tabs: every MidiFile owns its own Protocol, so the total is
-  (history depth) x (documents open).
-* There is no memory readout anywhere in src/ (grepped) - so today neither the
-  user nor we can see the number.
+**Corrected analysis (measured, MSVC x64 /O2, Qt 6.5.3):**
 
-**Plan, in this order:** (a) instrument first - a debug/status readout of
-per-document undo depth and estimated bytes (sum of snapshot map sizes +
-retained removed events), reachable from the Protocol panel or a Help/About
-diagnostics line; (b) measure a real session (Dragonforce-sized file, an hour
-of editing, several tabs) to learn whether the practical ceiling is 50 MB or
-2 GB; (c) only THEN decide the cap policy - and prefer a byte budget over a
-step count, because of the shape difference above. Also on the list: the
-never-measured GL-context cost per tab (roadmap line 12036), which is the
-other unbounded term and the prerequisite for lazy view construction.
+* VERIFIED: the undo stack is `QList<ProtocolStep *> *_undoSteps`
+  (Protocol.h:159) with no cap, no trim, no clear-on-save; every MidiFile
+  owns its own Protocol. `MidiChannel::copy()` is the SINGLE heavy snapshot
+  factory; one map node measures 48 B structural (~64 B committed - LFH
+  bucket), so a 20k-event channel snapshot is ~0.92 MiB structural.
+* WRONG - "fine-grained edits are cheap": `insertNote` / `insertEvent` /
+  `removeEvent` / `deleteAllEvents` all default `toProtocol=true` and take a
+  FULL channel snapshot per call (MidiChannel.cpp:154-222). Drawing or
+  erasing ONE note on a 20k-event channel costs ~0.92 MiB; an erase-drag
+  over 200 notes is ~184 MB in ONE undo step. Only value edits
+  (setNote/setVelocity/setMidiTime via MidiEvent::copy(), 72-104 B) are
+  genuinely small. This 1:400 per-step spread is the case for a BYTE budget
+  over a step count.
+* WRONG - the ~336 B/note figure from test_event_perf already INCLUDES the
+  two map nodes; charging it on top of snapshot nodes double-counts.
+* WRONG - "GL-context cost per tab as the other unbounded term": there is no
+  per-tab view. ONE MatrixWidget per editor group (max 2 groups, group 1
+  explicitly software-rendered), rebound by setFile() on tab switch;
+  hardware_acceleration defaults to OFF. Max one GL context process-wide,
+  usually zero. Lazy view lifecycle already ships. The genuinely unbounded
+  per-tab terms the old text never named: MidiFile::playerMap (a second full
+  event index, built on first play, freed only in ~MidiFile) and the
+  per-file singleton caches (FfxivVoiceAnalyzer ~16 B/note, Selection,
+  ChannelVisibilityManager).
+* NEW and decisive: closing a tab frees NEITHER the protocol NOR the events
+  (~MidiFile keeps them deliberately, MidiFile.cpp:174-176; `delete prot`
+  appears nowhere in src/). Session memory scales with tabs EVER OPENED, so
+  a live-stack cap alone can never bound the process. Also, snapshots are
+  QMultiMap COW: copy() costs 8 B at call time and the tree is charged to
+  whoever detaches first - always within one repaint/save in practice.
 
-Effort: 1 day for (a)+(b); the cap itself is small once the numbers exist.
-Explicitly NOT doing: a cap based on a guessed number.
+**(a) as built (deliberately the minimum that measures - the reviewed
+full design with a virtual estimator on ProtocolEntry was rejected as
+3.5 days of scaffolding whose stack-walk could not see the leak classes):**
+
+* `MidiChannel::copy()` counts: per-live-channel `snapshotCount` +
+  `snapshotNodeSum` (charged at copy time, monotonic, not inherited by
+  snapshots, untouched by reloadState; pinned by a new test case in
+  test_event_perf).
+* 1 Hz sampler in MainWindow: status-bar label `Undo <depth> | ~<MB> MB`
+  (active doc's depth, SESSION-wide structural bytes = nodeSum x 48 across
+  both editor groups, deduped by MidiFile* like promptSaveAllDirtyTabs).
+  Plain text, no colour bands - thresholds come from (b), not a guess.
+* Same tick optionally logs one fixed-field line (priv/ws via PSAPI, per-doc
+  back/fwd/snaps/nodes) under the `midieditor.memory` category - SILENT at
+  the default log level; enable via Settings key `Logging/perCategory` =
+  `midieditor.memory=true` for a measurement session. ~150 B/s, well inside
+  the 10 MB log rotation.
+* Drive-by fix: updateStatusBar() was only ever signal-driven, so after a
+  tab switch the cursor/selection/chord labels showed the PREVIOUS
+  document's numbers until the next edit. setActiveDocument() now refreshes
+  explicitly.
+
+**(b) measurement session ✅ RUN 2026-07-28** - scripted over MCP against a
+live 18-track file (agent-driven, 8 phases, ~4400 note touches, 1 Hz
+sampler). MEASURED RESULTS:
+
+| op class | cost | undo-relevant behaviour |
+|---|---|---|
+| value edit (transpose) | ~44 B/note | flat - the cheap path, as modelled |
+| bulk copy (1 snapshot/channel) | ~0.13 KiB/note | flat - the bulk idiom works |
+| per-note insert | 45 KiB/note avg | **QUADRATIC**: 370 -> 1570 nodes/note across four 200-note batches (every note snapshots a GROWING channel) |
+| per-note delete | 83-166 KiB/note | most expensive class, same quadratic driver |
+| bounded churn (insert+delete rounds) | ~14 KiB/note | FLAT when the channel resets - growth, not repetition, is the cost |
+
+Headline numbers: 46 undo steps -> 185 MiB structural, 262 MiB
+PrivateUsage. **Divergence 77 MiB = 29.5% of committed memory is invisible
+to the stack-walk estimator** (worst in track removal at 51% explained and
+churn at 62%). Session-wide the estimator explains 70.5%.
+
+**Conclusions for (c), now data-backed:**
+1. Budget on priv-margined numbers: structural needs a ~40% uplift to
+   reflect committed reality.
+2. A flat per-event byte cap would badly underestimate bulk ops - the true
+   cost driver is CHANNEL SIZE AT SNAPSHOT TIME, not event count. The
+   highest-value fix remains converting the ~10 per-event snapshot loops to
+   the bulk idiom (copy proved it: 0.13 vs 45 KiB/note = ~350x) - bigger
+   win than any cap, exactly as the design review predicted.
+3. A live-stack cap alone cannot reach the ~30% invisible share (leaked
+   snapshots, orphaned events, allocator overhead).
+Not yet measured: GUI draw/erase (same code path as per-note insert, so
+expect the quadratic), undo/redo churn (no MCP tool), tab-close effects,
+denser channels (steeper quadratic expected).
+
+**(c) cap policy - now unblocked by (b), still gated on an ownership fix
+first:** ProtocolItem has no destructor, so dropping a step today would free
+~50-80 B of shells and leak the ~1 MB map - depth would drop, RAM would not.
+Shape when it comes: byte budget (not steps - autosave appends zero-byte
+steps), default OFF opt-in (AiClient max_tokens precedent; tests assert
+exact step counts), drop-oldest with a pinned head (the open-file sentinel
+step) and a synthetic marker step. Explicitly NOT doing: a cap based on a
+guessed number.
+
+Documented-not-fixed until (c) lands (v2.2 review COUNTER-UNDOCHURN-001 /
+TABCLOSE-COUNTER-001, decision 2026-07-28): the status-bar MB figure does
+not drop on Undo (undone steps stay retained for Redo), and a closed tab's
+history stays allocated (~MidiFile deliberately leaks the protocol) but
+LEAVES the figure - only open tabs are summed, so the label under-reports
+after closes. Both are consequences of "nothing is ever freed today"; the
+label tooltip states this openly. The cap work is the ONE place that gets
+to change reclaim semantics - no interim point-fixes to make the counter
+"look better", they would mask the numbers (b) was measured against.
 
 ## #4 Phase 45 AppPaths - issue #13 + portable INI (technical debt)
 
@@ -12835,7 +13033,77 @@ status hint.
 
 ---
 
-## Phase 46: AI arrangement capability - close the MCP gaps (2.2)
+## Phase 47: Prompt-profile "no pitch_bend" switch - schema-level, per model — ✅ SHIPPED 2026-08-17 (v2.2.0)
+
+**Origin - a user's local Qwen3-14B over Ollama, 2026-08-10.** The model reasoned
+14,000 characters of a perfectly correct plan (program_change at tick 0, notes at
+192 ticks, drums on channel 9) and then emitted, three times in a row,
+`insert_events` with a single `{"type":"pitch_bend","value":0}` event. Not from
+misunderstanding: `pitch_bend` is the CHEAPEST branch in the event schema (three
+required fields) where a `note` demands six. A weaker model under schema pressure
+takes the shortest valid path. The runtime guard rejects it, the system prompt
+forbids it, the retry hint says not to - and the schema keeps offering it as the
+easiest option. Prompt, guard and schema contradict each other.
+
+**The countermeasure already exists and is not reachable.**
+`makeEventSchema(includePitchBend=false)` removes the branch entirely; it is
+wired through `AgentToolPolicy::allowPitchBendEvents` ->
+`ToolSchemaOptions::includePitchBend` (AgentRunner.cpp:410). But
+`buildPolicyFor()` returns the default policy for every non-gpt-5.5 model
+(AgentToolPolicy.cpp:41), so the models that need it most - local ones - never
+get it. Extending the model check to "all local providers" would break "add
+vibrato" for everyone on Ollama; a global switch would break it for everyone.
+
+**Design (owner decision 2026-08-10): a checkbox on the PROMPT PROFILE.**
+Profiles are already bound to `provider:model` patterns and carry
+`appendToDefault` / `enabled` flags, so a per-model opt-out is a natural fit:
+the user ticks it for the local model that produces placeholders and leaves
+GPT-4o / Claude untouched. Concretely:
+
+1. `PromptProfile` gains `bool disallowPitchBend = false`, persisted by
+   `PromptProfileStore` under the existing `AI/prompt_profiles/<id>/` key
+   scheme, default false, round-tripped like `appendToDefault`.
+2. `PromptProfilesDialog` gets a checkbox "Hide pitch-bend events from this
+   model (schema-level)" next to the append checkbox, same enable/disable
+   handling for built-in profiles.
+3. THE WIRING IS THE POINT: the flag must reach `ToolSchemaOptions::includePitchBend`,
+   not merely append prompt text. `AgentRunner` does not know the profile store
+   (it builds its policy from model+provider only), so `MidiPilotWidget` -
+   which resolves the profile before every run (MidiPilotWidget.cpp:1369/1413)
+   - passes the decision in. Cleanest: a policy override on the runner
+   (`setDisallowPitchBend(bool)` or an extra `run()` argument) that
+   `buildPolicyFor()`'s result is AND-ed with: `allowPitchBendEvents =
+   policy.allowPitchBendEvents && !profile.disallowPitchBend`. The existing
+   gpt-5.5 behaviour must stay exactly as it is.
+4. When the flag is on, the profile ALSO benefits from the runtime guard and
+   the sanitized rejection guidance that gpt-5.5 already gets - reuse, do not
+   duplicate.
+5. Simple mode has no tool schema, so the flag has no effect there - document
+   that in the checkbox tooltip rather than pretending otherwise.
+6. MCP: the flag is a per-model MidiPilot setting and must NOT change the
+   schema served to MCP clients (McpServer calls `toolSchemas()` with default
+   options); external clients keep the full schema.
+
+**Tests:** store round-trip of the new field (test_prompt_profiles);
+`toolSchemas(opts)` with includePitchBend=false has no pitch_bend branch in the
+insert/replace event schemas and STILL satisfies the strict-mode invariant test;
+the AND-composition (gpt-5.5 policy false stays false; a non-5.5 model with the
+profile flag becomes false; without it stays true).
+
+**Docs:** manual/midipilot.html prompt-profiles section gains one paragraph;
+CHANGELOG 2.2.0 "New Features" gets a bullet in user language (why a local model
+writes placeholder bends, what the checkbox does, that it is per model).
+
+**Related, deliberately separate follow-ups from the same log:** the
+`create_track` result hint "Remember to insert a program_change" is wrong in
+FFXIV mode and costs weak models real reasoning; MidiPilot sends no `num_ctx`
+to Ollama so the server-side context slider silently decides; Qwen3's
+thinking can be switched off (Phase 26 lever). None of them is part of this
+phase.
+
+---
+
+## Phase 46: AI arrangement capability - close the MCP gaps — ✅ SHIPPED 2026-08-17 (v2.2.0)
 
 **Origin - the octet experiment, 2026-07-25.** An external AI client was given a
 loaded 8-track metal GP file ("untitled", 150 BPM, 133 bars, 6257
@@ -12919,3 +13187,98 @@ and hearing notes go missing. Wiring the existing check into the GUI (the
 voice-load lane, or an action next to the channel fixer) is small, and it is
 worth more than any of the new tools listed above. The fix side is already
 there as "Delete Overlaps"; only FFXIV-aware detection is missing.
+
+**✅ DONE 2026-07-27 (Phase 46 part 1):** the check is now
+`FfxivPlayabilityValidator` (headless, src/ai/), shared by tool and GUI:
+
+* GUI: Tools -> "Check FFXIV Playability..." next to the fixer - report
+  grouped by type, click an issue to select its notes + move the cursor,
+  "Select all offending notes" for a bulk repair. Modal, but re-validates on
+  every finished protocol action because exec() spins the event loop and an
+  MCP edit could otherwise leave the report holding freed note pointers.
+* The validator reports ALL findings (the old tool code stopped at the first
+  overlap per track) and splits stacked duplicates (same pitch, same tick)
+  from simultaneous-note chords. Guitar tracks: only same-channel groups
+  count (different channels = variant switches).
+* **First-QA domain corrections (2026-07-27, user-verified in-game rules):**
+  (1) In game the TRACK NAME selects the instrument for everything except
+  guitar variant switches (per-note channel); program changes only make the
+  editor's SF2 playback faithful. The name/program-mismatch check shipped in
+  the morning was therefore removed the same day - octet finding #5 rested
+  on a false premise. (2) Hold-overlaps (a held note under later staccato
+  notes) are inaudible at game speed and nobody fixes them - only notes
+  STARTING on the same tick collide. The monophony check now groups note
+  starts per tick (one issue per chord group) instead of scanning for any
+  time overlap, which had produced 64 findings on a real arrangement where
+  the honest number was near zero.
+* Deliberate sharpening: only tracks WITH notes get the name check - a
+  silent track occupies no performer, and the app's own default "Tempo
+  Track" must not flag every file.
+* validate_ffxiv now returns per-issue ticks, per-type counts in the summary,
+  a 100-issue cap with issuesTruncated, and legalInstruments (the canonical
+  spellings, octet finding #6) when a name was rejected. The instrument table
+  and classifiers were de-duplicated into FFXIVChannelFixer (now public +
+  instrumentNames()).
+* New test target test_ffxiv_playability (10 cases; suite 62). Manual:
+  ffxiv-channel-fixer.html Validation section rewritten around the dialog.
+
+**✅ Phase 46 part 2 (2026-07-27):** the tool-surface fixes from the octet
+findings, all landed as one pass:
+
+* `set_ffxiv_mode` CORE tool (17th) + `ffxivMode` in get_editor_state
+  (finding #1: the bundle was invisible AND unreachable for MCP clients).
+  The tool drives the MidiPilot checkbox, so persistence and notification
+  take the one existing path - and the checkbox now actually triggers
+  `McpServer::broadcastToolsChanged()`, which existed since the MCP server
+  shipped but was never called by anything (the manual promised the
+  notification regardless).
+* Voice-load agreement (finding #3): analyze_voice_load now computes
+  rawPeak/rawOverflowRangeCount via the same AutoFit engine (dry run, all
+  removal passes off) NEXT TO the display-model numbers, labels both, and
+  bases OK/WARNING on the raw truth. Schema description tells agents to
+  judge by raw and not to "fix" display-only peaks.
+* auto_fit ratePercent defaults to 0 for the AI tool (finding #4) - density
+  thinning is a tone decision, the agent opts in; the GUI dialog keeps 10.
+
+**✅ Phase 46 part 3a (2026-07-27): the three arrangement tools** (octet
+finding #2), all CORE (20 core / MCP 22/27 now):
+
+* `transpose_events(semitones, trackIndex?, startTick?, endTick?,
+  foldToRange?)` - value edits via setNote (the CHEAP protocol path);
+  foldToRange folds octave-wise into C3-C6, so semitones=0 + fold is a pure
+  range fold. Notes that would leave MIDI 0-127 are skipped and reported.
+* `split_chords_to_tracks(trackIndex, minNotes?, keepOriginal?)` - the
+  same-start/voices-across-chords strategy of the GUI's Explode Chords,
+  headless: voice 1 = highest note, new tracks named "<src> - Voice N",
+  summary tells the agent to rename + run setup_channel_pattern LAST.
+* `copy_events_to_track(source, target, range?)` - notes only, channels
+  kept. Both copy paths use the documented bulk idiom (ONE channel snapshot
+  per touched channel, insertNote with toProtocol=false) - per-note
+  snapshots cost ~1 MB each on dense channels per the undo-memory analysis.
+
+**✅ Phase 46 part 3b (2026-07-27): the arrangement guide - PHASE 46
+COMPLETE.** The four things the hand-made comparison did better were all
+knowledge, and the old prompt actively FORBADE one of them ("do not
+manually set channels" is exactly how guitar switches are placed - which
+is why the octet AI produced single-variant guitars). Now:
+
+* ffxivContext() gained an "Arrangement Craft" section: guitar switches
+  (explicitly the ONE exception to the no-manual-channels rule, with the
+  how), register-is-tone (-12 over +24 for distorted parts), density-is-
+  tone (ratePercent as musical tool), channel sharing allowed, the three
+  new workhorse tools, judge-by-rawPeak, and the order of work ending in
+  "setup_channel_pattern LAST" - octet miss #2.
+* New MCP resource midi://ffxiv-guide serves the same text to external
+  clients, which previously arranged blind (no system prompt at all).
+
+Octet findings ledger after Phase 46: #1 ✅ (set_ffxiv_mode + ffxivMode +
+list_changed), #2 ✅ (three tools), #3 ✅ (rawPeak), #4 ✅ (ratePercent 0),
+#5 ✅ closed invalid (in-game rule), #6 ✅ (legalInstruments), #10-#12 ✅
+(the knowledge gaps - covered by the Arrangement Craft block + guide
+resource). STILL OPEN, all LOW: #7 (analyze_voice_load requires
+startTick/endTick while auto_fit treats them optional - align defaults),
+#8 (create_track cannot set a program), #9 (no save tool - deliberate
+safety default, wants a conscious decision). Review at 2.2 release. Plus
+beyond the plan: the playability workbench (the GUI check the roadmap
+called the single most actionable outcome, grown through three QA
+iterations into a check-and-repair tool).

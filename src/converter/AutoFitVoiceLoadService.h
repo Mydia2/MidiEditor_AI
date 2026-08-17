@@ -72,6 +72,12 @@ struct AutoFitOptions {
     /// FFXIV workflow and the higher voice (usually the melody) should win.
     bool preferLoudest = false;
     bool dryRun = false;
+    /// Optional Protocol-panel label for the single undo action a live run
+    /// opens. Empty (the dialog's case) keeps the service's own
+    /// "Auto-fit voice load". The AI/MCP tool sets it so the action carries
+    /// the same actor attribution ("MidiPilot" / "MidiPilotMCP (<client>)")
+    /// every other agent action has - see ToolDefinitions::protocolActorPrefix.
+    QString actionLabel;
 };
 
 struct AutoFitRemovedNote {

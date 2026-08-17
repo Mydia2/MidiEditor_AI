@@ -1,7 +1,9 @@
 #include "AgentRunner.h"
 
 #include "AiClient.h"
+#include "EditorContext.h"
 #include "ToolDefinitions.h"
+#include "../AppPaths.h"
 #include "../gui/MidiPilotWidget.h"
 #include "../midi/MidiFile.h"
 
@@ -20,7 +22,7 @@
 namespace {
 QString agentLogFilePath()
 {
-    return QCoreApplication::applicationDirPath() + QStringLiteral("/midipilot_api.log");
+    return AppPaths::dataFilePath(QStringLiteral("midipilot_api.log"));
 }
 
 void logAgentToolResult(int step, const QString &toolName, const QJsonObject &result)
@@ -90,6 +92,35 @@ QString firstDeveloperRole(const QJsonArray &messages)
         return QStringLiteral("system");
     const QString role = messages.first().toObject().value(QStringLiteral("role")).toString();
     return role == QStringLiteral("developer") ? QStringLiteral("developer") : QStringLiteral("system");
+}
+
+/// Live FFXIV-mode flag. The tool schemas gate the FFXIV bundle on the same
+/// key (ToolDefinitions::toolSchemas), and set_ffxiv_mode writes it, so this
+/// is the one source of truth for "is the mode on right now".
+bool ffxivModeActive()
+{
+    return AppPaths::settings()
+        ->value(QStringLiteral("AI/ffxiv_mode"), false).toBool();
+}
+
+/// The FFXIV limits sentence carried by the per-turn state layer. Shared by
+/// initialWorkingState() and the mid-run mode switch so the two cannot drift
+/// (the switch also has to be able to REMOVE it again verbatim).
+QString ffxivStateConstraints()
+{
+    return QStringLiteral(
+        " FFXIV Bard Performance: <=16 simultaneous voices, "
+        "<=14 notes/sec per channel, range C3..C6. Call analyze_voice_load "
+        "after dense passages to verify before finishing.");
+}
+
+/// Names of the tools that appear/disappear with FFXIV mode - quoted to the
+/// model when the mode flips so it knows what just changed in its tool list.
+QString ffxivBundleNames()
+{
+    return QStringLiteral("validate_ffxiv, convert_drums_ffxiv, "
+                          "setup_channel_pattern, analyze_voice_load, "
+                          "auto_fit_voice_load");
 }
 
 void logAgentState(int step, const AgentRunner::AgentWorkingState &state)
@@ -178,12 +209,8 @@ AgentRunner::AgentWorkingState AgentRunner::initialWorkingState(const QString &u
     // Phase 32.6: surface FFXIV game limits whenever FFXIV mode is active so
     // the model is reminded every turn (and gets the analyze_voice_load tool
     // listed in its toolset).
-    if (QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"))
-            .value(QStringLiteral("AI/ffxiv_mode"), false).toBool()) {
-        state.activeConstraints += QStringLiteral(
-            " FFXIV Bard Performance: <=16 simultaneous voices, "
-            "<=14 notes/sec per channel, range C3..C6. Call analyze_voice_load "
-            "after dense passages to verify before finishing.");
+    if (ffxivModeActive()) {
+        state.activeConstraints += ffxivStateConstraints();
     }
     if (state.taskType == TaskType::Composition) {
         state.nextStepHint = QStringLiteral(
@@ -274,6 +301,11 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
         appendFact(state, result.value(QStringLiteral("summary")).toString(QStringLiteral("Voice-load analysis completed")));
     } else if (toolName == QStringLiteral("setup_channel_pattern")) {
         appendFact(state, QStringLiteral("FFXIV channel pattern configured"));
+    } else if (toolName == QStringLiteral("convert_tempo_preserve_duration")) {
+        // Keep the dry-run numbers in the working state so the confirm turn
+        // still knows what it is confirming.
+        appendFact(state, result.value(QStringLiteral("summary")).toString(
+                              QStringLiteral("Tempo conversion completed")));
     }
 }
 
@@ -346,6 +378,15 @@ void AgentRunner::run(const QString &systemPrompt,
     _consecutiveIncompleteWrites = 0;
     _workingState = initialWorkingState(userMessage, systemPrompt);
 
+    // Phase 46 follow-up — mid-run FFXIV-mode switching. The caller appends
+    // EditorContext::ffxivContext() to `systemPrompt` exactly when the mode is
+    // on at this point, so the run-start setting also tells us whether the
+    // rules are already in the prompt we were handed.
+    _ffxivModeActiveInRun = ffxivModeActive();
+    _ffxivRulesInBasePrompt = _ffxivModeActiveInRun;
+    _ffxivOverlayIndex = -1;
+    _pendingFfxivMode = -1;
+
     // Phase 31 — compute the model/task policy once per run.
     const bool isCompositionOrEdit =
         _workingState.taskType == TaskType::Composition
@@ -353,11 +394,32 @@ void AgentRunner::run(const QString &systemPrompt,
     _policy = AgentToolPolicyUtil::buildPolicyFor(_client->model(),
                                                   _client->provider(),
                                                   isCompositionOrEdit);
-    qInfo().noquote() << QStringLiteral("[POLICY] model=%1 provider=%2 task=%3 flags=%4")
+
+    // Phase 47 — the active prompt profile may additionally forbid
+    // `pitch_bend` for the models it is bound to (set by MidiPilotWidget
+    // before every run). This is an AND, never an OR: the profile can only
+    // take the branch away, so gpt-5.5*'s policy above is never widened.
+    if (_profileDisallowsPitchBend) {
+        _policy.allowPitchBendEvents = false;
+        // Dependent flag. buildPolicyFor() does NOT derive the sanitized
+        // rejection guidance from allowPitchBendEvents — it sets both from
+        // the same gpt-5.5* model check — so without this line a
+        // profile-flagged model would keep the guidance texts that spell out
+        // the literal token `pitch_bend` in every rejection, re-anchoring the
+        // exact word we just removed from its schema. The runtime guard
+        // itself (isPitchBendOnlyPayload) is unconditional and applies
+        // either way. `boundedIncompleteWriteStop` is deliberately NOT
+        // enabled here: it changes when a run gives up, which is a different
+        // mitigation and not what this switch promises.
+        _policy.sanitizeRejectionGuidance = true;
+    }
+
+    qInfo().noquote() << QStringLiteral("[POLICY] model=%1 provider=%2 task=%3 flags=%4 profileNoPitchBend=%5")
         .arg(_client->model(),
              _client->provider(),
              taskTypeName(_workingState.taskType),
-             AgentToolPolicyUtil::describe(_policy));
+             AgentToolPolicyUtil::describe(_policy),
+             _profileDisallowsPitchBend ? QStringLiteral("1") : QStringLiteral("0"));
 
     if (_policy.sanitizeRejectionGuidance) {
         // Phase 31: scrub the default working state so that the very first
@@ -376,7 +438,8 @@ void AgentRunner::run(const QString &systemPrompt,
     }
 
     // Read configurable step limit from settings
-    QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    auto settingsPtr = AppPaths::settings();
+    QSettings &settings = *settingsPtr;
     _maxSteps = settings.value("AI/agent_max_steps", 50).toInt();
     if (_maxSteps < 5) _maxSteps = 5;
     if (_maxSteps > 100) _maxSteps = 100;
@@ -399,9 +462,7 @@ void AgentRunner::run(const QString &systemPrompt,
     }
 
     // Get tool schemas (Phase 31: schema-light for gpt-5.5* composition/edit)
-    ToolDefinitions::ToolSchemaOptions schemaOpts;
-    schemaOpts.includePitchBend = _policy.allowPitchBendEvents;
-    _tools = ToolDefinitions::toolSchemas(schemaOpts);
+    rebuildToolSchemas();
 
     logAgentState(_currentStep, _workingState);
 
@@ -412,6 +473,88 @@ void AgentRunner::run(const QString &systemPrompt,
                          this, &AgentRunner::onApiError);
 
     sendNextRequest();
+}
+
+void AgentRunner::rebuildToolSchemas()
+{
+    // ONE derivation site for the request tool list. run() called this at the
+    // start and the mid-run FFXIV switch calls it again, so both go through
+    // the same options (Phase 31 schema-light) and the same settings read
+    // inside toolSchemas() that gates the FFXIV bundle.
+    ToolDefinitions::ToolSchemaOptions schemaOpts;
+    schemaOpts.includePitchBend = _policy.allowPitchBendEvents;
+    _tools = ToolDefinitions::toolSchemas(schemaOpts);
+}
+
+void AgentRunner::applyFfxivModeChange(bool enabled)
+{
+    // (a) TOOLS. toolSchemas() gates the five FFXIV tools on the live
+    // `AI/ffxiv_mode` setting, which set_ffxiv_mode has already written, so
+    // re-deriving the schemas is all it takes for the bundle to appear (or
+    // disappear) on the next request OF THIS RUN. Without this the panel
+    // checkbox flipped and MCP clients got tools/list_changed while the run
+    // that asked for the switch kept the old 17-tool list to its last step.
+    rebuildToolSchemas();
+
+    if (enabled == _ffxivModeActiveInRun)
+        return; // redundant call - the mode already was what it asks for
+    _ffxivModeActiveInRun = enabled;
+
+    // (b) STATE LAYER. Same sentence initialWorkingState() adds at run start,
+    // so the per-turn reminder matches a run that started in FFXIV mode.
+    if (enabled) {
+        if (!_workingState.activeConstraints.contains(ffxivStateConstraints()))
+            _workingState.activeConstraints += ffxivStateConstraints();
+    } else {
+        _workingState.activeConstraints.remove(ffxivStateConstraints());
+    }
+
+    // (c) RULES. The FFXIV rules + arrangement craft are composed ONCE per run
+    // (by the caller, into the system prompt), so a mode that turns on mid-run
+    // would otherwise never get them. Carry them as one system-side overlay
+    // message we own: appending keeps the system prompt (and its prompt-cache
+    // prefix) untouched, and owning the index lets us drop the overlay again
+    // when the mode is switched back off instead of leaving stale rules in the
+    // conversation.
+    if (_ffxivOverlayIndex >= 0 && _ffxivOverlayIndex < _messages.size()) {
+        _messages.removeAt(_ffxivOverlayIndex);
+        _ffxivOverlayIndex = -1;
+    }
+
+    QString content;
+    if (enabled) {
+        content = QStringLiteral(
+                      "## FFXIV BARD PERFORMANCE MODE SWITCHED ON\n"
+                      "\n"
+                      "The tools %1 are available from your next step. "
+                      "Follow the FFXIV rules for the rest of this task.\n")
+                      .arg(ffxivBundleNames());
+        // Only when the rules are not already in the system prompt - a run
+        // that STARTED in FFXIV mode already carries them.
+        if (!_ffxivRulesInBasePrompt)
+            content += EditorContext::ffxivContext();
+    } else {
+        content = QStringLiteral(
+                      "## FFXIV BARD PERFORMANCE MODE SWITCHED OFF\n"
+                      "\n"
+                      "The tools %1 are no longer available - do not call them. "
+                      "The FFXIV-specific rules (8 tracks, monophonic, C3-C6, "
+                      "instrument track names) no longer apply.\n")
+                      .arg(ffxivBundleNames());
+    }
+
+    QJsonObject overlay;
+    overlay[QStringLiteral("role")] = firstDeveloperRole(_messages);
+    overlay[QStringLiteral("content")] = content;
+    _ffxivOverlayIndex = _messages.size();
+    _messages.append(overlay);
+}
+
+void AgentRunner::setProfileDisallowsPitchBend(bool disallow)
+{
+    // Contract: the caller sets this before EVERY run() (MidiPilotWidget does
+    // it where it resolves the prompt profile), so run() does not reset it.
+    _profileDisallowsPitchBend = disallow;
 }
 
 void AgentRunner::cancel()
@@ -486,6 +629,13 @@ void AgentRunner::onApiResponse(const QString &content, const QJsonObject &fullR
     // Successful response — reset the self-healing retry counter so future
     // failures get a fresh budget of attempts.
     _retryCount = 0;
+
+    // TOOLS-INCAPABLE-EXPIRY: this request CARRIED the tool schemas and the
+    // upstream answered it, which proves the model/route does accept tool
+    // calling. Drop any stale flag (it may have been set by a transient
+    // routing error) instead of waiting for the 7-day expiry.
+    if (_client && !_tools.isEmpty())
+        _client->clearToolsIncapableFlag(_client->provider(), _client->model());
 
     // Emit token usage if present
     QJsonObject usage = fullResponse["usage"].toObject();
@@ -799,6 +949,19 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         if (result.isEmpty())
             result = ToolDefinitions::executeTool(toolName, args, _file, _widget);
 
+        // Phase 46 follow-up: a set_ffxiv_mode call has to take effect INSIDE
+        // the run that made it. Only remember it here - the re-derivation
+        // appends a message, and an assistant message carrying tool_calls must
+        // be followed directly by the tool results for every one of its call
+        // ids, so nothing may be spliced in before this batch is finished.
+        // `ffxivMode` from the result, not `enabled` from the args: the
+        // executor is what decided the effective mode.
+        if (toolName == QStringLiteral("set_ffxiv_mode")
+            && result.value(QStringLiteral("success")).toBool(false)) {
+            _pendingFfxivMode =
+                result.value(QStringLiteral("ffxivMode")).toBool() ? 1 : 0;
+        }
+
         // Phase 31: bounded-failure stop for gpt-5.5*. Count consecutive
         // write-tool calls that came back as an "incomplete payload"
         // rejection. After the second such miss we abort the whole run with
@@ -862,6 +1025,14 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         toolResultMsg["content"] = QString::fromUtf8(
             QJsonDocument(result).toJson(QJsonDocument::Compact));
         _messages.append(toolResultMsg);
+    }
+
+    // Every tool result of the batch is in place - now it is safe to re-derive
+    // the tool list and the FFXIV rules for the following turns of this run.
+    if (_pendingFfxivMode >= 0) {
+        const bool enabled = _pendingFfxivMode == 1;
+        _pendingFfxivMode = -1;
+        applyFfxivModeChange(enabled);
     }
 
     // Send the next request with tool results
@@ -935,6 +1106,45 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         int from = args["sourceTrackIndex"].toInt(-1);
         int to = args["targetTrackIndex"].toInt(-1);
         return QStringLiteral("Move events \u2014 Track %1 \u2192 Track %2").arg(from).arg(to);
+    }
+    if (toolName == "search_help") {
+        const QString q = args["query"].toString();
+        return q.isEmpty() ? QStringLiteral("Search manual")
+                           : QStringLiteral("Search manual — \"%1\"").arg(q.left(40));
+    }
+    if (toolName == "get_help_section") {
+        return QStringLiteral("Read manual — %1").arg(args["page"].toString());
+    }
+    if (toolName == "transpose_events") {
+        const int semis = args["semitones"].toInt(0);
+        return args["foldToRange"].toBool(false)
+            ? QStringLiteral("Transpose %1%2 st + fold to C3-C6")
+                  .arg(semis > 0 ? QStringLiteral("+") : QString()).arg(semis)
+            : QStringLiteral("Transpose %1%2 st")
+                  .arg(semis > 0 ? QStringLiteral("+") : QString()).arg(semis);
+    }
+    if (toolName == "split_chords_to_tracks") {
+        int track = args["trackIndex"].toInt(-1);
+        return QStringLiteral("Split chords — Track %1 → voice tracks").arg(track);
+    }
+    if (toolName == "copy_events_to_track") {
+        int from = args["sourceTrackIndex"].toInt(-1);
+        int to = args["targetTrackIndex"].toInt(-1);
+        return QStringLiteral("Copy notes — Track %1 → Track %2").arg(from).arg(to);
+    }
+    if (toolName == "convert_tempo_preserve_duration") {
+        const double source = args["sourceBpm"].toDouble(0);
+        const double target = args["targetBpm"].toDouble(0);
+        const bool dry = args["dryRun"].toBool(true);
+        QString label;
+        if (source > 0 && target > 0)
+            label = QStringLiteral("Convert tempo \u2014 %1 \u2192 %2 BPM").arg(source).arg(target);
+        else if (target > 0)
+            label = QStringLiteral("Convert tempo \u2014 to %1 BPM").arg(target);
+        else
+            label = QStringLiteral("Convert tempo");
+        if (dry) label += QStringLiteral(" (dry run)");
+        return label;
     }
     if (toolName == "query_events") {
         int track = args["trackIndex"].toInt(-1);

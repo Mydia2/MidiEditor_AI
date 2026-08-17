@@ -36,9 +36,13 @@
         {
             title: 'AI & Automation',
             pages: [
-                { href: 'midipilot.html', icon: '🤖', name: 'MidiPilot' },
-                { href: 'prompt-examples.html', icon: '💬', name: 'Prompt Examples' },
-                { href: 'mcp-server.html', icon: '🔗', name: 'MCP Server' }
+                { href: 'midipilot.html',          icon: '🤖', name: 'MidiPilot' },
+                { href: 'midipilot-modes.html',    icon: '🔀', name: 'Modes & Conversations' },
+                { href: 'midipilot-ffxiv.html',    icon: '🎮', name: 'MidiPilot in FFXIV Bard Mode' },
+                { href: 'midipilot-settings.html', icon: '⚙️', name: 'Settings & Providers' },
+                { href: 'midipilot-tools.html',    icon: '🔧', name: 'AI Tools Reference' },
+                { href: 'prompt-examples.html',    icon: '💬', name: 'Prompt Examples' },
+                { href: 'mcp-server.html',         icon: '🔗', name: 'MCP Server' }
             ]
         },
         {
@@ -58,6 +62,7 @@
             title: 'FFXIV',
             pages: [
                 { href: 'ffxiv-channel-fixer.html', icon: '🎮', name: 'FFXIV Channel Fixer' },
+                { href: 'ffxiv-playability.html', icon: '✅', name: 'Playability Check' },
                 { href: 'ffxiv-drum-split.html', icon: '🥁', name: 'FFXIV Drum Split' },
                 { href: 'ffxiv-voice-limiter.html', icon: '🎚️', name: 'Voice Limiter' },
                 { href: 'soundfont.html', icon: '🔊', name: 'SoundFonts & FluidSynth' }

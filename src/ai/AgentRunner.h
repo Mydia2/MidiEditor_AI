@@ -66,6 +66,24 @@ public:
              MidiFile *file,
              MidiPilotWidget *widget);
 
+    /**
+     * \brief Phase 47 — lets the caller strip the `pitch_bend` branch from
+     *        the tool schema for the upcoming run.
+     *
+     * Set from the active \ref PromptProfile's \c disallowPitchBend flag.
+     * AgentRunner deliberately does not know PromptProfileStore: it derives
+     * its policy from model + provider only, so the profile decision has to
+     * be handed in from outside (MidiPilotWidget does it right before every
+     * \ref run call).
+     *
+     * The flag is AND-ed into the model policy: it can only turn pitch_bend
+     * OFF, never back on, so gpt-5.5*'s existing schema-light behaviour is
+     * unaffected. It is NOT reset by \ref run — the caller sets it before
+     * every run, which is what keeps a profile change effective from the
+     * next message on.
+     */
+    void setProfileDisallowsPitchBend(bool disallow);
+
     void cancel();
     bool isRunning() const;
 
@@ -134,6 +152,30 @@ private:
     static QString buildStepLabel(const QString &toolName, const QJsonObject &args);
     void cleanup();
 
+    /**
+     * \brief Re-derives \c _tools from the current policy and settings.
+     *
+     * The single derivation site for the request tool list: run() calls it at
+     * the start, \ref applyFfxivModeChange calls it again mid-run. Both go
+     * through the same \c ToolSchemaOptions and the same live
+     * \c AI/ffxiv_mode read that gates the FFXIV bundle.
+     */
+    void rebuildToolSchemas();
+
+    /**
+     * \brief Makes a mid-run \c set_ffxiv_mode call effective for the rest of
+     *        the SAME run.
+     *
+     * Both halves of FFXIV mode used to be frozen at run start: the tool list
+     * (built once in run()) and the FFXIV rules (composed into the system
+     * prompt by the caller). A model that turned the mode on therefore never
+     * saw the five gated tools nor the rules, although the panel checkbox and
+     * MCP clients had already followed along. This re-derives the tool list and
+     * carries the rules in as one runner-owned system-side overlay message,
+     * which is dropped again when the mode is switched back off.
+     */
+    void applyFfxivModeChange(bool enabled);
+
 public:
     // Retry helpers — classify a raw API error string into a recoverable
     // category and craft a corrective message to feed back to the model.
@@ -167,11 +209,31 @@ private:
 
     // Phase 31 — model/task scoped policy, computed once per run() call.
     AgentToolPolicy _policy;
+    // Phase 47 — profile-level "no pitch_bend" opt-in, supplied by the caller
+    // via setProfileDisallowsPitchBend() before each run() and AND-ed into
+    // `_policy.allowPitchBendEvents`.
+    bool _profileDisallowsPitchBend = false;
     // Counter of consecutive write-tool calls that produced an "incomplete
     // payload" rejection (e.g. only program_change / cc, no notes). Used by
     // `policy.boundedIncompleteWriteStop` to terminate the run with a clear
     // message after two consecutive incomplete writes.
     int _consecutiveIncompleteWrites = 0;
+
+    // Phase 46 follow-up — mid-run FFXIV-mode switching (see
+    // applyFfxivModeChange). All four are reset by every run().
+    /// FFXIV mode as it currently stands for this run. Starts from the setting
+    /// and is updated by an effective set_ffxiv_mode call, so a redundant call
+    /// ("enable" while already enabled) adds no message.
+    bool _ffxivModeActiveInRun = false;
+    /// True when the caller's system prompt already carries the FFXIV rules
+    /// (the run started in FFXIV mode), so the overlay must not repeat them.
+    bool _ffxivRulesInBasePrompt = false;
+    /// Index of the runner-owned FFXIV overlay message in \c _messages, or -1.
+    int _ffxivOverlayIndex = -1;
+    /// Mode change requested by a tool call in the batch being processed:
+    /// -1 = none, 0 = off, 1 = on. Applied only after the whole batch's tool
+    /// results are appended.
+    int _pendingFfxivMode = -1;
 
     QMetaObject::Connection _responseConn;
     QMetaObject::Connection _errorConn;

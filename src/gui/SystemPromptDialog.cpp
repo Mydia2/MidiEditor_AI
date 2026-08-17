@@ -1,5 +1,6 @@
 #include "SystemPromptDialog.h"
 #include "../ai/EditorContext.h"
+#include "../AppPaths.h"
 
 #include <QTabWidget>
 #include <QPlainTextEdit>
@@ -112,7 +113,7 @@ void SystemPromptDialog::loadCurrentPrompts()
 
 QString SystemPromptDialog::promptsFilePath() const
 {
-    return QCoreApplication::applicationDirPath() + QStringLiteral("/system_prompts.json");
+    return AppPaths::dataFilePath(QStringLiteral("system_prompts.json"));
 }
 
 void SystemPromptDialog::onLoadDefault()
@@ -180,7 +181,7 @@ void SystemPromptDialog::onExportJson()
 void SystemPromptDialog::onImportJson()
 {
     QString path = QFileDialog::getOpenFileName(this, "Import System Prompts",
-        QCoreApplication::applicationDirPath(), "JSON Files (*.json)");
+        AppPaths::dataDir(), "JSON Files (*.json)");
     if (path.isEmpty())
         return;
 
