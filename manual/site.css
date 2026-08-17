@@ -1099,13 +1099,20 @@ video.lightbox-thumb:hover {
     font-size: 0.86em;
     color: var(--text);
 }
-.media-todo .media-file code {
+.media-todo .media-file .media-dir {
+    color: var(--text-muted);
+    font-family: ui-monospace, Consolas, "Cascadia Mono", monospace;
+    font-size: 0.95em;
+    user-select: none;          /* the folder is context, not the thing to copy */
+}
+.media-todo .media-file code.media-name {
     font-family: ui-monospace, Consolas, "Cascadia Mono", monospace;
     font-size: 1em;
-    user-select: all;           /* one click selects the whole path */
-    padding: 0.05rem 0.35rem;
+    user-select: all;           /* one click selects JUST the file name */
+    padding: 0.05rem 0.4rem;
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(210, 153, 34, 0.35);
     word-break: break-all;
 }
 .media-todo code { font-size: 0.9em; }
