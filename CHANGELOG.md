@@ -55,6 +55,39 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Deleting bars also removed everything starting on the next downbeat** - "Remove measure(s)" with the Measure tool took the notes, controllers, program changes and tempo/meter events that start exactly on the first beat of the first bar you keep with it, so deleting an intro silently ate the downbeat of the bar that followed. Everything sitting on that beat now survives and moves left with the rest of the song, and a note reaching from before the deleted bars into them is shortened to the splice point instead of being left hanging.
 * **A model marked as unable to call tools stayed refused forever** - when a provider answered that the chosen model does not support tool calling, Agent mode refused that model from then on, with no way back - including when the answer was only momentarily true, which is what OpenRouter reports while the tool-capable backend behind a model is unavailable. The refusal is now re-checked after seven days, disappears as soon as a request with tools succeeds, and can be lifted right away with "Retry tool support for this model" in the MidiPilot panel's gear menu.
 
+### Files Modified
+* `src/ai/FfxivPlayabilityValidator.h/.cpp` (new) - the playability engine: chords vs stacked duplicates, C3-C6 range, track names, voice peak + notes/sec hotspots, channel spread, empty tracks; shared by the workbench and `validate_ffxiv`
+* `src/gui/FfxivPlayabilityDialog.h/.cpp` (new) - the modeless workbench: checks row, findings tree, selection-scoped delete, repair buttons, "Analyze with MidiPilot", reveal + focus requests
+* `src/gui/MainWindow.h/.cpp` - workbench wiring (select / reveal / focus / delete, focus-track list released at close), "Ask MidiPilot about the selection", undo-memory status-bar readout, `openConfigOnMidiPilotTab()`, `MIDIEDITOR_MANUAL_URL`, GL shutdown order + `refreshMatrixView()/refreshMiscView()`, portable relaunch args, effective-renderer flag, status-bar beat by meter, view prefs written before cleanup
+* `src/AppPaths.h/.cpp` (new) - the one storage layer: `settings()`, `dataDir()`, `soundFontsDir()`, `dataFilePath()`, portable detection (`portable.txt` / `--portable`), native executable-path resolution, `relaunchArgs()`, test seam `setSettingsScopeForTests()`
+* `src/main.cpp`, `src/LoggingConfig.cpp`, `src/gui/Appearance.h/.cpp`, `src/gui/AutoUpdater.cpp`, `src/gui/C64Mode.cpp`, `src/gui/C64SoundFontHelper.cpp`, `src/gui/FfxivSoundFontHelper.cpp`, `src/gui/DownloadSoundFontDialog.cpp`, `src/gui/SystemPromptDialog.cpp`, `src/gui/MidiSettingsWidget.cpp`, `src/gui/McpToggleWidget.cpp`, `src/gui/ExportDialog.cpp`, `src/gui/LayoutSettingsWidget.cpp`, `src/gui/LoggingSettingsWidget.cpp`, `src/gui/FfxivDrumKitStore.h/.cpp`, `src/gui/collab/*.cpp`, `src/collab/*.cpp`, `src/ai/ModelFavorites.cpp`, `src/ai/PromptProfileStore.cpp`, `src/converter/Sid/SidImporter.cpp` - every settings/data-path site routed through `AppPaths` (portable mode, macOS paths, no default-constructed `QSettings` left); updater in-place path Windows-only
+* `src/ai/HelpDatabase.h/.cpp` (new), `scripts/build_help_db.py` (new), `run_environment/help_db.json` (new, embedded via `resources.qrc`) - the manual bot: chunked manual index for `search_help` / `get_help_section`
+* `src/ai/ToolDefinitions.h/.cpp` - new tools `search_help`, `get_help_section`, `transpose_events`, `split_chords_to_tracks`, `copy_events_to_track`, `convert_tempo_preserve_duration`, `set_ffxiv_mode`; rebuilt `validate_ffxiv`; strict-mode schemas completed; `protocolActorPrefix()` for MCP attribution; `get_editor_state` FFXIV state
+* `src/ai/McpServer.h/.cpp` - tools/list_changed on FFXIV-mode flip, `midi://ffxiv-guide` resource, client identity passed as tool source
+* `src/ai/AgentRunner.h/.cpp` - profile pitch-bend gate ANDed with the FFXIV policy, mid-run FFXIV-mode switch (tool schemas re-derived, rules overlay), tools-incapable flag cleared on success
+* `src/ai/AiClient.h/.cpp` - tools-incapable flag with 7-day expiry, `toolsIncapableExpiryDays()`, portable-scope settings
+* `src/ai/EditorContext.cpp` - FFXIV arrangement-craft block, hidden-track list from the document flag, `measureCount()` for totalMeasures
+* `src/ai/PromptProfile.h`, `src/ai/PromptProfileStore.cpp`, `src/gui/PromptProfilesDialog.h/.cpp` - `disallowPitchBend` per profile (load/save, dialog checkbox)
+* `src/ai/FFXIVChannelFixer.h/.cpp`, `src/midi/FfxivEqualizerService.h/.cpp` - voice-load model shared by `analyze_voice_load` and the gauge/lane widgets (refactor, fixer behaviour unchanged)
+* `src/gui/MidiPilotWidget.h/.cpp` - `submitPrompt()` / `sendCurrentPrompt()` bool contract, pre-flight before the draft is cleared, terminal `assistantReplied` on Stop, "MidiPilot Settings..." lands on the MidiPilot page, "Retry tool support for this model", `protoPrefix` delegates to the tool layer
+* `src/gui/SettingsDialog.h` - `setCurrentTabByType<T>()`
+* `src/gui/AutoFitVoiceLoadDialog.h/.cpp`, `src/converter/AutoFitVoiceLoadService.h/.cpp` - "Select in editor" hand-over, eyes from the document visibility flag, `AutoFitOptions::actionLabel`
+* `src/converter/TempoConversionService.h/.cpp`, `src/gui/TempoConversionDialog.h/.cpp` - `scopeModeConflict()` (partial scope refuses tempo-map modes), channels 16-18 out of scope for channel scopes, `actionLabel` override; dialog greys out the impossible modes with a hint
+* `src/midi/MidiFile.h/.cpp` - `measure()` / `meterAt()` contract fixed (1-based, exponent denominator) and null-safe, `measureCount()`, `deleteMeasures()` half-open with meter re-anchor and spanning-note clamp, `insertMeasures()` hardened, undo-snapshot counters
+* `src/midi/MidiTrack.h/.cpp`, `src/midi/MidiChannel.h/.cpp` - view-only `_focusHidden` overlay with `hiddenByUser()`, snapshot memory counters
+* `src/gui/MatrixWidget.h/.cpp` - context-menu entry "Ask MidiPilot about the selection", `revealLine()`
+* `src/gui/TrackListWidget.cpp` - eye click on a focus-dimmed track un-dims without an undo step
+* `src/gui/TimeDisplayWidget.cpp` - bar mode shows the real time signature and counts every beat
+* `src/gui/OpenGLPaintWidget.h/.cpp`, `src/gui/OpenGLMatrixWidget.h/.cpp`, `src/gui/OpenGLMiscWidget.h/.cpp` - guarded `forwardToHosted()` (re-entry latch + accept) for every forwarded event, tooltip forwarding, click focus, cursor mirroring, paint device follows the device pixel ratio, anti-aliasing setting honoured
+* `src/tool/EditorTool.h/.cpp`, `src/tool/StandardTool.cpp`, `src/tool/EventMoveTool.cpp`, `src/tool/SizeChangeTool.cpp` - `cursorTarget()` / `setToolCursor()` replace the global GL-container pointer
+* `src/gui/PerformanceSettingsWidget.h/.cpp` - effective-renderer line, GPU + update-check switches written on change, software quality options always available
+* `src/gui/LyricTimelineWidget.h/.cpp`, `src/gui/FfxivVoiceLaneWidget.h/.cpp` - `detachMatrixWidget()` for the GL shutdown path
+* `src/collab/WebRtcLiveServer.cpp` - `QHash::remove` returns bool (warning fix)
+* `run_environment/graphics/tool/ffxiv_check.png`, `manual/tools/ffxiv_check.png` (new) - workbench toolbar icon
+* `CMakeLists.txt`, `resources.qrc`, `tests/CMakeLists.txt` - version 2.2.0, help DB resource, new test targets
+* `tests/` - new `test_ffxiv_playability`, `test_help_database`, `test_midi_measure`, `test_app_paths`; extended `test_tool_definitions`, `test_tempo_conversion_service`, `test_auto_fit_voice_load`, `test_auto_fit_dialog`, `test_prompt_profiles`, `test_agent_runner_state`, `test_streaming_fallback`, `test_model_favorites`, `test_opengl_paint_guard`, `test_ffxiv_drum_kit_store`, `test_ffxiv_equalizer_service`, `test_collab_identity`, `test_ice_config`, `test_logging_config`, `test_event_perf`, `test_midi_event` (settings seam everywhere)
+* `manual/` - new `ffxiv-playability.html`, `midipilot-modes/-ffxiv/-settings/-tools.html` (split of `midipilot.html`), `setup.html` (Portable Mode, file locations, GPU acceleration), updated tool pages, `docs-index.html`, `navigation.js`, `sitemap.xml`, `site.css`, screenshots + workflow video; `README.md` (playability section, settings page names)
+
 </details>
 
 ---
@@ -70,12 +103,27 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Local models were cut off after three minutes** - a request to a local server (Ollama, llama.cpp) was given the same three-minute limit as a cloud model. That limit counts time with no data arriving, and a local server sends nothing at all until the whole answer is finished - so on a 14B running on your own GPU, an ordinary turn ran out of time and ended in "Request timed out", however healthy the setup was. Local models now get the same generous limit as reasoning models, and the connection test allows for a model that still has to load into memory instead of giving up after fifteen seconds.
 * **MidiPilot blamed the server when a local model wrote too much at once** - if a local server (Ollama, llama.cpp) refused an oversized tool call, MidiPilot reported it as "busy or temporarily unavailable" and quietly re-sent the identical request several times, which could never succeed. The message now names the real cause - the model produced a tool call that could not be parsed, almost always because one call tried to write a whole arrangement at once - and suggests asking for a smaller step or giving the model a larger context window. In Agent mode the retry now tells the model to write one track and only a few bars per call, so the next attempt has a real chance of finishing instead of repeating the same oversized call. Genuine outages are unaffected and still retry on their own.
 
+### Files Modified
+* `src/ai/AiClient.h/.cpp` - `errorIndicatesUnparsableToolCall()`, `RetryKind::ToolCallCutOff` with corrective hint, `requestTimeoutMs()` (10 min for local servers), 120 s connection test for Ollama, quota vs rate-limit classification
+* `src/ai/AgentRunner.h/.cpp` - tool-call parse errors surfaced as agent errors with the reason instead of a bare "failed"
+* `src/ai/ToolDefinitions.cpp` - strict-mode schemas: every property in `required`, optional values as `anyOf[type,null]`, null-tolerant `executeTool` for the FFXIV tools
+* `src/gui/MidiPilotWidget.cpp` - refusal and timeout messages carry the server's reason
+* `src/gui/OpenGLPaintWidget.h` - doc-comment repair
+* `tests/test_agent_runner_state.cpp`, `tests/test_tool_definitions.cpp` - strict-schema and error-classification cases
+* `CMakeLists.txt`, `README.md`, `manual/` (index, download, docs-index, changelog) - version 2.1.2
+
 ---
 
 ## [2.1.1] - 2026-08-07 - Hotfix: GPU acceleration
 
 ### Bug Fixes
 * **GPU acceleration left the editor area empty** - with "Enable GPU acceleration for MIDI events" switched on, the piano roll and the tab strip above it stayed blank for the whole session while the panels around them drew normally. The editor view was painted once before it had become visible, which collapsed it to zero width permanently. Such an early frame is now postponed until the view is ready instead of being drawn too soon and lost.
+
+### Files Modified
+* `src/gui/OpenGLPaintWidget.h/.cpp` - `canPaintNow(alreadyPainting, widgetVisible)` guard and `requestDeferredRepaint()` so a paint of a hidden child cannot blank the editor group (GLBLANK-001)
+* `tests/test_opengl_paint_guard.cpp` (new), `tests/CMakeLists.txt` - truth table of the guard plus an end-to-end paint of a hidden child on a real GL context
+* `README.md` - AI/MCP tool counts, PLAYGROUND pointer
+* `CMakeLists.txt`, `manual/` (index, download, docs-index, changelog) - version 2.1.1
 
 ---
 
@@ -104,6 +152,21 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Fixed Smooth Transition tempo ramps freezing the editor (TEMPO-SMOOTH-001)** - the Edit Tempo tool wrote a tempo event every 5 ticks (a 25-BPM ramp over a few measures produced thousands of events, almost all duplicates), each one individually undo-protocolled, and every later tick-to-time conversion copied the whole tempo map per call - scrolling and editing crawled afterwards. Smooth Transition now writes exactly one event per BPM step (evenly spread, endpoints exact), applies as a single undo step, and the tick/time conversions walk the tempo map without copying it - which also un-lags files that already come with dense imported tempo ramps. (merged 2026-07-19)
 * **Fixed the unit tests wiping the real app configuration (dev/from-source builds)** - running `ctest` cleared the app's actual settings scope, erasing API configuration, equalizer presets and user-made drum kits. The affected tests now run against their own scope. Shipped binaries were never affected.
 
+### Files Modified
+* `src/converter/AutoFitVoiceLoadService.h/.cpp` (new), `src/gui/AutoFitVoiceLoadDialog.h/.cpp` (new) - Auto-Fit Voice Load engine and dialog (whole song / lane range / selection, per-track intensity, dry run, live preview)
+* `src/gui/FfxivDrumKitStore.h/.cpp` (new), `src/gui/FfxivDrumKitEditorDialog.h/.cpp` (new), `src/gui/FFXIVDrumSplitDialog.h/.cpp` - user pitch-mapping kits with audio A/B preview, kit selector in the drum split
+* `src/gui/TempoCurve.h` (new), `src/gui/TempoDialog.h/.cpp` - Smooth Transition curves (Linear / Ease-in / Ease-out / S-curve)
+* `src/ai/FfxivVoiceAnalyzer.h/.cpp`, `src/gui/FfxivVoiceLaneWidget.h/.cpp`, `src/midi/FfxivEqualizerService.h/.cpp` - voice-load analysis shared with Auto-Fit, lane selection scope
+* `src/ai/ToolDefinitions.h/.cpp` - `auto_fit_voice_load` tool
+* `src/gui/MainWindow.h/.cpp`, `src/gui/MatrixWidget.h/.cpp` - Auto-Fit wiring and context-menu entry, timeline growth after tempo edits (TIMELINE-LEN-001), cursor-anchored horizontal zoom (ZOOM-ANCHOR-001)
+* `src/midi/MidiFile.cpp`, `src/midi/MidiChannel.cpp` - Smooth Transition ramps no longer freeze the editor (TEMPO-SMOOTH-001)
+* `src/midi/FluidSynthEngine.h/.cpp` - audio-driver selection asks the local FluidSynth build
+* `src/gui/AutoUpdater.cpp` - macOS-aware update handling
+* `.github/workflows/ci.yml`, `.github/workflows/deploy-pages.yml`, `Brewfile` (new), `Makefile` (new), `macos/Info.plist.in` (new), `MidiEditorAI.icns` (new), `.gitignore` - macOS build (Tier 1, PR #12) and CI
+* `PLAYGROUND.md` (new) - experimental merges that are part of no release
+* `tests/` - new `test_auto_fit_voice_load`, `test_auto_fit_dialog`, `test_ffxiv_drum_kit_store`, `test_tempo_curve`; extended equalizer, midi-channel, tool-definition and event-perf tests; unit tests no longer wipe the real configuration
+* `manual/` - new `auto-fit-voice-load.html`, updated drum split / voice limiter / tempo / editing pages, navigation and sitemap; `README.md`; `CMakeLists.txt` - version 2.1.0
+
 </details>
 
 ---
@@ -116,6 +179,10 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 ### Fixed
 
 * **SID emulation now follows the active tab.** With several `.sid` files open as tabs, the C64 Emulation engine kept playing whichever `.sid` had been opened last - in every tab, and even after that tab was closed. The authentic-SID player now rebinds to the active document on every tab switch: each tab plays its own tune, switching to a non-SID document disarms Emulation, and closing a tab can no longer leave its song stuck in the player.
+
+### Files Modified
+* `src/gui/MainWindow.cpp`, `src/midi/SidAudioPlayer.h` - SID emulation follows the active tab
+* `CMakeLists.txt`, `README.md`, `manual/` (index, download, docs-index, changelog) - version 2.0.1
 
 ---
 
