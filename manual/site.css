@@ -1088,17 +1088,24 @@ video.lightbox-thumb:hover {
     margin-right: 0.6rem;
     text-transform: uppercase;
 }
-/* The target file name, straight from data-file, so whoever captures the media
-   knows exactly what to save it as and where - no digging in the HTML. */
-.media-todo::after {
-    content: "Save as:  manual/screenshots/" attr(data-file);
+/* The target file name lives in the markup (a <span class="media-file"> with a
+   <code>), NOT in a CSS ::after - generated content cannot be selected or
+   copied, and the whole point of showing the name is that you can copy it. */
+.media-todo .media-file {
     display: block;
     margin-top: 0.55rem;
     padding-top: 0.45rem;
     border-top: 1px dashed rgba(210, 153, 34, 0.45);
-    font-family: ui-monospace, Consolas, "Cascadia Mono", monospace;
     font-size: 0.86em;
     color: var(--text);
+}
+.media-todo .media-file code {
+    font-family: ui-monospace, Consolas, "Cascadia Mono", monospace;
+    font-size: 1em;
+    user-select: all;           /* one click selects the whole path */
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
     word-break: break-all;
 }
 .media-todo code { font-size: 0.9em; }

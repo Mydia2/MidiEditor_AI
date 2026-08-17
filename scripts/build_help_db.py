@@ -45,6 +45,13 @@ class SectionExtractor(HTMLParser):
     """
 
     IGNORED_CONTAINERS = {"nav", "script", "style", "footer", "head"}
+    # Elements that are authoring scaffolding, not manual content: a
+    # media-todo box tells the person capturing screenshots what to shoot
+    # and what to save it as. Indexed, it would let the AI quote "Save as:
+    # manual/screenshots/..." back at a user. Skipped by class, with the
+    # element's own nesting tracked so a </div> inside it does not end the
+    # skip early.
+    IGNORED_CLASSES = {"media-todo"}
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -52,8 +59,23 @@ class SectionExtractor(HTMLParser):
         self._ignore_depth = 0
         self._heading = None  # "h1" | "h2" while inside one
         self._pending_anchor = None
+        # Stack of open tags while inside a class-ignored element; empty when
+        # not inside one. Its length is the nesting depth to unwind.
+        self._class_ignore_stack = []
+
+    def _has_ignored_class(self, attrs):
+        for k, v in attrs:
+            if k == "class" and v and (self.IGNORED_CLASSES & set(v.split())):
+                return True
+        return False
 
     def handle_starttag(self, tag, attrs):
+        if self._class_ignore_stack:
+            self._class_ignore_stack.append(tag)
+            return
+        if self._has_ignored_class(attrs):
+            self._class_ignore_stack.append(tag)
+            return
         if tag in self.IGNORED_CONTAINERS:
             self._ignore_depth += 1
             return
@@ -73,6 +95,11 @@ class SectionExtractor(HTMLParser):
                 self.sections[-1]["parts"].append(" - ")
 
     def handle_endtag(self, tag):
+        if self._class_ignore_stack:
+            # Pop the matching open tag; the element that started the skip is
+            # the bottom of the stack, so the skip ends when it empties.
+            self._class_ignore_stack.pop()
+            return
         if tag in self.IGNORED_CONTAINERS:
             self._ignore_depth = max(0, self._ignore_depth - 1)
             return
@@ -90,7 +117,7 @@ class SectionExtractor(HTMLParser):
                 self.sections[-1]["parts"].append(" | ")
 
     def handle_data(self, data):
-        if self._ignore_depth or not self.sections:
+        if self._ignore_depth or self._class_ignore_stack or not self.sections:
             return
         if self._heading:
             self.sections[-1]["title"] += data
