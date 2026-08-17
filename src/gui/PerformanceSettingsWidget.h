@@ -179,6 +179,18 @@ private:
      */
     QString getBackendDescription(const QString &backend) const;
 
+    /**
+     * \brief Fills the backend info label with the renderer that is ACTUALLY in
+     *  use, taken from Appearance's runtime values rather than from the stored
+     *  setting.
+     *
+     * The stored key is only a request: the main window refuses hardware
+     * acceleration on fractionally scaled displays, and a fresh tick does not
+     * take effect until the next launch. Without this readout the checkbox
+     * looked enabled while software rendering was doing all the work.
+     */
+    void updateBackendInfoLabel();
+
     // === Member Variables ===
 
     /** \brief Settings storage */

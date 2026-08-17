@@ -407,6 +407,37 @@ public:
      */
     static bool useHardwareAcceleration();
 
+    /**
+     * \brief Records which renderer the editor views were actually built with.
+     *
+     * useHardwareAcceleration() is the REQUESTED mode (the stored setting). The
+     * main window can refuse it at construction time (fractional display
+     * scaling), so this runtime value is the only reliable answer to "is OpenGL
+     * live in this session?". It is deliberately NOT persisted - a stored key
+     * would be indistinguishable from the user's own choice on the next launch.
+     * \param active True if the OpenGL widgets were created
+     */
+    static void setHardwareAccelerationActive(bool active);
+
+    /**
+     * \brief Whether the OpenGL editor widgets are live in this session.
+     * \return True if hardware acceleration actually took effect
+     */
+    static bool hardwareAccelerationActive();
+
+    /**
+     * \brief Records the display scale factor that made the main window refuse
+     * a requested hardware-accelerated renderer.
+     * \param dpr The device pixel ratio that triggered the override (0 = none)
+     */
+    static void setHardwareAccelerationOverrideScale(qreal dpr);
+
+    /**
+     * \brief The display scale factor that suppressed hardware acceleration.
+     * \return The device pixel ratio, or 0.0 when no override happened
+     */
+    static qreal hardwareAccelerationOverrideScale();
+
     // === Font and Style Management ===
 
     /**
@@ -855,8 +886,14 @@ private:
     /** \brief VSync setting loaded early */
     static bool _enableVSync;
 
-    /** \brief Hardware acceleration setting loaded early */
+    /** \brief Hardware acceleration setting loaded early (the REQUESTED mode) */
     static bool _useHardwareAcceleration;
+
+    /** \brief Runtime-only: hardware acceleration actually took effect */
+    static bool _hardwareAccelerationActive;
+
+    /** \brief Runtime-only: display scale that suppressed it (0 = no override) */
+    static qreal _hardwareAccelerationOverrideScale;
 
     /** \brief Smooth playback scrolling enabled */
     static bool _smoothPlaybackScrolling;

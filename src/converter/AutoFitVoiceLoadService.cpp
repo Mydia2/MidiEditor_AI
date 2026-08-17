@@ -448,7 +448,12 @@ AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
 
     // ---- Live run: one protocol action, bulk per-channel snapshots --------
     if (!opts.dryRun && result.removedCount > 0) {
-        file->protocol()->startNewAction("Auto-fit voice load");
+        // The caller may own the label (the AI/MCP tool does, so the action
+        // names the actor); otherwise the service names itself - the dialog's
+        // label stays byte-identical.
+        file->protocol()->startNewAction(opts.actionLabel.isEmpty()
+                                             ? QStringLiteral("Auto-fit voice load")
+                                             : opts.actionLabel);
         QMap<int, QList<NoteOnEvent *>> byChannel;
         for (const FitNote &n : notes) {
             if (n.removed) byChannel[n.channel].append(n.on);

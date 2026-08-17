@@ -20,6 +20,7 @@
 // via MIDIPILOT_TEST_<PROVIDER>_KEY env vars.
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTest>
@@ -290,6 +291,71 @@ private slots:
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-4o-prod-v2")));
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("my-project-model")));
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5-provider")));
+    }
+
+    // ------------------------------------------------------------------
+    // TOOLS-INCAPABLE-EXPIRY: the "this model cannot call tools" flag used to
+    // be a permanent bool, so one misclassified error refused a model in Agent
+    // mode forever. It must now (a) latch right after mark(), (b) expire once
+    // the stored observation is older than toolsIncapableExpiryDays(),
+    // (c) count a legacy bool entry (no timestamp) as expired, and (d) be
+    // clearable on demand.
+    // ------------------------------------------------------------------
+    void toolsIncapableFlag_expiresAndClears()
+    {
+        const QString model = modelName(QStringLiteral("nontools"));
+        const QString key = QStringLiteral("AI/incapable_tools/")
+                            + providerName() + QStringLiteral(":") + model;
+
+        AiClient client;
+        client.setProvider(providerName());
+        client.setModel(model);
+
+        QVERIFY2(!client.toolsIncapableForCurrentModel(),
+                 "Fresh model must not be flagged.");
+
+        client.markToolsIncapableForCurrentModel(
+            QStringLiteral("HTTP 404 no endpoints found that support tool use (test)"));
+        QVERIFY2(client.toolsIncapableForCurrentModel(),
+                 "Model must be flagged right after mark().");
+
+        // The stored value is a timestamp, not a bool - that is what makes the
+        // flag expirable at all.
+        auto s = AppPaths::settings();
+        QVERIFY(s->contains(key));
+        QVERIFY2(QDateTime::fromString(s->value(key).toString(), Qt::ISODate).isValid(),
+                 "The flag must persist an ISO-8601 timestamp.");
+
+        // Just inside the window: still flagged.
+        s->setValue(key, QDateTime::currentDateTimeUtc()
+                             .addDays(-(AiClient::toolsIncapableExpiryDays() - 1))
+                             .toString(Qt::ISODate));
+        s->sync();
+        QVERIFY2(client.toolsIncapableForCurrentModel(),
+                 "An observation younger than the expiry must still refuse.");
+
+        // Past the window: expired, the model gets re-probed.
+        s->setValue(key, QDateTime::currentDateTimeUtc()
+                             .addDays(-(AiClient::toolsIncapableExpiryDays() + 1))
+                             .toString(Qt::ISODate));
+        s->sync();
+        QVERIFY2(!client.toolsIncapableForCurrentModel(),
+                 "An observation older than the expiry must be re-probed.");
+
+        // Backward compatibility: a bare bool from an older build carries no
+        // first-sight time and counts as expired.
+        s->setValue(key, true);
+        s->sync();
+        QVERIFY2(!client.toolsIncapableForCurrentModel(),
+                 "A legacy bool entry must be treated as expired.");
+
+        // Explicit reset (the gear-menu action / the successful-run path).
+        client.markToolsIncapableForCurrentModel(QStringLiteral("test"));
+        QVERIFY(client.toolsIncapableForCurrentModel());
+        client.clearToolsIncapableFlag(providerName(), model);
+        QVERIFY2(!client.toolsIncapableForCurrentModel(),
+                 "clearToolsIncapableFlag must remove the flag.");
+        QVERIFY(!AppPaths::settings()->contains(key));
     }
 };
 

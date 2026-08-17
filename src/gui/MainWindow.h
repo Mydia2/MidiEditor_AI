@@ -1172,6 +1172,26 @@ private:
      */
     void nullOnDemandToolbarWidgets();
 
+    /**
+     * \brief Repaints the primary editor view (piano roll) in either rendering
+     *  mode, and never through a dangling pointer.
+     *
+     *  Under hardware acceleration mw_matrixWidget is the HIDDEN inner widget of
+     *  the OpenGL wrapper: Qt drops update() on a hidden widget, so no GL frame
+     *  is ever scheduled and the surface keeps showing the previous frame. Only
+     *  the visible container repaints. In software rendering the container IS
+     *  mw_matrixWidget, so one call covers both modes. Both pointers are
+     *  legitimately null after performEarlyCleanup(), hence the guards - use
+     *  this helper instead of touching the pointers directly.
+     */
+    void refreshMatrixView();
+
+    /**
+     * \brief Repaints the velocity/controller lane in either rendering mode.
+     *  Same hidden-inner-widget and shutdown rules as refreshMatrixView().
+     */
+    void refreshMiscView();
+
     // === Core Widgets ===
 
     /** \brief Main matrix widget for MIDI editing (internal widget for data access) */

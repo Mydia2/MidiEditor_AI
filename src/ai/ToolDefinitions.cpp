@@ -1037,7 +1037,7 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         return execAnalyzeVoiceLoad(args, file);
     }
     if (toolName == "auto_fit_voice_load") {
-        return execAutoFitVoiceLoad(args, file);
+        return execAutoFitVoiceLoad(args, file, source);
     }
 
     QJsonObject result;
@@ -1655,10 +1655,13 @@ QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiF
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
-QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiFile *file) {
+QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args,
+                                                  MidiFile *file,
+                                                  const QString &source) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
     Q_UNUSED(args);
     Q_UNUSED(file);
+    Q_UNUSED(source);
     QJsonObject result;
     result["success"] = false;
     result["error"] = QStringLiteral("Stub build: auto_fit_voice_load is unavailable.");
@@ -1694,6 +1697,13 @@ QJsonObject ToolDefinitions::execAutoFitVoiceLoad(const QJsonObject &args, MidiF
     if (args.contains("preferLoudest"))
         opts.preferLoudest = args.value("preferLoudest").toBool(false);
     opts.dryRun = args.value("dryRun").toBool(true); // safe default: dry run
+
+    // Protocol-panel attribution. The label is built HERE (not in the service)
+    // so it uses the same "<actor>: Agent <verb>" format as every other
+    // agent/MCP action; the service keeps its own label for the dialog.
+    // Prefix concatenated, not .arg()-substituted - see execTransposeEvents.
+    opts.actionLabel = protocolActorPrefix(source)
+                       + QStringLiteral(": Agent auto-fit voice load");
 
     const AutoFitResult r = AutoFitVoiceLoadService::apply(file, opts);
     if (!r.ok) {

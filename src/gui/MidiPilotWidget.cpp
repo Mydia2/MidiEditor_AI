@@ -826,6 +826,19 @@ void MidiPilotWidget::setupUi() {
         dlg.exec();
     });
     settingsMenu->addSeparator();
+    // TOOLS-INCAPABLE-EXPIRY: manual escape hatch from the Agent-mode
+    // pre-flight refusal in sendCurrentPrompt(). The flag also expires on its
+    // own after AiClient::toolsIncapableExpiryDays(), but a user who knows the
+    // model can call tools should not have to wait for that.
+    settingsMenu->addAction(tr("Retry tool support for this model"), this, [this]() {
+        const QString model = _client->model();
+        _client->clearToolsIncapableFlag(_client->provider(), model);
+        setStatus(model.isEmpty()
+                      ? tr("Tool support flag cleared")
+                      : tr("Tool support will be retried for %1").arg(model),
+                  "green");
+    });
+    settingsMenu->addSeparator();
     settingsMenu->addAction("Save AI preset for this file...", this, &MidiPilotWidget::savePresetForFile);
     connect(settingsBtn, &QPushButton::clicked, settingsBtn, [settingsBtn, settingsMenu]() {
         settingsMenu->exec(settingsBtn->mapToGlobal(QPoint(0, -settingsMenu->sizeHint().height())));
@@ -1267,7 +1280,11 @@ bool MidiPilotWidget::sendCurrentPrompt() {
                "cannot be used in Agent mode.\n\n"
                "Pick a different model in Settings → AI (look for "
                "tool/function-calling support), or switch this chat "
-               "to Simple mode."));
+               "to Simple mode.\n\n"
+               "If you believe this model can call tools, choose "
+               "\"Retry tool support for this model\" in the ⚙ menu below - "
+               "the check is also repeated automatically after %1 days.")
+                .arg(AiClient::toolsIncapableExpiryDays()));
         return false;
     }
 

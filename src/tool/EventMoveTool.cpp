@@ -141,24 +141,16 @@ bool EventMoveTool::press(bool leftClick) {
             dragCursor = Qt::SizeHorCursor;
         }
 
-        // Set cursor on OpenGL container if available, otherwise on matrix widget
-        if (_openglContainer) {
-            _openglContainer->setCursor(dragCursor);
-        } else {
-            matrixWidget->setCursor(dragCursor);
-        }
+        // Cursor goes to the visible pane the tool is acting on
+        setToolCursor(dragCursor);
     }
     return true;
 }
 
 bool EventMoveTool::release() {
     inDrag = false;
-    // Set cursor on OpenGL container if available, otherwise on matrix widget
-    if (_openglContainer) {
-        _openglContainer->setCursor(Qt::ArrowCursor);
-    } else {
-        matrixWidget->setCursor(Qt::ArrowCursor);
-    }
+    // Cursor goes to the visible pane the tool is acting on
+    setToolCursor(Qt::ArrowCursor);
     int currentX = computeRaster();
     int shiftX = startX - currentX;
     if (!moveLeftRight) {
@@ -223,12 +215,8 @@ bool EventMoveTool::move(int mouseX, int mouseY) {
 
 bool EventMoveTool::releaseOnly() {
     inDrag = false;
-    // Set cursor on OpenGL container if available, otherwise on matrix widget
-    if (_openglContainer) {
-        _openglContainer->setCursor(Qt::ArrowCursor);
-    } else {
-        matrixWidget->setCursor(Qt::ArrowCursor);
-    }
+    // Cursor goes to the visible pane the tool is acting on
+    setToolCursor(Qt::ArrowCursor);
     startX = 0;
     startY = 0;
     return true;

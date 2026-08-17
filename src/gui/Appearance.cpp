@@ -82,6 +82,8 @@ bool Appearance::_useRoundedScaling = false;
 int Appearance::_msaaSamples = 2;
 bool Appearance::_enableVSync = false;
 bool Appearance::_useHardwareAcceleration = false;
+bool Appearance::_hardwareAccelerationActive = false;
+qreal Appearance::_hardwareAccelerationOverrideScale = 0.0;
 bool Appearance::_toolbarTwoRowMode = true; // Default to double-row layout (curated MidiEditor AI default since 1.6.1)
 bool Appearance::_toolbarCustomizeEnabled = true; // Customize toolbar on by default since 1.6.1 - ship full curated 2-row layout
 QStringList Appearance::_toolbarActionOrder = QStringList();
@@ -1006,6 +1008,22 @@ bool Appearance::enableVSync() {
 
 bool Appearance::useHardwareAcceleration() {
     return _useHardwareAcceleration;
+}
+
+void Appearance::setHardwareAccelerationActive(bool active) {
+    _hardwareAccelerationActive = active;
+}
+
+bool Appearance::hardwareAccelerationActive() {
+    return _hardwareAccelerationActive;
+}
+
+void Appearance::setHardwareAccelerationOverrideScale(qreal dpr) {
+    _hardwareAccelerationOverrideScale = dpr;
+}
+
+qreal Appearance::hardwareAccelerationOverrideScale() {
+    return _hardwareAccelerationOverrideScale;
 }
 
 void Appearance::loadEarlySettings() {

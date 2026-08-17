@@ -2225,21 +2225,40 @@ void MidiFile::deleteMeasures(int from, int to) {
     // touched channel at the end. Avoids O(events) channel-map deep clones.
     QVector<ProtocolEntry *> deleteMeasuresSnapshots(19, nullptr);
 
-    // Delete all events. For notes, only delete if starting within the given tick range.
+    // Delete every event STARTING inside the HALF-OPEN range [tickFrom, tickTo).
+    // tickTo is the start tick of the first bar that SURVIVES, so everything
+    // sitting exactly ON it - notes, controllers, program changes, meter and
+    // tempo changes - belongs to the surviving material and gets shifted left
+    // below instead of deleted. The bound used to be inclusive, which silently
+    // ate the complete downbeat of the first kept bar on every delete.
+    // Notes are keyed by their ON event: a note starting inside the range takes
+    // its OFF event with it, wherever that sits.
+    QList<QPair<int, MidiEvent *>> refusedRemoval;
+    QList<OffEvent *> spanningOffs;
     for (int ch = 0; ch < 19; ch++) {
         QMultiMap<int, MidiEvent *>::Iterator it = channel(ch)->eventMap()->begin();
         QList<MidiEvent *> toRemove;
         while (it != channel(ch)->eventMap()->end()) {
-            if (it.key() >= tickFrom && it.key() <= tickTo) {
+            if (it.key() >= tickFrom && it.key() < tickTo) {
                 OffEvent *offEvent = dynamic_cast<OffEvent *>(it.value());
-                if (!offEvent) {
-                    // Only remove if no off-event, off-event are handled separately
+                if (offEvent) {
+                    // An OFF event alone inside the range belongs to a note
+                    // that STARTED before tickFrom (an ON inside the range
+                    // removes its own OFF in the else branch). Such a spanning
+                    // note is SHORTENED to the splice point, never deleted -
+                    // clamped, not shifted, because shifting an off event out
+                    // of the deleted interval would give the note a negative
+                    // duration.
+                    if (offEvent->onEvent()
+                        && offEvent->onEvent()->midiTime() < tickFrom) {
+                        spanningOffs.append(offEvent);
+                    }
+                } else {
                     toRemove.append(it.value());
 
                     OnEvent *onEvent = dynamic_cast<OnEvent *>(it.value());
-                    if (onEvent) {
-                        OffEvent *offEventOfRemovedNote = onEvent->offEvent();
-                        toRemove.append(offEventOfRemovedNote);
+                    if (onEvent && onEvent->offEvent()) {
+                        toRemove.append(onEvent->offEvent());
                     }
                 }
             }
@@ -2249,7 +2268,12 @@ void MidiFile::deleteMeasures(int from, int to) {
         if (!toRemove.isEmpty() && channel(ch))
             deleteMeasuresSnapshots[ch] = channel(ch)->copy();
         foreach(MidiEvent* event, toRemove) {
-            channel(ch)->removeEvent(event, false);
+            // removeEvent() refuses to drop the LAST event on tick 0 of the
+            // tempo (17) / time-signature (18) channel; remember those, they
+            // get a second chance once the shift below has put the meter/tempo
+            // of the first surviving bar on the same tick.
+            if (!channel(ch)->removeEvent(event, false))
+                refusedRemoval.append(qMakePair(ch, event));
         }
     }
     for (int ch = 0; ch < 19; ch++) {
@@ -2257,14 +2281,21 @@ void MidiFile::deleteMeasures(int from, int to) {
             channel(ch)->protocol(deleteMeasuresSnapshots[ch], channel(ch));
     }
 
-    // All remaining events after the end tick have to be shifted. Note: off events that still
-    // exist inbetween the deleted interval are not shifted, since this would cause negative
-    // duration.
+    // Notes spanning into the deleted range end exactly at the splice point.
+    foreach (OffEvent *off, spanningOffs) {
+        if (off->midiTime() != tickFrom)
+            off->setMidiTime(tickFrom);
+    }
+
+    // All remaining events from the end tick ON have to be shifted - tickTo
+    // INCLUDED, so the downbeat of the first kept bar lands on tickFrom. Off
+    // events left inside the deleted interval are not shifted (that would
+    // cause a negative duration); they were clamped to tickFrom above.
     for (int ch = 0; ch < 19; ch++) {
         QList<MidiEvent *> toUpdate;
         QMultiMap<int, MidiEvent *>::Iterator it = channel(ch)->eventMap()->begin();
         while (it != channel(ch)->eventMap()->end()) {
-            if (it.key() > tickTo) {
+            if (it.key() >= tickTo) {
                 toUpdate.append(it.value());
             }
             it++;
@@ -2275,8 +2306,22 @@ void MidiFile::deleteMeasures(int from, int to) {
         }
     }
 
+    // Second chance for the events the tick-0 guard kept alive: a tempo or
+    // meter change from INSIDE the deleted range that survived at tickFrom
+    // would now shadow the one the shift just moved there (the map iterates the
+    // newest first, so meterAt() can settle on the stale one) and the file
+    // would save both. With more than one event on the tick the guard no longer
+    // applies.
+    for (const QPair<int, MidiEvent *> &stale : refusedRemoval) {
+        MidiChannel *c = channel(stale.first);
+        if (!c || !c->eventMap()->contains(stale.second->midiTime(), stale.second))
+            continue;
+        if (c->eventMap()->count(stale.second->midiTime()) > 1)
+            c->removeEvent(stale.second, true);
+    }
+
     // Re-anchor the meter. The event that carried it may be GONE: the delete
-    // loop above strips every non-off event in [tickFrom, tickTo] from all 19
+    // loop above strips every non-off event in [tickFrom, tickTo) from all 19
     // channels, channel 18 included. So the decision has to be driven by "is
     // there still an event anchoring tickFrom?" and NEVER by comparing
     // num/denom against what meterAt() reports: its no-event fallback is itself

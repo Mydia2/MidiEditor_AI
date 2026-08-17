@@ -37,6 +37,10 @@
  *      measureCount(), insertMeasures() and deleteMeasures() fall back to 4/4
  *      instead of crashing. The measure tool asks measure() on every paint, so
  *      a null here is an access violation on the next mouse move.
+ *  12. deleteMeasures() removes the HALF-OPEN range [tickFrom, tickTo): events
+ *      starting exactly on the downbeat of the first KEPT bar survive and shift
+ *      left, notes starting inside the range go away with their off event, and
+ *      notes spanning into the range are shortened to the splice point.
  *
  * NOT testable here: measure() dereferences BOTH out-params unconditionally,
  * so passing nullptr is an access violation, not a soft failure. That is now
@@ -56,6 +60,9 @@
 #include "../src/midi/MidiTrack.h"
 #include "../src/protocol/Protocol.h"
 #include "../src/MidiEvent/MidiEvent.h"
+#include "../src/MidiEvent/ControlChangeEvent.h"
+#include "../src/MidiEvent/NoteOnEvent.h"
+#include "../src/MidiEvent/OffEvent.h"
 #include "../src/MidiEvent/TempoChangeEvent.h"
 #include "../src/MidiEvent/TimeSignatureEvent.h"
 
@@ -450,6 +457,80 @@ private slots:
         QCOMPARE(timeSigs(&g).first()->midiTime(), 0);
         QCOMPARE(timeSigs(&g).first()->num(), 4);
         QCOMPARE(timeSigs(&g).first()->denom(), 2);
+    }
+
+    // --- 12. deleteMeasures() deletes a HALF-OPEN range ---------------------
+    // tickTo is the start of the first bar that SURVIVES, so everything sitting
+    // exactly on that downbeat has to survive and shift left with it. The
+    // delete loop used to test `tick <= tickTo`, so deleting bar 1 also wiped
+    // every note, controller and program change starting on the downbeat of
+    // bar 2.
+    void deletingBarsKeepsEventsOnTheNextDownbeat() {
+        MidiFile f;
+        const int bar = expectedTicksPerMeasure(&f, 0);
+        MidiChannel *ch = f.channel(0);
+
+        f.protocol()->startNewAction("content");
+        NoteOnEvent *inside = ch->insertNote(60, 0, 480, 100, f.track(0));
+        NoteOnEvent *downbeat = ch->insertNote(62, bar, bar + 480, 100, f.track(0));
+        NoteOnEvent *later = ch->insertNote(64, bar * 2, bar * 2 + 480, 100, f.track(0));
+        ControlChangeEvent *cc = new ControlChangeEvent(0, 7, 90, f.track(0));
+        ch->insertEvent(cc, bar);
+        f.protocol()->endAction();
+        OffEvent *insideOff = inside->offEvent();
+        QVERIFY(insideOff);
+        QCOMPARE(int(ch->eventMap()->size()), 7); // 3 notes (on+off) + controller
+
+        f.protocol()->startNewAction("Remove measures");
+        f.deleteMeasures(1, 1);          // tickFrom = 0, tickTo = bar
+        f.protocol()->endAction();
+
+        // (a) the note starting exactly on the next downbeat survives and lands
+        //     on tickFrom, off event and all.
+        QVERIFY2(ch->eventMap()->contains(0, downbeat),
+                 "note on the first kept downbeat was deleted or not shifted");
+        QVERIFY(ch->eventMap()->contains(480, downbeat->offEvent()));
+        QCOMPARE(downbeat->note(), 62);
+
+        // (b) the note fully inside the deleted bar is gone - with its off.
+        QVERIFY(!ch->eventMap()->values().contains(inside));
+        QVERIFY(!ch->eventMap()->values().contains(insideOff));
+
+        // (c) a controller event on that downbeat survives too.
+        QVERIFY2(ch->eventMap()->contains(0, cc),
+                 "controller on the first kept downbeat was deleted");
+
+        // Everything behind it keeps its distance.
+        QVERIFY(ch->eventMap()->contains(bar, later));
+        QVERIFY(ch->eventMap()->contains(bar + 480, later->offEvent()));
+        QCOMPARE(int(ch->eventMap()->size()), 5); // 2 notes + controller
+    }
+
+    // A note that STARTS before the deleted range and ends inside it is
+    // shortened to the splice point, never deleted; one that spans the whole
+    // range loses exactly the deleted length.
+    void deletingBarsShortensNotesSpanningTheSplice() {
+        MidiFile f;
+        const int bar = expectedTicksPerMeasure(&f, 0);
+        MidiChannel *ch = f.channel(0);
+
+        f.protocol()->startNewAction("content");
+        NoteOnEvent *intoRange = ch->insertNote(60, bar / 2, bar + 240, 100, f.track(0));
+        NoteOnEvent *acrossRange = ch->insertNote(62, bar / 2, bar * 2 + 240, 100, f.track(0));
+        f.protocol()->endAction();
+
+        f.protocol()->startNewAction("Remove measures");
+        f.deleteMeasures(2, 2);          // tickFrom = bar, tickTo = bar * 2
+        f.protocol()->endAction();
+
+        QVERIFY(ch->eventMap()->contains(bar / 2, intoRange));
+        QCOMPARE(intoRange->offEvent()->midiTime(), bar);   // clamped, not shifted
+        QVERIFY(ch->eventMap()->contains(bar, intoRange->offEvent()));
+        QVERIFY(intoRange->offEvent()->midiTime() > intoRange->midiTime());
+
+        QVERIFY(ch->eventMap()->contains(bar / 2, acrossRange));
+        QCOMPARE(acrossRange->offEvent()->midiTime(), bar + 240); // shifted by -bar
+        QCOMPARE(int(ch->eventMap()->size()), 4);           // nothing was deleted
     }
 };
 

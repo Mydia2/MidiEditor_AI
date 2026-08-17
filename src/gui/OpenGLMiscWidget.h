@@ -127,6 +127,11 @@ protected:
      */
     void paintContent(QPainter *painter) override;
 
+    /**
+     * \brief The hidden MiscWidget this wrapper renders and forwards input to.
+     */
+    QWidget *hostedWidget() const override { return _miscWidget; }
+
     // === Event Handlers ===
     // All event handlers delegate to the internal MiscWidget
 
@@ -185,6 +190,17 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
+    /**
+     * \brief Copies the hidden MiscWidget's cursor onto this wrapper.
+     *
+     * MiscWidget sets its resize/arrow cursors on itself. Under hardware
+     * acceleration it is a hidden child, and Qt only ever applies the cursor of
+     * the visible widget under the pointer, so the whole "you can drag this
+     * value" affordance of the velocity lane was lost. Mirroring it here is the
+     * lane's equivalent of the escape hatch the matrix tools have.
+     */
+    void syncCursorFromHosted();
+
     // === Internal Components ===
 
     /** \brief Internal MiscWidget instance that handles all the logic */

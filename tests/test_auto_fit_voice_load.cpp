@@ -127,6 +127,7 @@ QColor Appearance::borderColor() { return QColor(Qt::black); }
 // protocol) plus the members the linked midi/protocol TUs reference
 // (calcMaxTime, setSaved, channelEvents, ...). Linear 1:1 time model.
 #include "../src/protocol/Protocol.h"
+#include "../src/protocol/ProtocolStep.h" // undoStep(0)->description() in a test
 class MidiFile {
 public:
     MidiFile();
@@ -392,6 +393,7 @@ private slots:
     void heldNotesRange_reportsEnteringPeak();
     void singleTickScope_isValid();
     void notesEndingAtScopeStart_dontPrimePeak();
+    void actionLabel_overridesTheProtocolStepName();
 };
 
 // -------------------------------------------------------------------------
@@ -1068,6 +1070,47 @@ void TestAutoFitVoiceLoadService::notesEndingAtScopeStart_dontPrimePeak() {
     QCOMPARE(r.overflowRangeCount, 0);   // no phantom overflow
     QVERIFY(r.peakBefore <= 16);         // never "17/16" for a fitting range
     QCOMPARE(r.totalNotesInScope, 0);
+}
+
+// -------------------------------------------------------------------------
+void TestAutoFitVoiceLoadService::actionLabel_overridesTheProtocolStepName() {
+    // The AI/MCP tool owns the Protocol-panel label so the step names the
+    // actor ("MidiPilotMCP (<client>): Agent auto-fit voice load"); the
+    // dialog leaves actionLabel empty and MUST keep the service's own name.
+    auto buildOverflow = [](ScopedFile &f) {
+        for (int i = 0; i < 17; ++i) {
+            const int pitch = 40 + i;
+            f.addNote(0, 1000, 6000, pitch, (pitch == 48) ? 1 : 100);
+        }
+    };
+
+    {   // Empty override: byte-identical default label.
+        ScopedFile f;
+        buildOverflow(f);
+        AutoFitOptions o = baseOptions();
+        o.dryRun = false;
+        QVERIFY(o.actionLabel.isEmpty());
+        AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
+        QVERIFY(r.ok);
+        QCOMPARE(r.removedCount, 1);
+        QCOMPARE(f.protocol->stepsBack(), 1);
+        QCOMPARE(f.protocol->undoStep(0)->description(),
+                 QStringLiteral("Auto-fit voice load"));
+    }
+
+    {   // Override honoured verbatim.
+        ScopedFile f;
+        buildOverflow(f);
+        AutoFitOptions o = baseOptions();
+        o.dryRun = false;
+        o.actionLabel =
+            QStringLiteral("MidiPilotMCP (VS Code Copilot): Agent auto-fit voice load");
+        AutoFitResult r = AutoFitVoiceLoadService::apply(f.file, o);
+        QVERIFY(r.ok);
+        QCOMPARE(r.removedCount, 1);
+        QCOMPARE(f.protocol->stepsBack(), 1);
+        QCOMPARE(f.protocol->undoStep(0)->description(), o.actionLabel);
+    }
 }
 
 QTEST_MAIN(TestAutoFitVoiceLoadService)

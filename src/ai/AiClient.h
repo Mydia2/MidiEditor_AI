@@ -301,22 +301,34 @@ public:
 
     /**
      * \brief True when the current provider/model has been observed not to
-     *        support tool calling. Persisted in QSettings under
-     *        `AI/incapable_tools/<provider>:<model>`.
+     *        support tool calling, and that observation is not older than
+     *        toolsIncapableExpiryDays(). Persisted in QSettings under
+     *        `AI/incapable_tools/<provider>:<model>` as the ISO-8601 UTC
+     *        timestamp of the observation. Legacy bool entries (written
+     *        before the expiry existed) carry no time and count as expired.
      */
     bool toolsIncapableForCurrentModel() const;
 
     /**
-     * \brief Mark the current provider/model as not supporting tool calling.
+     * \brief Mark the current provider/model as not supporting tool calling,
+     *        stamped with the current UTC time so the flag can expire.
      */
     void markToolsIncapableForCurrentModel(const QString &reason);
 
     /**
      * \brief Clear the tools-incapable flag for one provider/model pair (or
-     *        all entries when both are empty).
+     *        all entries when both are empty). Called by the MidiPilot gear
+     *        menu ("Retry tool support for this model") and automatically
+     *        whenever an Agent request carrying tools succeeds.
      */
     void clearToolsIncapableFlag(const QString &provider = QString(),
                                  const QString &model = QString());
+
+    /**
+     * \brief Days after which a tools-incapable observation expires and the
+     *        model is re-probed (7).
+     */
+    static int toolsIncapableExpiryDays();
 
     /**
      * \brief Heuristic: returns true if `error` looks like the upstream

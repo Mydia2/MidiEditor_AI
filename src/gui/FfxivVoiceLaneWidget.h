@@ -34,6 +34,12 @@ public:
     void setPreviewSamples(const QVector<FfxivVoiceLoad::VoiceSample> &samples);
     void clearPreview();
 
+    /// Drops the cached MatrixWidget reference (shutdown). Under hardware
+    /// acceleration the piano roll is destroyed with its OpenGL wrapper while
+    /// this lane is still alive, so the reference must be cut before the delete;
+    /// the existing null guards then make every paint/hit-test a no-op.
+    void detachMatrixWidget();
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;

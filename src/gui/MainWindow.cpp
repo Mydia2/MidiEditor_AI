@@ -477,7 +477,16 @@ MainWindow::MainWindow(QString initFile)
         qWarning() << "MainWindow: Automatically disabling hardware acceleration due to Qt6 high DPI compatibility issues.";
         qWarning() << "MainWindow: To use hardware acceleration, enable 'Ignore system UI scaling' in Performance settings.";
         useHardwareAcceleration = false; // Automatically disable to prevent rendering issues
+        // Remember WHY, so the Performance settings page can say so instead of
+        // showing a ticked checkbox for a renderer that never came up.
+        Appearance::setHardwareAccelerationOverrideScale(dpr);
+    } else {
+        Appearance::setHardwareAccelerationOverrideScale(0.0);
     }
+
+    // Publish the EFFECTIVE renderer (runtime only, never persisted): the stored
+    // setting is the request, this is what actually got built.
+    Appearance::setHardwareAccelerationActive(useHardwareAcceleration);
 
     QWidget *matrixContainer;
 
@@ -1011,7 +1020,7 @@ MainWindow::MainWindow(QString initFile)
         // When the user clicks a hunk and the widget updates the global
         // Selection, repaint the piano roll so the highlight shows.
         connect(collabHistory, &CollabHistoryWidget::selectionApplied, this, [this]() {
-            if (_matrixWidgetContainer) _matrixWidgetContainer->update();
+            refreshMatrixView();
             if (eventWidget()) eventWidget()->reload();
         });
 
@@ -1230,9 +1239,11 @@ MainWindow::MainWindow(QString initFile)
         // Invalidate the cached pixmap so the matrix redraws from current MidiFile data.
         // Without this, update() just repaints the stale cache (normally invalidated
         // only by Protocol::actionFinished which doesn't fire mid-agent-run).
-        mw_matrixWidget->registerRelayout();
-        _matrixWidgetContainer->update();
-        _miscWidgetContainer->update();
+        // The pointers are null after performEarlyCleanup(), which pumps the event
+        // loop and can still dispatch a queued agent callback.
+        if (mw_matrixWidget) mw_matrixWidget->registerRelayout();
+        refreshMatrixView();
+        refreshMiscView();
         _trackWidget->update();
     });
 
@@ -1606,6 +1617,31 @@ void MainWindow::performEarlyCleanup() {
     // Set shutdown flag immediately to prevent any QPixmap creation during cleanup
     Appearance::setShuttingDown(true);
 
+    // Drop the engine-switch stop hook here too (the destructor clears it as
+    // well, but closeEvent runs this function long before the destructor): it
+    // captured `this` and calls stop(), which the processEvents() below could
+    // otherwise dispatch into the half-torn-down window.
+    C64Mode::setStopPlaybackHook(nullptr);
+
+    // Sever the transport wiring BEFORE stopping playback. MidiPlayer::stop()
+    // below makes the player thread emit playerStopped() from its OWN thread, so
+    // every main-thread receiver gets a QUEUED metacall that MidiPlayer's
+    // QThread::wait() cannot drain. The processEvents() at the end of this
+    // function would then dispatch MainWindow::stop() (connected in play() and in
+    // the record path) AFTER the container pointers below have been nulled -
+    // which used to crash on `_matrixWidgetContainer->update()`. Cutting the
+    // connections here means the metacall is never posted at all. The player
+    // thread also drives the lyric timeline / voice lane / visualizers, whose
+    // queued repaints would otherwise land on freed state for the same reason.
+    if (PlayerThread *player = MidiPlayer::playerThread()) {
+        disconnect(player, nullptr, this, nullptr);
+        if (_lyricTimeline) disconnect(player, nullptr, _lyricTimeline, nullptr);
+        if (_voiceLaneWidget) disconnect(player, nullptr, _voiceLaneWidget, nullptr);
+        if (_lyricVisualizer) disconnect(player, nullptr, _lyricVisualizer, nullptr);
+        if (_visualizer) disconnect(player, nullptr, _visualizer, nullptr);
+        if (_timeDisplay) disconnect(player, nullptr, _timeDisplay, nullptr);
+    }
+
     // Stop any ongoing MIDI operations first
     if (MidiPlayer::isPlaying()) {
         MidiPlayer::stop();
@@ -1616,7 +1652,35 @@ void MainWindow::performEarlyCleanup() {
         MidiInput::endInput(nullptr); // Pass nullptr since we're just stopping, not saving
     }
 
-    // Clean up OpenGL widgets explicitly while OpenGL context is still valid
+    // Detach everything that caches the primary MatrixWidget before it is
+    // destroyed with its OpenGL wrapper. The tool statics are read by
+    // EventMoveTool/SizeChangeTool/StandardTool (setCursor, activeEvents), and
+    // the lyric/voice lanes dereference their cached pointer from paintEvent -
+    // all of which the processEvents() below can still reach.
+    const bool destroyingPrimaryView =
+        qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer) != nullptr;
+    if (destroyingPrimaryView) {
+        EditorTool::setOpenGLContainer(nullptr);
+        // Only drop the tool target if it IS the pane about to die - the second
+        // editor group is a plain widget that outlives this function.
+        if (EditorTool::currentMatrixWidget() == mw_matrixWidget) {
+            EditorTool::setMatrixWidget(nullptr);
+        }
+        if (_lyricTimeline) _lyricTimeline->detachMatrixWidget();
+        if (_voiceLaneWidget) _voiceLaneWidget->detachMatrixWidget();
+    }
+
+    // Clean up OpenGL widgets explicitly while OpenGL context is still valid.
+    // The misc lane goes FIRST: its internal MiscWidget holds the matrix widget
+    // that the block below destroys.
+    if (_miscWidgetContainer && _miscWidgetContainer != _miscWidget) {
+        qDebug() << "MainWindow: Early cleanup of OpenGL misc widget";
+        _miscWidgetContainer->setParent(nullptr);
+        delete _miscWidgetContainer;
+        _miscWidgetContainer = nullptr;
+        _miscWidget = nullptr;
+    }
+
     if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
         qDebug() << "MainWindow: Early cleanup of OpenGL matrix widget";
         openglMatrix->setParent(nullptr);
@@ -1630,18 +1694,30 @@ void MainWindow::performEarlyCleanup() {
         _activeView = nullptr;
     }
 
-    if (_miscWidgetContainer && _miscWidgetContainer != _miscWidget) {
-        qDebug() << "MainWindow: Early cleanup of OpenGL misc widget";
-        _miscWidgetContainer->setParent(nullptr);
-        delete _miscWidgetContainer;
-        _miscWidgetContainer = nullptr;
-        _miscWidget = nullptr;
-    }
-
     // Force immediate processing of any pending events
     QApplication::processEvents(QEventLoop::AllEvents);
 
     qDebug() << "MainWindow: Early OpenGL cleanup completed";
+}
+
+void MainWindow::refreshMatrixView() {
+    // Never call mw_matrixWidget->update() for this: under hardware acceleration
+    // that is the hidden inner widget of the OpenGL wrapper and Qt drops the
+    // request, leaving the GPU surface on the previous frame. The container is
+    // the visible widget in both modes (it IS mw_matrixWidget in software mode).
+    if (_matrixWidgetContainer) {
+        _matrixWidgetContainer->update();
+    } else if (mw_matrixWidget) {
+        mw_matrixWidget->update();
+    }
+}
+
+void MainWindow::refreshMiscView() {
+    if (_miscWidgetContainer) {
+        _miscWidgetContainer->update();
+    } else if (_miscWidget) {
+        _miscWidget->update();
+    }
 }
 
 void MainWindow::initializeSharedClipboard() {
@@ -1688,7 +1764,8 @@ void MainWindow::loadInitFile() {
         syncVelocitySplitterFromView();
         if (mw_matrixWidget) mw_matrixWidget->calcSizes();
         if (_compareMatrixWidget) _compareMatrixWidget->calcSizes();
-        if (_miscWidgetContainer) _miscWidgetContainer->update();
+        refreshMatrixView();
+        refreshMiscView();
         if (_compareMisc) _compareMisc->update();
     });
 }
@@ -2231,8 +2308,8 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     }
     updateChannelMenu();
     updateTrackMenu();
-    _matrixWidgetContainer->update();
-    _miscWidgetContainer->update();
+    refreshMatrixView();
+    refreshMiscView();
 
     // Update paste action state when file changes
     copiedEventsChanged();
@@ -2922,11 +2999,21 @@ void MainWindow::focusEditorView(MatrixWidget *view) {
         return;
     }
     EditorTool::setMatrixWidget(view);
+    // Under hardware acceleration the primary view is the HIDDEN inner widget of
+    // the OpenGL wrapper, and Qt refuses focus to a hidden widget - so the editor
+    // area could never take keyboard focus and piano emulation stayed dead once
+    // focus had landed in a text field. Focus the visible wrapper instead. In
+    // software rendering _matrixWidgetContainer IS the view, so this is a no-op
+    // change; the compare pane is always a plain visible widget.
+    QWidget *focusTarget = view;
+    if (view == mw_matrixWidget && _matrixWidgetContainer) {
+        focusTarget = _matrixWidgetContainer;
+    }
     // setFocus() triggers focusInEvent -> claimAsActiveView, which is a no-op when
     // the view already holds focus; the hasFocus() guard avoids needless churn and
     // re-entrancy through onViewFocused.
-    if (!view->hasFocus()) {
-        view->setFocus(Qt::MouseFocusReason);
+    if (!focusTarget->hasFocus()) {
+        focusTarget->setFocus(Qt::MouseFocusReason);
     }
 }
 
@@ -3783,7 +3870,7 @@ void MainWindow::matrixSizeChanged(int maxScrollTime, int maxScrollLine,
     }
 
     // Update the matrix widget
-    _matrixWidgetContainer->update();
+    refreshMatrixView();
 }
 
 void MainWindow::playStop() {
@@ -4122,11 +4209,14 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
 
     if (resetPause) {
         file->setPauseTick(-1);
-        _matrixWidgetContainer->update();
+        // refreshMatrixView() instead of a bare deref: the editor views are gone
+        // (pointers nulled) once performEarlyCleanup() has run, and this slot is
+        // reachable from a queued playerStopped().
+        refreshMatrixView();
     }
     if (!MidiInput::recording() && MidiPlayer::isPlaying()) {
         MidiPlayer::stop();
-        _miscWidgetContainer->setEnabled(true);
+        if (_miscWidgetContainer) _miscWidgetContainer->setEnabled(true);
         channelWidget->setEnabled(true);
         _trackWidget->setEnabled(true);
         protocolWidget->setEnabled(true);
@@ -4140,7 +4230,7 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
             matrixWidget->timeMsChanged(MidiPlayer::timeMs(), true);
         }
         // Reset lyric timeline playback position
-        _lyricTimeline->onPlaybackPositionChanged(-1);
+        if (_lyricTimeline) _lyricTimeline->onPlaybackPositionChanged(-1);
         _trackWidget->setEnabled(true);
         panic();
     }
@@ -4153,10 +4243,10 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
     if (MidiInput::recording()) {
         MidiPlayer::stop();
         panic();
-        _miscWidgetContainer->setEnabled(true);
+        if (_miscWidgetContainer) _miscWidgetContainer->setEnabled(true);
         channelWidget->setEnabled(true);
         protocolWidget->setEnabled(true);
-        _matrixWidgetContainer->setEnabled(true);
+        if (_matrixWidgetContainer) _matrixWidgetContainer->setEnabled(true);
         _trackWidget->setEnabled(true);
         eventWidget()->setEnabled(true);
         QMultiMap<int, MidiEvent *> events = MidiInput::endInput(track);
@@ -4716,6 +4806,16 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         event->ignore();
     }
 
+    // Persist the view preferences BEFORE the teardown below: under hardware
+    // acceleration performEarlyCleanup() destroys the piano roll and nulls
+    // mw_matrixWidget, so the guarded write further down silently skipped and the
+    // grid division / screen lock / colouring never survived a restart.
+    if (mw_matrixWidget) {
+        _settings->setValue("screen_locked", mw_matrixWidget->screenLocked());
+        _settings->setValue("div", mw_matrixWidget->div());
+        _settings->setValue("colors_from_channel", mw_matrixWidget->colorsByChannel());
+    }
+
     // Only perform early cleanup if we're actually closing
     if (shouldClose) {
         saveSession(); // persist open tabs/groups for next launch (before teardown)
@@ -4739,12 +4839,8 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     _settings->setValue("alt_stop", MidiOutput::isAlternativePlayer);
     _settings->setValue("ticks_per_quarter", MidiFile::defaultTimePerQuarter);
 
-    // Only save matrix widget settings if the widget is still valid
-    if (mw_matrixWidget) {
-        _settings->setValue("screen_locked", mw_matrixWidget->screenLocked());
-        _settings->setValue("div", mw_matrixWidget->div());
-        _settings->setValue("colors_from_channel", mw_matrixWidget->colorsByChannel());
-    }
+    // (screen_locked / div / colors_from_channel are written above, while the
+    // matrix widget is guaranteed to be alive.)
 
     _settings->setValue("magnet", EventTool::magnetEnabled());
     _settings->setValue("metronome", Metronome::enabled());
@@ -8068,8 +8164,8 @@ void MainWindow::colorsByChannel() {
     _colorsByChannel->setChecked(true);
     _colorsByTracks->setChecked(false);
     mw_matrixWidget->registerRelayout();
-    _matrixWidgetContainer->update();
-    _miscWidgetContainer->update();
+    refreshMatrixView();
+    refreshMiscView();
     // Phase 28: colouring is a global view preference - keep the secondary
     // editor group in sync (otherwise it only changed the primary pane).
     if (_compareMatrixWidget) {
@@ -8084,8 +8180,8 @@ void MainWindow::colorsByTrack() {
     _colorsByChannel->setChecked(false);
     _colorsByTracks->setChecked(true);
     mw_matrixWidget->registerRelayout();
-    _matrixWidgetContainer->update();
-    _miscWidgetContainer->update();
+    refreshMatrixView();
+    refreshMiscView();
     // Phase 28: keep the secondary editor group in sync (see colorsByChannel).
     if (_compareMatrixWidget) {
         _compareMatrixWidget->setColorsByTracks();
@@ -10795,6 +10891,10 @@ void MainWindow::pasteToTrack(QAction *action) {
 
 void MainWindow::divChanged(QAction *action) {
     mw_matrixWidget->setDiv(action->data().toInt());
+    // setDiv() only invalidates the cache and calls update() on the inner widget
+    // (hidden under hardware acceleration) and emits no sizeChanged, so without
+    // this the drawn raster kept the old division.
+    refreshMatrixView();
 }
 
 void MainWindow::enableMagnet(bool enable) {
@@ -12624,8 +12724,8 @@ void MainWindow::checkEnableActionsForSelection() {
 
 void MainWindow::toolChanged() {
     checkEnableActionsForSelection();
-    _miscWidgetContainer->update();
-    _matrixWidgetContainer->update();
+    refreshMiscView();
+    refreshMatrixView();
 }
 
 void MainWindow::updateStatusBar() {
@@ -12790,12 +12890,20 @@ void MainWindow::updateAll() {
     // Update cached rendering settings when settings change
     // This ensures MatrixWidget uses the latest performance settings without
     // expensive QSettings I/O operations during paint events
-    mw_matrixWidget->updateRenderingSettings();
+    if (mw_matrixWidget) mw_matrixWidget->updateRenderingSettings();
+    // Second editor group: same cache refresh, otherwise it keeps the old
+    // colours/render hints until something else repaints it.
+    if (_compareMatrixWidget) _compareMatrixWidget->updateRenderingSettings();
 
-    // Update all widgets
+    // Update all widgets. The piano roll needs an explicit repaint of the
+    // CONTAINER: updateRenderingSettings() ends in update() on the inner widget,
+    // which is hidden (and therefore ignored) under hardware acceleration, so
+    // without this the roll kept the previous frame while every other widget
+    // adopted the new settings.
     channelWidget->update();
     _trackWidget->update();
-    _miscWidgetContainer->update();
+    refreshMatrixView();
+    refreshMiscView();
 
     // Refresh channel names in context menus (Move to channel, Delete channel, etc.)
     updateChannelMenu();

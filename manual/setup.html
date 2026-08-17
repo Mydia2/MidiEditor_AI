@@ -165,6 +165,27 @@
   simply opens the releases page in your browser instead of replacing the application.
 </p>
 
+<h2 id="gpu">GPU acceleration</h2>
+
+<p>
+  <b>Edit &rarr; Settings &rarr; System &amp; Performance</b> has an <b>Enable GPU acceleration for MIDI events</b>
+  switch. With it on, the piano roll and the velocity/controller lane are drawn through OpenGL instead of the
+  CPU renderer. It is off by default; changes apply after a restart.
+</p>
+
+<ul>
+  <li><b>The page tells you what is actually running.</b> The line under the switch reads
+      <i>Active now: OpenGL (GPU acceleration)</i> or <i>Active now: software rendering</i>, and if the two
+      disagree with the checkbox it says why - for example that GPU acceleration is ignored on a display with
+      UI scaling (125&nbsp;%, 150&nbsp;%) unless <b>Ignore system UI scaling</b> is enabled on the same page,
+      or that the change waits for a restart.</li>
+  <li><b>Software anti-aliasing and smooth pixmap transforms</b> shape the note grid in both renderers, so they
+      stay available with GPU acceleration on. <b>MSAA</b>, <b>VSync</b> and <b>hardware smooth transforms</b>
+      only matter for the OpenGL renderer.</li>
+  <li><b>Editing is identical in both modes</b> - every tool, shortcut, context menu and tooltip works the same
+      way; only the drawing path differs.</li>
+</ul>
+
 <h2 id="portable">Portable Mode</h2>
 
 <p>

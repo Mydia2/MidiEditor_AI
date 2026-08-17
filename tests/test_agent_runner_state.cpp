@@ -20,6 +20,7 @@ void AiClient::cancelRequest() {}
 bool AiClient::isReasoningModel() const { return false; }
 bool AiClient::agentStreamingEnabled() const { return false; }
 void AiClient::markToolsIncapableForCurrentModel(const QString &) {}
+void AiClient::clearToolsIncapableFlag(const QString &, const QString &) {}
 bool AiClient::errorIndicatesNoToolSupport(const QString &) { return false; }
 void AiClient::onReplyFinished(QNetworkReply *) {}
 void AiClient::onStreamDataAvailable() {}

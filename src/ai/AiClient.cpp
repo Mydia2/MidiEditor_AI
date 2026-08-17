@@ -1474,18 +1474,47 @@ static QString toolsIncapableKey(const QString &provider, const QString &model)
     return QStringLiteral("AI/incapable_tools/") + p + QStringLiteral(":") + model;
 }
 
+// TOOLS-INCAPABLE-EXPIRY: the flag used to be a plain bool that NOTHING ever
+// cleared, so a single observation - including a misclassified or transient
+// upstream routing error, e.g. OpenRouter answering "No endpoints found that
+// support tool use" while the only tool-capable backend is momentarily down -
+// refused that model in Agent mode forever. The value is now the ISO-8601 UTC
+// timestamp of the observation and the flag EXPIRES after this many days; the
+// next Agent run then re-probes the model (and a real capability gap re-flags
+// it immediately). Users can also reset it at once from the MidiPilot gear
+// menu, and a successful tools request clears it automatically.
+static const int kToolsIncapableExpiryDays = 7;
+
 bool AiClient::toolsIncapableForCurrentModel() const
 {
     if (_model.isEmpty()) return false;
-    return _settings->value(toolsIncapableKey(_provider, _model), false).toBool();
+    const QVariant stored = _settings->value(toolsIncapableKey(_provider, _model));
+    if (!stored.isValid()) return false;
+
+    const QDateTime seenAt = QDateTime::fromString(stored.toString(), Qt::ISODate);
+    if (!seenAt.isValid()) {
+        // Backward compatibility: entries written before the expiry existed
+        // hold a bare bool ("true") and carry NO first-sight time, so their
+        // age is unknowable. They are treated as ALREADY EXPIRED - a model
+        // wrongly flagged by an older build gets one fresh probe right after
+        // the update instead of staying refused for another week.
+        return false;
+    }
+    const qint64 ageSecs = seenAt.secsTo(QDateTime::currentDateTimeUtc());
+    // qAbs: a timestamp in the future (clock change, settings copied between
+    // machines) must not latch the flag forever either.
+    return qAbs(ageSecs) < qint64(kToolsIncapableExpiryDays) * 24 * 60 * 60;
 }
 
 void AiClient::markToolsIncapableForCurrentModel(const QString &reason)
 {
     if (_model.isEmpty()) return;
-    _settings->setValue(toolsIncapableKey(_provider, _model), true);
-    logApi(QStringLiteral("[TOOLS-INCAPABLE] flagging %1:%2 (%3)")
-           .arg(_provider, _model, reason));
+    _settings->setValue(toolsIncapableKey(_provider, _model),
+                        QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    logApi(QStringLiteral("[TOOLS-INCAPABLE] flagging %1:%2 for %3 days (%4)")
+           .arg(_provider, _model)
+           .arg(kToolsIncapableExpiryDays)
+           .arg(reason));
 }
 
 void AiClient::clearToolsIncapableFlag(const QString &provider,
@@ -1493,12 +1522,19 @@ void AiClient::clearToolsIncapableFlag(const QString &provider,
 {
     if (provider.isEmpty() && model.isEmpty()) {
         _settings->beginGroup(QStringLiteral("AI/incapable_tools"));
-        const QStringList keys = _settings->childKeys();
-        for (const QString &k : keys) _settings->remove(k);
+        // remove(QString()) drops the whole group - childKeys() alone would
+        // miss vendor-qualified models ("openrouter:meta-llama/llama-3-8b"),
+        // whose slash makes QSettings store them in a SUBGROUP.
+        _settings->remove(QString());
         _settings->endGroup();
         return;
     }
     _settings->remove(toolsIncapableKey(provider, model));
+}
+
+int AiClient::toolsIncapableExpiryDays()
+{
+    return kToolsIncapableExpiryDays;
 }
 
 void AiClient::emitStreamTransferTimeout()

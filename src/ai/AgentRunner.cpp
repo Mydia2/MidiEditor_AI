@@ -630,6 +630,13 @@ void AgentRunner::onApiResponse(const QString &content, const QJsonObject &fullR
     // failures get a fresh budget of attempts.
     _retryCount = 0;
 
+    // TOOLS-INCAPABLE-EXPIRY: this request CARRIED the tool schemas and the
+    // upstream answered it, which proves the model/route does accept tool
+    // calling. Drop any stale flag (it may have been set by a transient
+    // routing error) instead of waiting for the 7-day expiry.
+    if (_client && !_tools.isEmpty())
+        _client->clearToolsIncapableFlag(_client->provider(), _client->model());
+
     // Emit token usage if present
     QJsonObject usage = fullResponse["usage"].toObject();
     if (!usage.isEmpty()) {

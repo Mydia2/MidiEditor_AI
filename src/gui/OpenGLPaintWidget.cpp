@@ -44,6 +44,17 @@ OpenGLPaintWidget::OpenGLPaintWidget(QSettings *settings, QWidget *parent)
     // Use NoPartialUpdate for immediate, responsive rendering needed by interactive tools
     setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
 
+    // G10: the wrapper is the VISIBLE editor pane in hardware-acceleration mode
+    // and the widget it hosts is a hidden child, which Qt refuses to focus. With
+    // QWidget's default Qt::NoFocus the editor area could therefore never take
+    // keyboard focus at all: once focus landed in a line edit or combo box,
+    // nothing the user clicked in the piano roll or the velocity lane could get
+    // it back, and piano emulation stayed dead for the rest of the session.
+    // Qt::ClickFocus is exactly what the hosted widgets set for themselves
+    // (MatrixWidget.cpp, MiscWidget.cpp), so this restores software parity and
+    // makes this class's key handlers reachable.
+    setFocusPolicy(Qt::ClickFocus);
+
     // Ensure proper high DPI handling
     setAttribute(Qt::WA_AcceptTouchEvents, false);
     setAttribute(Qt::WA_AlwaysShowToolTips, true);
@@ -90,15 +101,25 @@ void OpenGLPaintWidget::initializeGL() {
         return;
     }
 
-    // Configure paint device for optimal performance
-    _paintDevice->setSize(size());
+    // Configure the paint device in DEVICE pixels plus the real device pixel
+    // ratio (see glPaintDeviceSize()); QPainter's logical coordinates are then
+    // identical to the hosted widget's own, at any scaling factor.
+    applyPaintDeviceGeometry(size(), devicePixelRatioF());
+}
 
-    // Use device pixel ratio of 1.0 to avoid coordinate system issues
-    // This ensures consistent rendering across different DPI settings
-    _paintDevice->setDevicePixelRatio(1.0);
+void OpenGLPaintWidget::applyPaintDeviceGeometry(const QSize &logicalSize, qreal dpr) {
+    if (!_paintDevice) {
+        return;
+    }
+
+    _paintDevice->setSize(glPaintDeviceSize(logicalSize, dpr));
+    _paintDevice->setDevicePixelRatio(dpr > 0.0 ? dpr : 1.0);
 
     // Keep Qt widget coordinate system (not flipped) for compatibility
     _paintDevice->setPaintFlipped(false);
+
+    _lastPaintSize = logicalSize;
+    _lastPaintDpr = dpr;
 }
 
 void OpenGLPaintWidget::paintGL() {
@@ -129,7 +150,8 @@ void OpenGLPaintWidget::paintGL() {
 
     if (!_paintDevice) {
         // Fallback: clear to background color
-        QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
+        QOpenGLContext *ctx = QOpenGLContext::currentContext();
+        QOpenGLFunctions *f = ctx ? ctx->functions() : nullptr;
         if (f) {
             f->glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
             f->glClear(GL_COLOR_BUFFER_BIT);
@@ -138,13 +160,15 @@ void OpenGLPaintWidget::paintGL() {
     }
 
     // PERFORMANCE: Minimize OpenGL state changes and allocations
-    // Update paint device size only when needed to reduce GPU memory allocations
-    QSize currentSize = size();
-    if (_paintDevice->size() != currentSize || _lastPaintSize != currentSize) {
-        _paintDevice->setSize(currentSize);
-        _paintDevice->setDevicePixelRatio(1.0);
-        _paintDevice->setPaintFlipped(false);
-        _lastPaintSize = currentSize;
+    // Update paint device geometry only when needed to reduce GPU memory
+    // allocations. The device pixel ratio has to take part in the test: moving
+    // the window to a monitor with different scaling changes it while leaving
+    // the logical size untouched, and a stale ratio makes us paint into a
+    // fraction of the framebuffer for the rest of the session.
+    const QSize currentSize = size();
+    const qreal currentDpr = devicePixelRatioF();
+    if (_lastPaintSize != currentSize || !qFuzzyCompare(_lastPaintDpr, currentDpr)) {
+        applyPaintDeviceGeometry(currentSize, currentDpr);
     }
 
     // Create OpenGL-accelerated QPainter. The scope guard resets the flag on
@@ -166,13 +190,21 @@ void OpenGLPaintWidget::paintGL() {
         return;
     }
 
-    // Configure painter with hardware-specific settings
-    // When hardware acceleration is enabled, use hardware-specific settings instead of software ones
-    bool hardwareSmoothTransforms = _settings->value("rendering/hardware_smooth_transforms", true).toBool();
+    // Configure painter with hardware-specific settings. _settings is the
+    // application-wide object, so these are plain lookups - never construct a
+    // QSettings per frame here.
+    bool hardwareSmoothTransforms = true;
+    bool antialiasing = true;
+    if (_settings) {
+        hardwareSmoothTransforms = _settings->value("rendering/hardware_smooth_transforms", true).toBool();
+        // G18: honour the user's anti-aliasing preference instead of forcing it
+        // on. MSAA does not make this setting redundant - it only touches
+        // primitives drawn into the multisampled framebuffer, never the
+        // already-rasterised grid pixmap the hosted widget blits.
+        antialiasing = _settings->value("rendering/antialiasing", true).toBool();
+    }
 
-    // Hardware antialiasing is handled by MSAA (multisampling) at the OpenGL level
-    // Always enable QPainter antialiasing for hardware rendering - MSAA provides the actual antialiasing
-    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::Antialiasing, antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
     painter.setRenderHint(QPainter::VerticalSubpixelPositioning, true);
 
@@ -210,18 +242,77 @@ void OpenGLPaintWidget::resizeGL(int w, int h) {
     // Call base class to ensure proper OpenGL setup
     QOpenGLWidget::resizeGL(w, h);
 
-    // Update paint device size for optimal performance
-    if (_paintDevice) {
-        _paintDevice->setSize(QSize(w, h));
-        _paintDevice->setDevicePixelRatio(1.0);
-        _paintDevice->setPaintFlipped(false);
+    // Derive both the paint device and the viewport from size()/devicePixelRatioF()
+    // rather than from w/h, so the code is correct whichever unit Qt hands in.
+    const QSize logicalSize = size();
+    const qreal dpr = devicePixelRatioF();
+    applyPaintDeviceGeometry(logicalSize, dpr);
+
+    // glViewport takes DEVICE pixels. QOpenGLWidget's framebuffer is
+    // size() * devicePixelRatio, so a logical-size viewport would squeeze the
+    // whole editor into a corner of the surface on any scaled display.
+    const QSize deviceSize = glPaintDeviceSize(logicalSize, dpr);
+    QOpenGLContext *ctx = QOpenGLContext::currentContext();
+    QOpenGLFunctions *f = ctx ? ctx->functions() : nullptr;
+    if (f) {
+        f->glViewport(0, 0, deviceSize.width(), deviceSize.height());
+    }
+}
+
+// === Event Forwarding Infrastructure ===
+
+bool OpenGLPaintWidget::deliverToHosted(QEvent *event) {
+    if (!event) {
+        return false;
     }
 
-    // Set OpenGL viewport for optimal 2D rendering
-    QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-    if (f) {
-        f->glViewport(0, 0, w, h);
+    // Re-entry: Qt propagated an event the hidden child left un-accepted back
+    // up the parent chain to us. Forwarding it again is what blew the stack in
+    // 1.8.1.1 (right-click) and still did for every wheel notch over the
+    // velocity lane. Refuse instead.
+    if (_forwardingEvent) {
+        return false;
     }
+
+    QWidget *hosted = hostedWidget();
+    if (!hosted) {
+        return false;
+    }
+
+    struct ForwardScope {
+        bool &flag;
+        explicit ForwardScope(bool &f) : flag(f) { flag = true; }
+        ~ForwardScope() { flag = false; }
+    } scope(_forwardingEvent);
+
+    return QApplication::sendEvent(hosted, event);
+}
+
+bool OpenGLPaintWidget::forwardToHosted(QEvent *event) {
+    const bool delivered = deliverToHosted(event);
+    if (event) {
+        event->accept();
+    }
+    return delivered;
+}
+
+bool OpenGLPaintWidget::event(QEvent *e) {
+    // G11: Qt hit-tests only visible widgets, so the QHelpEvent for a hover
+    // over this wrapper is delivered here and never reaches the hidden widget
+    // whose content the user is actually pointing at (which is where the
+    // tooltip logic lives). Forward it, but only claim the event when the
+    // hosted widget really showed something - otherwise let Qt keep looking up
+    // the parent chain the way it would without this wrapper.
+    if (e && e->type() == QEvent::ToolTip && hostedWidget()) {
+        if (deliverToHosted(e) && e->isAccepted()) {
+            return true;
+        }
+        // Not handled. The ignored QHelpEvent Qt now propagates from the hidden
+        // child arrives back here, but deliverToHosted()'s latch refuses the
+        // second forward, so this cannot loop.
+    }
+
+    return QOpenGLWidget::event(e);
 }
 
 // === Mouse Event Handlers (identical to PaintWidget) ===
