@@ -158,7 +158,7 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     QHBoxLayout *ceilingRow = new QHBoxLayout();
     ceilingRow->addWidget(new QLabel(tr("Voice ceiling:"), this));
     _ceilingSpin = new QSpinBox(this);
-    _ceilingSpin->setRange(8, 32);
+    _ceilingSpin->setRange(5, 32);
     _ceilingSpin->setValue(16);
     _ceilingSpin->setToolTip(
         ffxiv ? tr("Maximum simultaneously sounding notes. 16 is the "
