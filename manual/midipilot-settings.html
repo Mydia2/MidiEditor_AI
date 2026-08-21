@@ -176,6 +176,7 @@ If a model fails live streaming but still works without streaming, MidiPilot ret
 <tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Free models available</td></tr>
 <tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com</td><td><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>15 RPM, 1M TPM</td></tr>
 <tr><td><b>Ollama (local)</b></td><td>localhost:11434/v1</td><td>None - runs on your PC</td><td>Free &amp; unlimited</td></tr>
+<tr><td><b>Hugging Face</b> (via Custom)</td><td>router.huggingface.co/v1</td><td><a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">HF token</a> (Inference permission)</td><td>Free monthly credits</td></tr>
 <tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified</td><td>Varies</td></tr>
 </table>
 
@@ -210,6 +211,26 @@ If Test Connection reports the server can't be reached, make sure Ollama is actu
     <b>Hide pitch-bend events from this model</b> ticked and the shortcut disappears - it has to
     write real notes.</li>
 </ul>
+
+<h3 id="huggingface">Hugging Face via the Custom provider</h3>
+
+<p>
+The Hugging Face inference router speaks the same protocol as OpenAI, so it plugs straight into
+the <b>Custom</b> provider - no separate integration needed. This gives MidiPilot access to
+open-weight model families such as Llama, Qwen and DeepSeek, hosted by Hugging Face's inference
+partners.
+</p>
+
+<ol>
+<li><b>Create an access token.</b> On <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">huggingface.co/settings/tokens</a>,
+    create a token with the <b>Inference</b> permission (the "Make calls to Inference Providers"
+    right is what the router checks).</li>
+<li><b>Configure MidiPilot.</b> In <b>Settings &rarr; MidiPilot AI</b>, set <b>Provider</b> to
+    <b>Custom</b>, the <b>Base URL</b> to <code>https://router.huggingface.co/v1</code>, and paste
+    the token as the API key.</li>
+<li><b>Refresh the model list</b> and pick a model. Streaming works like with any other
+    OpenAI-compatible endpoint, and models that support tool calling can be used in Agent mode.</li>
+</ol>
 
 <hr>
 

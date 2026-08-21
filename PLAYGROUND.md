@@ -39,6 +39,35 @@ Note: the FluidSynth audio-driver hardening from the same PR benefits all
 platforms and therefore ships as regular release content (see CHANGELOG,
 2.1.0).
 
+## Candidates - under consideration, no code yet
+
+Ideas collected here before any code exists; an entry becomes a regular
+playground section (with a PR) only if an experiment actually starts. Status
+for everything below: `candidate` - explicitly no commitment and no timeline.
+
+* **Music-generation models / "MidiCreator" (working title)** - a separate
+  generator surface next to MidiPilot, driven by MIDI-generation models such as
+  the Orpheus Music Transformer family or midi-composer (suggested in
+  [issue #16](https://github.com/happytunesai/MidiEditor_AI/issues/16)).
+  Suno-like flow: describe genre and behaviour, choose voice count, generate
+  variants, import the result as tracks. The model family also covers editing,
+  inpainting, morphing and humanizing, so a selection-based "regenerate with
+  model" entry point is the editor-shaped alternative. Fundamentally different
+  from MidiPilot (the model composes MIDI directly, with far less steering than
+  a language model driving editor tools), hence a separate surface. Public
+  Gradio Spaces are callable remotely without auth - fine for a spike, with the
+  usual free-tier caveats (cold starts, shared GPU queues).
+* **MCP client side** - MidiEditor AI is an MCP server today; consuming
+  external MCP servers as tool sources inside an agent run (e.g. Hugging Face
+  Spaces) would require a client side that does not exist yet. Long-term idea
+  from the same issue.
+
+Related, already available without any code change: Hugging Face as an AI
+provider via the Custom provider (documented in the manual under MidiPilot
+Settings, Supported Providers).
+
+---
+
 <!--
 Entry template - copy directly below the first "---" (newest first):
 
